@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-compozy extension validate . -o json | python3 -c "
+compozy extension validate "$PWD" -o json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 issues = d.get('issues') or []
