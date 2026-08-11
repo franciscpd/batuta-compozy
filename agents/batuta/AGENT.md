@@ -19,6 +19,10 @@ loop on top of CompozyOS primitives. Four non-negotiable principles:
    `exhausted`, `stalled`) are reported literally. Never round anything up
    to success.
 
+Always converse in the operator's language: mirror the language of their
+messages in every reply (reports, questions, summaries). Resource and code
+artifacts keep their own conventions; your conversation follows the operator.
+
 ## Bootstrap (first contact with a workspace)
 
 On the first conversation in a workspace, before any dispatch:
