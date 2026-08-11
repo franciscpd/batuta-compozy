@@ -1,57 +1,62 @@
 # batuta-compozy
 
-O Batuta como extensão resource-only do CompozyOS: um agente maestro que rege
-o dev-cycle (skills `cy-*` + Loops bundled) com roteamento de runtime por
-custo/complexidade. O maestro nunca escreve código — classifica, decompõe,
-despacha e reporta.
+> 🇧🇷 [Versão em português](README.pt-BR.md)
 
-Design completo: `docs/superpowers/specs/2026-08-11-batuta-compozy-design.md`.
+Batuta as a resource-only CompozyOS extension: a conductor agent that
+orchestrates the dev-cycle (the `cy-*` skills + bundled Loops) with
+cost/complexity runtime routing. The conductor never writes code — it
+classifies, decomposes, dispatches, and reports.
 
-## Pré-requisitos
+Full design: `docs/superpowers/specs/2026-08-11-batuta-compozy-design.md` (PT-BR).
 
-1. CompozyOS >= 0.3.0 (incluindo pré-releases; piso do manifest: 0.2.0) com daemon rodando (`compozy status`).
-2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
-   as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
-3. **Autenticação dos providers das lanes** (superfície de operador, uma vez,
-   global — fora do escopo da extensão):
+## Prerequisites
+
+1. CompozyOS >= 0.3.0 (pre-releases included; manifest floor: 0.2.0) with the daemon running (`compozy status`).
+2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
+   publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
+   Loops.
+3. **Provider authentication for the routing lanes** (operator surface, once,
+   global — outside the extension's scope):
 
    ```bash
-   compozy provider auth login opencode   # lanes low/medium/high
-   compozy provider auth login claude     # lane critical
+   compozy provider auth login opencode   # low/medium/high lanes
+   compozy provider auth login claude     # critical lane
    ```
 
-   Confira com `compozy provider models list`.
+   Check with `compozy provider models list`.
 
-## Instalação (local/dev)
+## Installation (local/dev)
 
 ```bash
 compozy extension install ~/Projects/batuta-compozy --allow-unverified --yes
 compozy extension enable batuta
-compozy extension inventory batuta -o json   # deve listar o agente batuta e a skill batuta-routing
+compozy extension inventory batuta -o json   # must list the batuta agent and the batuta-routing skill
 ```
 
-## Uso
+## Usage
 
-Crie uma sessão com o agente `batuta` no workspace do seu projeto e converse.
-No primeiro contato o batuta se auto-configura: aplica a tabela default da
-skill `batuta-routing` como override do Loop `implement-tasks` e pergunta as
-poucas preferências que importam (auto-commit, lane da `critical`).
+Create a session with the `batuta` agent in your project's workspace and
+talk to it. On first contact batuta configures itself: it applies the
+default table from the `batuta-routing` skill as the stored override for the
+`implement-tasks` Loop and asks only the preferences that matter
+(auto-commit, the `critical` lane).
 
-Fluxo: fase PM em conversa (PRD → TechSpec → tasks via skills `cy-*`) →
-despacho do `implement-tasks` (um ciclo isolado + um commit por task) →
-`review-and-fix` (rodadas de review até limpar) → resultado terminal exato.
+Flow: PM phase in conversation (PRD → TechSpec → tasks via the `cy-*`
+skills) → dispatch of `implement-tasks` (one isolated cycle + one commit per
+task) → `review-and-fix` (review rounds until clean) → exact terminal
+outcome.
 
-## Roteamento
+## Routing
 
-Tabela default em `resources/skills/batuta-routing/SKILL.md`
-(lanes `low`/`medium`/`high`/`critical`). Para mudar num workspace, peça em
-conversa ao batuta — ele regrava o override com `loop configure`. A decisão
-de roteamento fica auditável por geração em `resolved_runtime`.
+Default table in `resources/skills/batuta-routing/SKILL.md`
+(lanes `low`/`medium`/`high`/`critical`). To change it in a workspace, ask
+batuta in conversation — it rewrites the override with `loop configure`. The
+routing decision stays auditable per generation in `resolved_runtime`.
 
-## Testes
+## Tests
 
 ```bash
 tests/contract/run.sh
 ```
 
-Smoke E2E guiado: `tests/e2e/SMOKE.md`.
+Guided E2E smoke: `tests/e2e/SMOKE.md` (PT-BR).
