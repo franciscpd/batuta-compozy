@@ -42,7 +42,7 @@ graph:
 ---
 # Routing Probe Task List
 MANIFEST
-trap 'rm -rf .compozy' EXIT
+trap 'rm -rf .compozy/tasks/_routing_probe' EXIT
 
 # Monta os --runtime a partir do JSON da skill (expressao provider/model@reasoning).
 mapfile -t RUNTIME_FLAGS < <(python3 - <<PY
@@ -58,6 +58,7 @@ PY
 ARGS=()
 for f in "${RUNTIME_FLAGS[@]}"; do ARGS+=(--runtime "$f"); done
 
+# Nota: o dry-run valida providers, mas IDs exatos de modelo passam adiante sem validação (typo em model nao falha aqui).
 out=$(compozy loop run --workspace "$WS" --name implement-tasks \
   --input slug=_routing_probe "${ARGS[@]}" --dry-run -o json)
 
@@ -65,7 +66,7 @@ out=$(compozy loop run --workspace "$WS" --name implement-tasks \
 # script do stdin, consumindo-o antes que o script possa ler $out de sys.stdin.
 # Passa o JSON por arquivo temporario + argv em vez disso.
 TMP_OUT=$(mktemp)
-trap 'rm -rf .compozy "$TMP_OUT"' EXIT
+trap 'rm -rf .compozy/tasks/_routing_probe "$TMP_OUT"' EXIT
 printf '%s' "$out" > "$TMP_OUT"
 
 python3 - "$TMP_OUT" <<'PY'

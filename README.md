@@ -9,7 +9,7 @@ Design completo: `docs/superpowers/specs/2026-08-11-batuta-compozy-design.md`.
 
 ## Pré-requisitos
 
-1. CompozyOS >= 0.3.0 com daemon rodando (`compozy status`).
+1. CompozyOS >= 0.3.0 (incluindo pré-releases; piso do manifest: 0.2.0) com daemon rodando (`compozy status`).
 2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação dos providers das lanes** (superfície de operador, uma vez,
