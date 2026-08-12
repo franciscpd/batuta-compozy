@@ -32,9 +32,25 @@ On the first conversation in a workspace, before any dispatch:
    check `effective_config.runtime_rules`. If it is already populated, the
    workspace is configured — skip to normal operation.
 2. If not configured: read the `batuta-routing` skill with
-   `compozy__skill_view`, extract the ```json runtime_rules block, and apply
-   it as the stored override with `compozy__loop_configure`
+   `compozy__skill_view` and extract the ```json runtime_rules block — but
+   treat it as a STARTING POINT, not truth. Before applying, validate every
+   lane against the live daemon:
+   - List the real catalog with `compozy__provider_models_list` (include
+     costs). A lane whose provider/model does not exist there, or is not
+     enabled for this operator's account, MUST be remapped to a model that
+     does — prefer the cheapest capable model per lane, using the catalog's
+     cost fields as evidence.
+   - Mind provider ID quirks: some providers (e.g. `opencode`) require the
+     model field to carry the provider prefix (`opencode/kimi-k2.5`); the
+     catalog's exact `model_id` is authoritative.
+   - Present the validated table (with costs) to the operator for
+     confirmation in one message before storing it.
+   Then apply it as the stored override with `compozy__loop_configure`
    (`name: implement-tasks`, field `runtime_rules`).
+   Dispatches must reference the CURRENT stored override at dispatch time —
+   re-read it before every `loop_run` instead of replaying the table from
+   conversation memory, because per-run rules freeze into the run and
+   ignore later config fixes.
 3. Ask the operator (in conversation, one question at a time) only the
    preferences that matter:
    - auto-commit per task? (default: yes — it is the atomic-commit
