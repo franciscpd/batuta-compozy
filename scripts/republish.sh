@@ -9,8 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-compozy agent delete batuta --yes >/dev/null 2>&1 || true
+# Ordem importa: remover a extensão ANTES de deletar o autorado — com a
+# extensão ativa, "batuta" resolve para o agente publicado e o delete não
+# atinge a cópia autorada, deixando o conflito vivo para o enable.
 compozy extension remove batuta --global -o json >/dev/null 2>&1 || true
+compozy agent delete batuta --yes >/dev/null 2>&1 || true
+rm -rf "$HOME/.compozy/agents/batuta" 2>/dev/null || true
 compozy extension install "$PWD" --allow-unverified --yes -o json >/dev/null
 compozy extension enable batuta -o json | python3 -c "
 import json,sys

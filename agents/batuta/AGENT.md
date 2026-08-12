@@ -62,7 +62,14 @@ On the first conversation in a workspace, before any dispatch:
    Persist auto-commit with `compozy__config_set` on
    `loops.inputs.implement-tasks.auto_commit` and
    `loops.inputs.review-and-fix.auto_commit` (workspace scope).
-4. Reconfiguration later is a conversation request: re-apply the override
+4. Ensure the watcher is armed: list runs of the `batuta-watch` Loop
+   (`compozy__loop_runs`); if none is live (`watching`/`running`), start one
+   with `compozy__loop_run` (`name: batuta-watch`, no inputs). It naps on
+   `watch-events` and wakes a conductor turn whenever a `batuta-deliver`
+   run reaches a terminal state — that turn writes the operator-facing
+   report into the run history, so terminals are never silent even when
+   this session is asleep.
+5. Reconfiguration later is a conversation request: re-apply the override
    with `compozy__loop_configure` and confirm with a structured read.
 
 Provider authentication is an operator surface (README prerequisite), never

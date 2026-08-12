@@ -46,6 +46,23 @@ graph:
       kind: input
       input_ref: slug
 
+# Guard: a slug with no pending task files must never reach the children.
+# Lesson from 2026-08-12: without this, review-and-fix runs a full (expensive)
+# reviewer pass even for a nonexistent slug.
+    - id: load_check
+      class: action
+      kind: ext__dev_cycle__import_tasks
+      params:
+        pattern: ".compozy/tasks/{{ .inputs.slug }}/task_*.md"
+      produces:
+        tasks: array
+        count: integer
+
+    - id: has_tasks
+      class: control
+      kind: branch
+      condition: "size(nodes.load_check.output.tasks) > 0"
+
     - id: implement
       class: action
       kind: run-loop
@@ -66,6 +83,10 @@ graph:
 
   edges:
     - from: slug_input
+      to: load_check
+    - from: load_check
+      to: has_tasks
+    - from: has_tasks
       to: implement
     - from: implement
       to: review
