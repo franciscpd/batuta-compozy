@@ -33,3 +33,32 @@ pequeno com suite de testes real).
 - Mais de um commit para uma task, ou um commit cobrindo duas tasks.
 - Push automático.
 - O batuta aprovar o próprio gate (`needs-approval`).
+
+---
+
+## Resultado — 2026-08-11 (workspace ~/Projects/smoke-cobaia)
+
+**Veredito: APROVADO com ressalvas.** Ciclo completo fechou: PM → 1 task (`low`) →
+`implement-tasks` `done` (gen 1, `resolved_runtime: codex/gpt-5.6-luna`, proveniência
+`config`, 1 commit atômico `017fc0b` com testes 10/10) → `review-and-fix` `done`
+(rodada 1: 1 issue válida → fix + commit `b8ebe27` → finalizer `resolved`; rodada 2
+limpa). Nenhum critério reprovador ocorreu (batuta não editou código, nenhum terminal
+arredondado, 1 commit por unidade, sem push, sem auto-aprovação).
+
+Ressalvas e achados:
+
+- **3 bugs de plataforma contornados** (CompozyOS 0.3.0-beta.13 / providers): agentes
+  publicados por extensão invisíveis ao catálogo de skills (500 no prompt; workaround:
+  agentes autorados globais); model IDs do opencode exigem prefixo `opencode/...`;
+  integração opencode 1.18.16 incompatível (upstream `channel_id/mode/channel_strategy`).
+- **2 falhas do batuta, corrigidas no AGENT.md**: não persistiu o "sim" do auto-commit
+  (1º run saiu `auto_commit=false`); aplicou a tabela de lanes sem validar contra o
+  catálogo vivo (1º run queimou 12 gerações em bind inválido). Agora o bootstrap valida
+  catálogo/habilitação/custo, confirma com o operador, e re-lê o override antes de cada
+  despacho (regras per-run congelam no run).
+- **1 gap estrutural → v1.1**: Loops não se encadeiam e a sessão não acorda no terminal —
+  o review precisou de cutucada do operador. Design v1.1: Loop composto `batuta-deliver`
+  (`run-loop`) + automation triggers para wake decisório.
+- Lanes finais confirmadas pelo operador: low→`codex/gpt-5.6-luna`,
+  medium→`codex/gpt-5.6-terra@high`, high→`codex/gpt-5.6-sol`,
+  critical→`claude/claude-opus-4-8` (sincronizar na skill `batuta-routing`).
