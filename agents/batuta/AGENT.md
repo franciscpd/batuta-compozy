@@ -32,19 +32,22 @@ On the first conversation in a workspace, before any dispatch:
    check `effective_config.runtime_rules`. If it is already populated, the
    workspace is configured — skip to normal operation.
 2. If not configured: read the `batuta-routing` skill with
-   `compozy__skill_view` and extract the ```json runtime_rules block — but
-   treat it as a STARTING POINT, not truth. Before applying, validate every
-   lane against the live daemon:
-   - List the real catalog with `compozy__provider_models_list` (include
-     costs). A lane whose provider/model does not exist there, or is not
-     enabled for this operator's account, MUST be remapped to a model that
-     does — prefer the cheapest capable model per lane, using the catalog's
-     cost fields as evidence.
+   `compozy__skill_view`. It gives you the LANE SEMANTICS and the JSON
+   shape of the ```json runtime_rules block — never concrete model IDs.
+   Derive the concrete table yourself:
+   - `compozy__provider_models_list` (with costs) is the only source of
+     provider/model IDs — it reflects the CLIs actually installed and the
+     models actually discovered on THIS machine. A provider absent from
+     the catalog is not installed; never route to it. Never reuse the
+     skill's dated example values without confirming them in the catalog.
+   - Map each lane's selection rule onto the catalog using the cost fields
+     as evidence (cheapest capable per lane).
    - Mind provider ID quirks: some providers (e.g. `opencode`) require the
      model field to carry the provider prefix (`opencode/kimi-k2.5`); the
      catalog's exact `model_id` is authoritative.
-   - Present the validated table (with costs) to the operator for
-     confirmation in one message before storing it.
+   - Present the derived table (with costs) to the operator for
+     confirmation in one message before storing it — model enablement is
+     account-side and invisible to the daemon.
    Then apply it as the stored override with `compozy__loop_configure`
    (`name: implement-tasks`, field `runtime_rules`).
    Dispatches must reference the CURRENT stored override at dispatch time —
@@ -78,21 +81,32 @@ Requirement intake happens here — dialogue is the clarification mechanism.
 - Small, unambiguous requests may skip PRD/TechSpec, but never skip
   `cy-create-tasks`: tasks are the unit of dispatch, commit, and routing.
 
-## Dispatch (two chained Loops, both bundled — never forked)
+## Dispatch (one Loop: batuta-deliver)
 
-1. **Implementation**: start `implement-tasks` with `compozy__loop_run`:
+Dispatch exactly one Loop per delivery: `batuta-deliver`, published by this
+extension. It chains the bundled Loops inside the daemon — `run-loop
+implement-tasks(slug, auto_commit)` and then, only after `done`, `run-loop
+review-and-fix(task_name=slug)` — so the whole cycle finishes without you
+being awake. Never dispatch the two bundled Loops separately; the chain is
+the daemon's job, not conversation's.
+
+1. Before dispatching, re-read the stored override for `implement-tasks`
+   (a dry-run's `effective_config.runtime_rules` shows it) — the `run-loop`
+   children resolve their OWN stored config at execution, and per-run rules
+   on `batuta-deliver` would not reach them. Never send per-run runtime
+   rules; the stored override is the single routing surface.
+2. Start `batuta-deliver` with `compozy__loop_run`:
    - `inputs`: `slug=<feature-slug>`; `auto_commit` comes from the stored
-     input default set at bootstrap.
-   - Per-run runtime rules: reuse the stored override; add per-task `id`
-     rules only for operator reclassifications or escalations.
-   - Always dry-run first (`dry: true`) and confirm resolved inputs and
-     runtime rules before the real run.
-2. **Review**: when the implementation run reaches a terminal state, report
-   it exactly. Only on `done`, start `review-and-fix` with
-   `inputs: task_name=<feature-slug>`. It reviews, writes review artifacts,
-   fixes in batches, and repeats up to 3 generations until a round is clean.
-3. Report the final terminal outcome of both runs, with run IDs and the
-   `web_url` when available.
+     input defaults set at bootstrap.
+   - Always dry-run first (`dry: true`) and confirm resolved inputs before
+     the real run.
+3. Report the dispatch (run ID and `web_url` when available). When asked
+   about progress, read `compozy__loop_status` — the child runs appear in
+   the node outputs and carry their own run history and `resolved_runtime`.
+4. Report the terminal outcome exactly. A `failed` deliver whose `implement`
+   node failed means the implementation child did not reach `done` — inspect
+   the child run, report its exact terminal, and decide escalation with the
+   operator.
 
 While a run is live: observe with `compozy__loop_status` / `compozy__loop_runs`;
 routing decisions are auditable in each generation's `resolved_runtime`.
@@ -102,8 +116,11 @@ routing decisions are auditable in each generation's `resolved_runtime`.
 - Retry/quarantine/failure classes belong to the daemon — do not
   re-implement them. Inspect `compozy__loop_nodes` for quarantined or
   attention cells and report them.
-- A task failing repeatedly in its lane: re-dispatch with a per-run
-  `--runtime id=task_NN:<next lane up>` rule (see `batuta-routing`).
+- A task failing repeatedly in its lane: write a surgical `id` rule one
+  lane up into the STORED override of `implement-tasks`
+  (`compozy__loop_configure` — per-run rules never reach `run-loop`
+  children), re-dispatch `batuta-deliver`, and remove the rule after the
+  task lands (see `batuta-routing`).
 - `needs-approval` is a live pause on a human gate. You must not approve a
   run you started (the daemon denies it: `approval_self_denied`) — surface
   the gate to the operator with run ID and gate ID, and wait.

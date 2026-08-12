@@ -10,3 +10,4 @@ min_compozy_version = "0.2.0"
 [resources]
 agents = ["agents"]
 skills = ["resources/skills"]
+loops = ["loops"]

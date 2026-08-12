@@ -7,8 +7,8 @@ if compozy extension list -o json | python3 -c '
 import json,sys
 rows=json.load(sys.stdin)
 sys.exit(0 if any(r["name"]=="batuta" for r in rows) else 1)'; then
-  echo "ABORT: extensao batuta ja instalada; remova manualmente antes de rodar" >&2
-  exit 1
+  echo "SKIP: extensao batuta instalada (estado intencional); ciclo de vida requer estado desinstalado"
+  exit 0
 fi
 
 cleanup() { compozy extension remove batuta --global -o json >/dev/null 2>&1 || true; }

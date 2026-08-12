@@ -1,0 +1,71 @@
+apiVersion: compozy.loop/v1
+kind: Loop
+meta:
+  name: batuta-deliver
+  description: Batuta's full delivery cycle - implement every task for a slug, then review and fix until a round comes back clean.
+  catalog:
+    use_when: "You have authored tasks under .compozy/tasks/<slug> and want the full batuta cycle: implementation with atomic commits, then review rounds until clean."
+    keywords: [batuta, deliver, implement, review]
+    category: Engineering
+
+concurrency: queue
+
+inputs:
+  slug:
+    type: string
+    required: true
+  auto_commit:
+    type: boolean
+    default: true
+
+contract:
+  goal: >
+    Deliver the feature for .compozy/tasks/{{ .inputs.slug }} end to end: implement every
+    authored task in dependency order, then review and remediate until a review round is clean.
+  definition_of_done: >
+    The implement-tasks child run ended done and the review-and-fix child run ended done or no-op.
+  iteration_cap: 1
+  budget:
+    tokens: 0
+    wall_clock_sec: 0
+    on_exceeded: halt
+  terminal_states: [done, no-op, blocked, failed, exhausted, stalled]
+
+start:
+  - kind: manual
+  - kind: cli
+  - kind: http
+  - kind: uds
+  - kind: native_tool
+  - kind: schedule
+
+graph:
+  nodes:
+    - id: slug_input
+      class: source
+      kind: input
+      input_ref: slug
+
+    - id: implement
+      class: action
+      kind: run-loop
+      params:
+        loop: implement-tasks
+        inputs:
+          slug: "{{ .inputs.slug }}"
+          auto_commit: "{{ .inputs.auto_commit }}"
+
+    - id: review
+      class: action
+      kind: run-loop
+      params:
+        loop: review-and-fix
+        inputs:
+          task_name: "{{ .inputs.slug }}"
+          auto_commit: "{{ .inputs.auto_commit }}"
+
+  edges:
+    - from: slug_input
+      to: implement
+    - from: implement
+      to: review
