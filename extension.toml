@@ -1,6 +1,6 @@
 [extension]
 name = "batuta"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 description = "Batuta, the conductor: routes CompozyOS dev-cycle work to the cheapest capable executor and never writes code itself."
 # min_compozy_version set to 0.2.0 (not 0.3.0) because:
 # Current daemon is 0.3.0-beta.13. In semver, prerelease versions are lower than the final release
