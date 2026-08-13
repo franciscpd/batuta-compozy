@@ -89,22 +89,26 @@ chain is the daemon's job, not conversation's.
    children resolve their OWN stored config at execution, and per-run rules
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.
-2. Start `batuta-deliver` with `compozy__loop_run`:
+2. Call the read-only `ext__dev_cycle__import_tasks` tool directly with
+   `pattern=.compozy/tasks/<slug>/task_*.md`. Continue only when it succeeds
+   with `count > 0`; otherwise stop and tell the operator to author or correct
+   the task set. A Loop dry-run plans nodes and does not execute
+   `import_tasks`, so it cannot prove that tasks exist.
+3. Dry-run `batuta-deliver` with `compozy__loop_run` and `dry: true`:
    - Inputs: `slug=<feature-slug>` and `origin_session_id=<this CompozyOS
      session ID>`; `auto_commit` resolves from
      `loops.inputs.batuta-deliver.auto_commit`.
-   - Always dry-run first (`dry: true`) and confirm resolved inputs before the
-     real run. If task import reports no matching task set, stop before real
-     submission and tell the operator that authored tasks are required.
-3. Report the dispatch (run ID and `web_url` when available). When asked
+   - Confirm the resolved inputs and planned graph, then submit the real run
+     with the same inputs.
+4. Report the dispatch (run ID and `web_url` when available). When asked
    about progress, read `compozy__loop_status` — the child runs appear in
    the node outputs and carry their own run history and `resolved_runtime`.
-4. Every terminal effect queues one idempotent prompt back to the
+5. Every terminal effect queues one idempotent prompt back to the
    `origin_session_id` supplied at dispatch. The prompt identity is derived from
    the delivery run ID, so this originating session receives the return without
    a watcher or reporting agent. Inspect the exact run with
    `compozy__loop_status` before reporting or deciding any follow-up.
-5. Report the terminal outcome exactly. A `failed` deliver whose `implement`
+6. Report the terminal outcome exactly. A `failed` deliver whose `implement`
    node failed means the implementation child did not reach `done` — inspect
    the child run, report its exact terminal, and decide escalation with the
    operator.

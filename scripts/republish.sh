@@ -1,14 +1,40 @@
 #!/usr/bin/env bash
-# Republica a extensão batuta (install + enable + verificação de recursos live).
-#
-# Desde o fix upstream do catálogo de skills (compozy/compozy#350, na main após
-# v0.3.0-beta.13), agentes publicados por extensão funcionam direto no prompt —
-# a extensão é a única fonte, sem cópia autorada.
+# Republica somente o pacote declarado da extensão batuta.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-compozy extension remove batuta --global -o json >/dev/null 2>&1 || true
-compozy extension install "$PWD" --allow-unverified --yes -o json >/dev/null
+scripts/check-compozy-version.sh >/dev/null
+
+STAGE_DIR=$(mktemp -d /tmp/batuta-extension.XXXXXX)
+cleanup() {
+  case "$STAGE_DIR" in
+    /tmp/batuta-extension.*)
+      rm -rf -- "$STAGE_DIR"
+      ;;
+    *)
+      printf 'refusing to clean unexpected staging path: %s\n' "$STAGE_DIR" >&2
+      ;;
+  esac
+}
+trap cleanup EXIT
+
+scripts/stage-extension.sh "$STAGE_DIR"
+compozy extension validate "$STAGE_DIR" -o json | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+errors = [i for i in d.get("issues", []) if i.get("severity") == "error"]
+assert not errors, f"pacote invalido: {errors}"
+'
+
+if compozy extension list -o json | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+raise SystemExit(0 if any(row["name"] == "batuta" for row in rows) else 1)
+'; then
+  compozy extension remove batuta --global -o json >/dev/null
+fi
+
+compozy extension install "$STAGE_DIR" --allow-unverified --yes -o json >/dev/null
 compozy extension enable batuta -o json | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
@@ -19,5 +45,8 @@ print('extensao ativa')"
 compozy extension inventory batuta -o json | python3 -c "
 import json,sys
 items=json.load(sys.stdin)['items']
+actual={(it['kind'], it['name']) for it in items}
+expected={('agent','batuta'), ('loop','batuta-deliver'), ('skill','batuta-routing')}
+assert actual==expected, f'inventario inesperado: {sorted(actual)}'
 assert all(it['live'] for it in items), f'recursos nao-live: {items}'
 print('recursos live:', ', '.join(it['name'] for it in items))"

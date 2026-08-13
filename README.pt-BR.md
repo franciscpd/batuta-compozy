@@ -11,7 +11,15 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
 
 ## Pré-requisitos
 
-1. CompozyOS `0.3.0-beta.13` ou superior, com daemon rodando (`compozy status`).
+1. Um build do CompozyOS posterior a `0.3.0-beta.13` que contenha o fix
+   `594d9fdf`, ou o primeiro release posterior (`0.3.0-beta.14`/estável
+   esperado), com o daemon rodando. O manifest mantém `0.3.0-beta.13` apenas
+   como piso da gramática; a tag beta.13 pura não tem suporte operacional.
+   Verifique o runtime com:
+
+   ```bash
+   scripts/check-compozy-version.sh
+   ```
 2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —
@@ -32,13 +40,12 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
 ## Instalação (local/dev)
 
 ```bash
-compozy extension install ~/Projects/batuta-compozy --allow-unverified --yes
-compozy extension enable batuta
-compozy extension inventory batuta -o json
+scripts/republish.sh
 ```
 
-O inventário deve conter exatamente três recursos: `batuta`, `batuta-routing`
-e `batuta-deliver`.
+O fluxo valida a compatibilidade antes de alterar a extensão instalada, monta
+somente os recursos declarados e então instala, habilita e verifica o
+inventário exato: `batuta`, `batuta-routing` e `batuta-deliver`.
 
 ## Uso
 
@@ -49,9 +56,15 @@ de `implement-tasks`. Em separado, armazena a preferência de commit em
 `loops.inputs.batuta-deliver.auto_commit`.
 
 Fluxo: fase PM em conversa (PRD → TechSpec → tasks via skills `cy-*`) →
-despacho de `batuta-deliver(slug, origin_session_id, auto_commit)` →
+preflight direto e somente leitura da importação de tasks → dry-run do Loop
+(apenas planejamento) → despacho de
+`batuta-deliver(slug, origin_session_id, auto_commit)` →
 `implement-tasks` bundled (um ciclo isolado + um commit por task) →
 `review-and-fix` (rodadas de review até limpar) → resultado terminal exato.
+
+O preflight direto precisa retornar uma contagem positiva. O dry-run resolve
+inputs e planeja nós, mas não executa `import_tasks`; portanto não detecta um
+task set ausente.
 
 O Batuta fornece o ID da sessão CompozyOS atual em `origin_session_id`. O Loop
 composto propaga `auto_commit` explicitamente aos dois filhos. Os sete efeitos

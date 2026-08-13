@@ -6,7 +6,9 @@
 
 **Architecture:** Keep the extension resource-only. Pass the originating CompozyOS session ID explicitly through `batuta-deliver`; use all seven contract terminal effects to queue one idempotent prompt to that session. Keep routing in the stored `implement-tasks` runtime rules, but move the commit preference to the composite Loop that owns child inputs. No watcher or reporting agent remains.
 
-**Tech Stack:** CompozyOS `0.3.0-beta.13+`, resource-only extension TOML, Compozy Loop YAML, AGENT.md, Bash contract tests, Python 3 JSON assertions.
+**Tech Stack:** CompozyOS manifest grammar floor `0.3.0-beta.13` with a
+post-tag operational guard, resource-only extension TOML, Compozy Loop YAML,
+AGENT.md, Bash contract tests, Python 3 JSON assertions.
 
 ## Global Constraints
 
@@ -590,3 +592,26 @@ git commit -m "fix: resolve batuta reliability verification findings"
 ```
 
 Otherwise create no empty verification commit.
+
+---
+
+### Task 6: Final-review root-cause corrections — 2026-08-12
+
+This dated amendment supersedes Task 2's dry-run task-existence claim and Task
+5's repository-root publication workflow while preserving their review history.
+
+- Require a direct read-only `import_tasks` call with positive count before
+  dry-run; document that dry-run plans nodes without executing them.
+- Keep beta.13 as the manifest grammar floor and enforce the operational floor
+  with a version guard: post-beta.13 build containing `594d9fdf`, or the first
+  later beta/stable release.
+- Derive the routing dry-run pair from live provider/model catalogs and create
+  no task fixture.
+- Assert the exact live `(kind,name)` inventory.
+- Stage only the manifest and three declared resources for lifecycle install
+  and republication; reject non-empty staging targets.
+- Validate the guard before removal, then publish the staged package and verify
+  the managed installation contains no repository metadata or development
+  artifacts.
+- Preserve the pending operator-conversation E2E boundary; structural and
+  contract verification do not prove it.

@@ -11,7 +11,14 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
 
 ## Prerequisites
 
-1. CompozyOS `0.3.0-beta.13` or newer, with the daemon running (`compozy status`).
+1. A post-`0.3.0-beta.13` CompozyOS build containing fix `594d9fdf`, or the
+   first later release (`0.3.0-beta.14`/stable expected), with the daemon
+   running. The manifest keeps `0.3.0-beta.13` only as its grammar floor; the
+   plain beta.13 tag is not operationally supported. Verify the runtime with:
+
+   ```bash
+   scripts/check-compozy-version.sh
+   ```
 2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.
@@ -32,13 +39,12 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
 ## Installation (local/dev)
 
 ```bash
-compozy extension install ~/Projects/batuta-compozy --allow-unverified --yes
-compozy extension enable batuta
-compozy extension inventory batuta -o json
+scripts/republish.sh
 ```
 
-The inventory must contain exactly three resources: `batuta`, `batuta-routing`,
-and `batuta-deliver`.
+The workflow validates compatibility before changing the installed extension,
+stages only declared resources, then installs, enables, and checks the exact
+inventory: `batuta`, `batuta-routing`, and `batuta-deliver`.
 
 ## Usage
 
@@ -49,9 +55,14 @@ the `implement-tasks` runtime override. It separately stores the operator's
 commit preference at `loops.inputs.batuta-deliver.auto_commit`.
 
 Flow: PM phase in conversation (PRD → TechSpec → tasks via the `cy-*` skills)
-→ dispatch of `batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
+→ direct read-only task import preflight → Loop dry-run (planning only) →
+dispatch of `batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
 `implement-tasks` (one isolated cycle + one commit per task) →
 `review-and-fix` (review rounds until clean) → exact terminal outcome.
+
+The direct preflight must return a positive task count. Dry-run resolves inputs
+and plans nodes but does not execute `import_tasks`, so it cannot detect a
+missing task set.
 
 Batuta supplies its current CompozyOS session ID as `origin_session_id`. The
 composite Loop passes `auto_commit` explicitly to both children. All seven

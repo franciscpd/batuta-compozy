@@ -15,11 +15,13 @@ pequeno com suite de testes real).
    conforme o tamanho). Aceite: `.compozy/tasks/<slug>/` existe com `_tasks.md`
    + `task_NN.md`, cada task com `complexity` no frontmatter; o breakdown foi
    apresentado para aprovação em conversa.
-4. **Despacho composto**: o Batuta roda dry-run, mostra o plano e submete
-   exatamente um `batuta-deliver` com `slug`, `origin_session_id` da sessão
-   atual e `auto_commit` resolvido. Aceite: o run composto fica visível em
-   `compozy loop runs`; o daemon executa `implement-tasks` e depois
-   `review-and-fix` como filhos desse run.
+4. **Despacho composto**: o Batuta chama diretamente o `import_tasks` somente
+   leitura e confirma `count > 0`; depois roda dry-run, mostra o plano e
+   submete exatamente um `batuta-deliver` com `slug`, `origin_session_id` da
+   sessão atual e `auto_commit` resolvido. O dry-run apenas planeja nós e não
+   executa o import. Aceite: o run composto fica visível em `compozy loop
+   runs`; o daemon executa `implement-tasks` e depois `review-and-fix` como
+   filhos desse run.
 5. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
    commit por task implementada (auto_commit=true). Nenhum push.
 6. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
@@ -40,10 +42,10 @@ por esta alteração.
   pelo Batuta e confirme que ambos os filhos persistem
   `inputs.auto_commit=false`. Nenhum commit de implementação ou review pode
   ser criado nesse caso.
-- Peça ao Batuta para despachar um `slug` inexistente. O dry-run deve falhar e
-  nenhum run real de `batuta-deliver` pode ser criado. Em seguida, envie uma
-  submissão direta deliberadamente inválida e confirme que o terminal nunca é
-  `done`.
+- Peça ao Batuta para despachar um `slug` inexistente. O preflight direto de
+  `import_tasks` deve falhar antes do dry-run e nenhum run real de
+  `batuta-deliver` pode ser criado. Em seguida, envie uma submissão direta
+  deliberadamente inválida e confirme que o terminal nunca é `done`.
 - Após uma entrega terminal, a sessão original do Batuta deve receber
   exatamente um novo turno enfileirado ou direto. Registre o ID do run de
   entrega, o ID da sessão de origem, o gatilho do efeito e o resultado de

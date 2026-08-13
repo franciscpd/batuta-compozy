@@ -100,8 +100,10 @@ synthetic agent turn would be a workaround.
 
 The fix is fail-closed at the source:
 
-- Batuta must perform the existing dry-run before submission and refuse the real run
-  when the task set cannot resolve.
+- Batuta directly calls the read-only `ext__dev_cycle__import_tasks` tool before
+  dry-run and continues only after a successful positive count.
+- Loop dry-run resolves inputs and plans nodes; it does not execute
+  `import_tasks` and is not evidence that the task set exists.
 - `batuta-deliver` removes the error-to-success route and the redundant `no_tasks`
   branch. A direct invalid CLI/API submission retains the real import failure instead
   of becoming `done`.
@@ -113,10 +115,12 @@ replace it later if CompozyOS adds that public Loop surface.
 
 ## Compatibility
 
-The manifest minimum becomes `0.3.0-beta.13`, the earliest explicitly supported line
-for the Loop composition and terminal-effect behavior used here. The README states
-the same floor. Validation must prove that the current daemon accepts this prerelease
-constraint.
+The manifest minimum remains `0.3.0-beta.13` as the grammar floor accepted by
+the current daemon. Operational use requires a post-beta.13 build containing
+`594d9fdf` (six commits after the tag) or the first later beta/stable release.
+An executable guard enforces that boundary because manifest semver cannot
+express a post-tag Git commit and the daemon normalizes the current build to
+beta.13 during manifest comparison.
 
 The extension remains local/unverified during this beta. No new permissions, secrets,
 or Host API methods are introduced.
@@ -126,8 +130,8 @@ or Host API methods are introduced.
 Contract tests cover four layers:
 
 1. Manifest validation and exact minimum version.
-2. Routing and input propagation through a dry-run, using a collision-safe disposable
-   task slug and never deleting a pre-existing fixture.
+2. Routing-rule shape and input propagation through a dry-run, using one exact
+   provider/model pair selected from the live catalogs and no task fixture.
 3. Delivery definition validation, including required `origin_session_id`, explicit
    child `auto_commit` propagation, and absence of the error-to-success route.
 4. Terminal-return validation through the live `compozy__session_prompt` descriptor
@@ -139,7 +143,9 @@ bindings receive review, while session admission and replay deduplication remain
 guided E2E behaviors. Contract tests do not add an undeclared YAML parser or replace
 those behaviors with source-text assertions.
 
-Daemon-backed Loop validation requires a registered workspace because tool and agent
+The missing-task contract directly invokes the read-only import tool with a
+unique absent pattern and verifies its public dependency error. Daemon-backed
+Loop validation requires a registered workspace because tool and agent
 resolution are workspace-scoped. Tests resolve `BATUTA_TEST_WORKSPACE` first and emit a
 clear prerequisite error when the repository is not registered; they do not silently
 validate against an unrelated workspace.
@@ -171,3 +177,21 @@ and resource inventory differ from the current architecture.
 - No mutation of bundled `dev-cycle` Loops.
 - No private database access.
 - No attempt to replace CompozyOS session compaction or memory.
+
+## Final-review amendment — 2026-08-12
+
+This amendment records the operational corrections found after full review:
+
+- Task existence is proven by direct read-only import before dry-run. Dry-run
+  is only a resolved plan and never executes the graph.
+- `0.3.0-beta.13` is only the manifest grammar floor. The plain tag is rejected;
+  post-tag builds at least six commits after it, including
+  `v0.3.0-beta.13-14-g36bd8156`, and later beta/stable releases are accepted.
+- Routing contract verification derives one usable exact provider/model pair
+  from `provider list` and `provider models list`, then projects that pair over
+  four synthetic complexity rules without reading the skill's dated example or
+  creating task files.
+- The extension package contains only `extension.toml`, `agents/batuta`,
+  `resources/skills/batuta-routing`, and `loops/batuta-deliver`. Local
+  republication installs this staged package and verifies the exact three live
+  resources; repository metadata, docs, tests, and SDD reports are excluded.
