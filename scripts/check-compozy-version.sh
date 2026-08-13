@@ -61,6 +61,10 @@ official_beta13 = {
     "36bd8156bba6f91b10929ed4d5e1b91623a3cb5f": 14,
     "4154d25c89794dff634fccef00a3d968fc09c3f9": 15,
 }
+trusted_post_tag_builds = {
+    "ef1bc78d0f6c1cd02adadd949483439bb0f43b6c":
+        "v0.3.0-beta.15-6-gef1bc78d",
+}
 post_tag = re.fullmatch(
     r"v?(\d+)\.(\d+)\.(\d+)-beta\.(\d+)-(\d+)-g([0-9a-fA-F]+)",
     version,
@@ -89,8 +93,19 @@ def resolve_described_hash(value):
     return matches[0] if len(matches) == 1 else None
 
 
+def resolve_trusted_post_tag(value):
+    value = value.lower()
+    if len(value) not in {8, 40} or not re.fullmatch(r"[0-9a-f]+", value):
+        return None
+    if len(value) == 40:
+        return value if value in trusted_post_tag_builds else None
+    matches = [known for known in trusted_post_tag_builds if known.startswith(value)]
+    return matches[0] if len(matches) == 1 else None
+
+
 compatible = False
 official_post_tag = False
+trusted_post_tag = False
 if post_tag:
     major, minor, patch, beta, count = map(int, post_tag.groups()[:5])
     described_hash = post_tag.group(6)
@@ -105,7 +120,12 @@ if post_tag:
         )
         official_post_tag = compatible
     else:
-        compatible = core > (0, 3, 0) or (core == (0, 3, 0) and beta >= 14)
+        resolved_commit = resolve_trusted_post_tag(commit)
+        compatible = (
+            resolved_commit is not None
+            and trusted_post_tag_builds[resolved_commit] == version.lower()
+        )
+        trusted_post_tag = compatible
 elif release:
     major, minor, patch = map(int, release.groups()[:3])
     beta = release.group(4)
@@ -127,6 +147,8 @@ if official_post_tag:
         f"OK: CompozyOS {version} ({commit}) is a known official descendant "
         "containing 594d9fdf"
     )
+elif trusted_post_tag:
+    print(f"OK: CompozyOS {version} ({commit}) is an exact trusted test build")
 else:
     print(f"OK: CompozyOS {version} satisfies Batuta's operational floor")
 PY

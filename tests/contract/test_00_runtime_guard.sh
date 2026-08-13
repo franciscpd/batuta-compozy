@@ -38,6 +38,11 @@ expect_accept "v0.3.0-beta.13-14-g36bd8156" "36bd8156"
 expect_accept \
   "v0.3.0-beta.13-15-g4154d25c" \
   "4154d25c89794dff634fccef00a3d968fc09c3f9"
+expect_accept \
+  "v0.3.0-beta.15-6-gef1bc78d" \
+  "ef1bc78d0f6c1cd02adadd949483439bb0f43b6c"
+expect_accept "v0.3.0-beta.15-6-gef1bc78d" "ef1bc78d"
+expect_reject "v0.3.0-beta.15-6-gef1bc78d" "ef1bc7"
 expect_accept "v0.3.0-beta.14" "deadbeef"
 expect_accept "v0.3.0" "deadbeef"
 
