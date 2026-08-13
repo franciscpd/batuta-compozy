@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Batuta preserve delivery preferences, return terminal results to the originating conversation, keep its watcher dormant and reusable, reject missing task sets truthfully, and verify those contracts.
+**Goal:** Make Batuta preserve delivery preferences, return terminal results to the originating conversation through native effects, reject missing task sets truthfully, and verify those contracts.
 
-**Architecture:** Keep the extension resource-only. Pass the originating CompozyOS session ID explicitly through `batuta-deliver`; replace the watcher reporting agent with deterministic native Loop actions that read terminal status and queue one idempotent prompt to that session. Keep routing in the stored `implement-tasks` runtime rules, but move the commit preference to the composite Loop that owns child inputs.
+**Architecture:** Keep the extension resource-only. Pass the originating CompozyOS session ID explicitly through `batuta-deliver`; use all seven contract terminal effects to queue one idempotent prompt to that session. Keep routing in the stored `implement-tasks` runtime rules, but move the commit preference to the composite Loop that owns child inputs. No watcher or reporting agent remains.
 
 **Tech Stack:** CompozyOS `0.3.0-beta.13+`, resource-only extension TOML, Compozy Loop YAML, AGENT.md, Bash contract tests, Python 3 JSON assertions.
 
@@ -28,7 +28,7 @@
 - Modify: `tests/contract/test_01_validate.sh`
 - Modify: `tests/contract/test_02_routing_dryrun.sh`
 - Modify: `tests/contract/test_04_deliver_validate.sh`
-- Modify: `tests/contract/test_05_watch_validate.sh`
+- Modify: `tests/contract/test_05_watch_validate.sh` (renamed in Task 3)
 - Modify: `extension.toml`
 
 **Interfaces:**
@@ -104,7 +104,8 @@ PY
 
 - [ ] **Step 4: Make daemon-backed tests use the helper**
 
-At the top of tests 02, 04, and 05, after changing to the repository root:
+At the top of tests 02, 04, and the then-current 05 watcher test, after changing
+to the repository root:
 
 ```bash
 source tests/contract/lib.sh
@@ -244,7 +245,6 @@ Bootstrap checks are independent; one populated value never proves the others:
 2. Read `loops.inputs.batuta-deliver.auto_commit`. When absent, ask once and
    persist the answer at workspace scope. Do not write child Loop input defaults;
    `batuta-deliver` passes this value explicitly to both children.
-3. List `batuta-watch` runs. Start one only when no run is `watching` or `running`.
 ```
 
 Keep live catalog derivation and exact terminal reporting. Remove duplicated
@@ -262,7 +262,7 @@ Update dispatch instructions:
   real submission and tell the operator that authored tasks are required.
 ```
 
-State that terminal wake prompts return to this same session.
+State that terminal effects return prompts to this same session.
 
 - [ ] **Step 5: Add guided behavioral cases before running implementation**
 
@@ -300,18 +300,28 @@ git commit -m "fix: preserve delivery preference and reject invalid task sets"
 
 ---
 
-### Task 3: Deterministic return-to-session watcher
+### Task 3: Deterministic return-to-session terminal effects
+
+> **Root-cause amendment — 2026-08-12:** The live output descriptor and Loop
+> compiler rejected the planned watcher data paths. The steps below supersede
+> that graph and record the implemented terminal-effect design.
 
 **Files:**
-- Modify: `loops/batuta-watch/loop.yaml`
+- Modify: `loops/batuta-deliver/loop.yaml`
+- Delete: `loops/batuta-watch/loop.yaml`
+- Modify: `agents/batuta/AGENT.md`
+- Delete: `tests/contract/test_05_watch_validate.sh`
+- Create: `tests/contract/test_05_return_validate.sh`
 - Modify: `tests/e2e/SMOKE.md`
 
 **Interfaces:**
-- Consumes: terminal `watch-events.output.events[]` items.
-- Consumes: `batuta-deliver.run.inputs.origin_session_id` from `compozy__loop_status`.
-- Produces: one queued prompt admission per terminal run using deterministic identities.
+- Consumes: `inputs.origin_session_id` in `batuta-deliver`.
+- Consumes: terminal effect context
+  `effect.identity.loop_run_id` and `effect.identity.trigger`.
+- Produces: one queued `compozy__session_prompt` admission per terminal run,
+  using run-derived message and idempotency identities.
 
-- [ ] **Step 1: Record RED behavior from live watcher history**
+- [ ] **Step 1: Record RED behavior from historical live watcher state**
 
 Run:
 
@@ -320,82 +330,11 @@ compozy loop status --workspace ws_13d8f64cc29e9d5c \
   --run-id looprun-1eef4226a7d3b11b -o json
 ```
 
-Expected RED evidence: watcher is terminal `done`, contains an isolated reporting
-session, and reports non-zero model token use. Save only those bounded fields in the
-task report.
+Expected bounded RED evidence: the historical watcher is terminal `done`, its
+`conduct` output has an isolated reporting `session_id` and `resolved_runtime`,
+and `run.tokens_used` is non-zero. Save only those fields in the task report.
 
-- [ ] **Step 2: Make watcher contract persistent**
-
-Add:
-
-```yaml
-  stop_when: "false"
-  iteration_cap: 0
-```
-
-Update goal and definition of done to say each observed terminal is queued to its
-origin session and the Loop returns to watching. Keep `concurrency: forbid`.
-
-- [ ] **Step 3: Replace isolated agent with deterministic graph**
-
-Use this graph shape:
-
-```yaml
-graph:
-  nodes:
-    - id: deliver_terminal
-      class: source
-      kind: watch-events
-      events:
-        - kind: loop.terminal
-          filter: "event.loop_name == 'batuta-deliver'"
-
-    - id: terminal_events
-      class: control
-      kind: fan-out
-      collection: "{{ .nodes.deliver_terminal.output.events }}"
-      batch_size: 1
-      max_parallel: 1
-      max_fan_out: 64
-
-    - id: read_deliver
-      class: action
-      kind: compozy__loop_status
-      params:
-        run_id: "{{ .item.loop_run_id }}"
-
-    - id: notify_origin
-      class: action
-      kind: compozy__session_prompt
-      params:
-        session_id: "{{ .nodes.read_deliver.output.run.inputs.origin_session_id }}"
-        message_id: "batuta-terminal-{{ .nodes.read_deliver.output.run.id }}"
-        idempotency_key: "batuta-terminal-{{ .nodes.read_deliver.output.run.id }}"
-        mode: queue
-        message: |
-          Batuta delivery run {{ .nodes.read_deliver.output.run.id }} reached
-          terminal state {{ .nodes.read_deliver.output.run.status }}. Inspect the
-          run with `compozy__loop_status`, then report its exact terminal outcome,
-          child run IDs, commits, and blocker in this conversation. Decide any
-          redispatch or escalation with the operator. Never approve a gate, edit
-          code, push, or mutate routing from this wake prompt.
-
-    - id: delivered
-      class: control
-      kind: collect
-
-  edges:
-    - from: deliver_terminal
-      to: terminal_events
-    - from: terminal_events
-      to: read_deliver
-    - from: read_deliver
-      to: notify_origin
-    - from: notify_origin
-      to: delivered
-```
-
-- [ ] **Step 4: Validate native tool schemas against current daemon**
+- [ ] **Step 2: Validate live schemas and record the watcher-graph conflict**
 
 Run:
 
@@ -406,39 +345,88 @@ compozy tool info compozy__session_prompt \
   --workspace "$(source tests/contract/lib.sh; require_test_workspace)" -o json
 ```
 
-Confirm `run_id`; `session_id`, `message`, `message_id`, `idempotency_key`, and
-`mode=queue` remain accepted. The live descriptor governs any schema correction;
-record exact differences in the report.
+`compozy__loop_status` accepts `run_id`, but its declared output schema exposes
+only `run.id`, `run.best_generation`, and `run.best_score`. Record the compiler's
+`unresolvable_path` diagnostics for the rejected
+`run.inputs.origin_session_id` and `run.status` watcher templates. Do not hide the
+conflict with a dynamic accessor. Confirm `compozy__session_prompt` requires
+`session_id`, `message`, `message_id`, and `idempotency_key`, and accepts
+`mode=queue`.
 
-- [ ] **Step 5: Add guided behavioral cases**
+- [ ] **Step 3: Add all seven native terminal effects**
+
+Under `batuta-deliver.contract`, include `canceled` in `terminal_states` and add
+`on_done`, `on_noop`, `on_blocked`, `on_failed`, `on_exhausted`, `on_stalled`,
+and `on_canceled`. Each list contains the same effect:
+
+```yaml
+tool: compozy__session_prompt
+with:
+  session_id: "{{ .inputs.origin_session_id }}"
+  message_id: "batuta-terminal-{{ .effect.identity.loop_run_id }}"
+  idempotency_key: "batuta-terminal-{{ .effect.identity.loop_run_id }}"
+  mode: queue
+  message: |
+    Batuta delivery run {{ .effect.identity.loop_run_id }} reached terminal
+    trigger {{ .effect.identity.trigger }}. Inspect the run with
+    `compozy__loop_status`, then report its exact terminal outcome, child run
+    IDs, commits, and blocker in this conversation. Decide any redispatch or
+    escalation with the operator. Never approve a gate, edit code, push, or
+    mutate routing from this return prompt.
+```
+
+A shared YAML anchor is acceptable only when the live compiler accepts it.
+Terminal effects persist with lifecycle settlement and relay tool calls with
+stable delivery IDs; the run-derived prompt identities provide admission replay
+deduplication.
+
+- [ ] **Step 4: Remove the watcher resource and bootstrap behavior**
+
+Delete `loops/batuta-watch/loop.yaml`. Remove watcher start/monitor instructions
+from `agents/batuta/AGENT.md`; bootstrap retains only routing and `auto_commit`
+checks. Document that the originating Batuta session receives the effect prompt,
+inspects the exact run, and reports the outcome without a reporting agent.
+
+- [ ] **Step 5: Replace the watcher contract test**
+
+Delete `tests/contract/test_05_watch_validate.sh` and create executable
+`tests/contract/test_05_return_validate.sh`. It must inspect the live
+`compozy__session_prompt` descriptor and compile the candidate
+`batuta-deliver` definition. `compozy loop validate` exposes only `valid` and
+diagnostics before publication, not a compiled definition, so do not add an
+undeclared YAML parser or source-text assertions. Review exact seven-hook
+coverage separately; guided E2E owns admission and replay behavior.
+
+- [ ] **Step 6: Add guided behavioral cases**
 
 Add to `tests/e2e/SMOKE.md` before live execution:
 
 ```markdown
-- After one terminal delivery, original session receives exactly one queued/direct
-  turn and watcher returns to `watching`.
-- Replaying the same terminal identity does not add another turn.
-- Watcher generation contains no reporting-agent session or resolved runtime and
-  spends no model tokens.
+- After one terminal delivery, the original session receives exactly one
+  queued/direct turn.
+- Replaying the same terminal effect identity does not add another turn.
+- No watcher or reporting-agent runtime exists, and returning the terminal
+  spends no reporting-agent model tokens.
 ```
 
-Do not substitute source-text assertions for these effects.
-
-- [ ] **Step 6: Verify compiled configuration**
-
-Run:
+- [ ] **Step 7: Verify public contracts**
 
 ```bash
-compozy loop validate --file loops/batuta-watch/loop.yaml \
-  --workspace "$(source tests/contract/lib.sh; require_test_workspace)" -o json
+tests/contract/test_05_return_validate.sh
+tests/contract/run.sh
+git diff --check
 ```
 
-Expected: `valid: true`.
+Expected: the live prompt schema is accepted, `batuta-deliver` compiles with
+`valid: true`, all contract tests pass apart from the documented installed-state
+lifecycle skip, and the diff check is clean.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add loops/batuta-watch/loop.yaml tests/e2e/SMOKE.md
+git add agents/batuta/AGENT.md loops/batuta-deliver/loop.yaml \
+  loops/batuta-watch/loop.yaml tests/contract/test_05_watch_validate.sh \
+  tests/contract/test_05_return_validate.sh tests/e2e/SMOKE.md
 git commit -m "fix: return terminal delivery to originating session"
 ```
 
@@ -461,11 +449,13 @@ git commit -m "fix: return terminal delivery to originating session"
 
 Document:
 
-- extension inventory contains `batuta`, `batuta-routing`, `batuta-deliver`, and `batuta-watch`;
+- extension inventory contains exactly `batuta`, `batuta-routing`, and
+  `batuta-deliver`;
 - providers are derived from `compozy provider models list`, not hard-coded by lane;
 - bootstrap stores `auto_commit` on `batuta-deliver`;
 - one composite delivery receives the current session ID;
-- watcher queues a terminal prompt to that conversation with no reporting agent;
+- all seven terminal effects queue one idempotent prompt to that conversation,
+  with no background or reporting agent;
 - contract tests require `compozy workspace add <repo>` once;
 - minimum supported daemon is `0.3.0-beta.13`.
 
@@ -477,16 +467,18 @@ Add explicit checks:
 - Run once with `auto_commit=false`; both child inputs must show `false` and no
   implementation/review commit may be created.
 - After terminal delivery, the original Batuta session must receive exactly one
-  new turn; the watcher must return to `watching`.
-- Replaying/observing the same terminal must not create a duplicate message.
-- Watcher run detail must contain no isolated `session_id` or `resolved_runtime`
-  output for a reporting agent and no watcher model token spend.
+  new queued/direct turn.
+- Replaying the same terminal effect identity must not create a duplicate turn.
+- Extension inventory must contain no watcher resource; delivery run detail must
+  contain no reporting-agent `session_id` or `resolved_runtime` output, and the
+  terminal return must spend no reporting-agent model tokens.
 - A missing slug must be rejected by dry-run before submission. A deliberate
   direct invalid submission must never end `done`.
 ```
 
-Record exact run IDs, session ID, prompt admission delivery, watcher status, and
-token count when the operator executes the smoke.
+Record the exact delivery run ID, origin session ID, effect trigger, prompt
+admission delivery/replay result, and relevant token count when the operator
+executes the smoke.
 
 - [ ] **Step 3: Mark historical documents superseded**
 
@@ -508,13 +500,11 @@ Run:
 compozy extension inventory batuta -o json
 compozy loop inspect --workspace "$(source tests/contract/lib.sh; require_test_workspace)" \
   --name batuta-deliver -o json
-compozy loop inspect --workspace "$(source tests/contract/lib.sh; require_test_workspace)" \
-  --name batuta-watch -o json
 ```
 
-Before republication these reads show prior live definitions. Compare public field names
-only; verify new live behavior after Task 5. Human prose receives editorial review, not
-change-detector tests.
+Before republication this read shows the prior live definition. Compare public field
+names only; verify new live behavior after Task 5. Human prose receives editorial
+review, not change-detector tests.
 
 - [ ] **Step 5: Commit**
 
@@ -561,7 +551,8 @@ Run:
 scripts/republish.sh
 ```
 
-Expected: extension state `active`; inventory lists all four resources live. This
+Expected: extension state `active`; inventory lists exactly three resources live:
+`batuta`, `batuta-routing`, and `batuta-deliver`. This
 script removes and reinstalls only the global `batuta` extension and is the repository's
 declared local publication workflow.
 
@@ -571,17 +562,21 @@ declared local publication workflow.
 compozy extension inventory batuta -o json
 compozy loop inspect --workspace /home/franciscpd/Projects/batuta-compozy \
   --name batuta-deliver -o json
-compozy loop inspect --workspace /home/franciscpd/Projects/batuta-compozy \
-  --name batuta-watch -o json
 ```
 
-Expected: inventory items all `live: true`; live definitions contain the new
-session input and native watcher graph.
+Expected: all three inventory items are `live: true`; the live delivery definition
+contains the required session input and all seven native terminal effects with
+queued session prompting and run-derived identities.
+
+Use guided E2E—not source inspection—to verify that the original session receives
+exactly one turn and replaying the same effect identity is deduplicated. Confirm
+inventory has no watcher resource, delivery detail has no reporting-agent runtime,
+and the return has no reporting-agent token use.
 
 - [ ] **Step 5: Run verification-before-completion**
 
 Use `superpowers:verification-before-completion`. Capture fresh outputs for manifest
-validation, both Loop validations, shell syntax, contract suite, inventory, and clean
+validation, delivery Loop validation, shell syntax, contract suite, inventory, and clean
 worktree/diff state. Do not claim the guided token-spending E2E was executed unless an
 operator actually performs it.
 
