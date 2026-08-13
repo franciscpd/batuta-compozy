@@ -1,5 +1,9 @@
 # Batuta no CompozyOS — Plano de Implementação
 
+> Superseded for runtime behavior by
+> `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
+> Retained as implementation history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Empacotar a opinião do Batuta como extensão resource-only do CompozyOS: um agente maestro (`batuta`) que rege as skills `cy-*` e os Loops bundled (`implement-tasks`, `review-and-fix`) com roteamento de runtime por complexidade.

@@ -1,5 +1,9 @@
 # Batuta no CompozyOS — design
 
+> Superseded for runtime behavior by
+> `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
+> Retained as implementation history.
+
 Design aprovado em conversa, 2026-08-11. Este repositório é a nova casa principal do
 Batuta; o plugin Claude (`~/Projects/batuta`) e o `batuta-cli` viram legado/referência.
 

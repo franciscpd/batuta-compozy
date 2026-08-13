@@ -28,16 +28,31 @@ pequeno com suite de testes real).
 
 ## Casos comportamentais de aceitação
 
-- Configure `auto_commit=false`, dispatch through Batuta, and confirm both child
-  runs persist `inputs.auto_commit=false`.
-- Ask Batuta to dispatch a missing slug. Confirm dry-run fails and no real
-  `batuta-deliver` run is created.
-- Submit one deliberate direct invalid run. Confirm its terminal is not `done`.
-- After one terminal delivery, the original session receives exactly one
-  queued/direct turn.
-- Replaying the same terminal effect identity does not add another turn.
-- No watcher or reporting-agent runtime exists, and returning the terminal
-  spends no reporting-agent model tokens.
+Execute estes casos somente após republicar a extensão local. Eles são prova
+de comportamento do daemon e do agente consumidor; ainda não foram executados
+por esta alteração.
+
+- Configure `loops.inputs.batuta-deliver.auto_commit=false`, faça o despacho
+  pelo Batuta e confirme que ambos os filhos persistem
+  `inputs.auto_commit=false`. Nenhum commit de implementação ou review pode
+  ser criado nesse caso.
+- Peça ao Batuta para despachar um `slug` inexistente. O dry-run deve falhar e
+  nenhum run real de `batuta-deliver` pode ser criado. Em seguida, envie uma
+  submissão direta deliberadamente inválida e confirme que o terminal nunca é
+  `done`.
+- Após uma entrega terminal, a sessão original do Batuta deve receber
+  exatamente um novo turno enfileirado ou direto. Registre o ID do run de
+  entrega, o ID da sessão de origem, o gatilho do efeito e o resultado de
+  entrega/replay da admissão do prompt.
+- Reproduza a mesma identidade de efeito terminal e confirme que ela não cria
+  outro turno na sessão original.
+- Confirme que o inventário da extensão contém exatamente `batuta`,
+  `batuta-routing` e `batuta-deliver`. Não pode haver recurso `batuta-watch`,
+  watcher em execução ou agente de reporte.
+- Confirme que o detalhe do run de entrega não contém `session_id` nem
+  `resolved_runtime` de agente de reporte. Registre a contagem relevante de
+  tokens e confirme que o retorno terminal não consumiu tokens de modelo de
+  agente de reporte.
 
 ## Falhas que reprovam
 
@@ -49,7 +64,10 @@ pequeno com suite de testes real).
 
 ---
 
-## Resultado — 2026-08-11 (workspace ~/Projects/smoke-cobaia)
+## Resultado histórico — 2026-08-11 (workspace ~/Projects/smoke-cobaia)
+
+Este resultado descreve a arquitetura anterior e não prova os efeitos
+terminais, a deduplicação ou o inventário atuais.
 
 **Veredito: APROVADO com ressalvas.** Ciclo completo fechou: PM → 1 task (`low`) →
 `implement-tasks` `done` (gen 1, `resolved_runtime: codex/gpt-5.6-luna`, proveniência
