@@ -4,22 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 scripts/check-compozy-version.sh >/dev/null
-
-STAGE_DIR=$(mktemp -d /tmp/batuta-extension.XXXXXX)
-cleanup() {
-  case "$STAGE_DIR" in
-    /tmp/batuta-extension.*)
-      rm -rf -- "$STAGE_DIR"
-      ;;
-    *)
-      printf 'refusing to clean unexpected staging path: %s\n' "$STAGE_DIR" >&2
-      ;;
-  esac
-}
-trap cleanup EXIT
-
-scripts/stage-extension.sh "$STAGE_DIR"
-compozy extension validate "$STAGE_DIR" -o json | python3 -c '
+PACKAGE_DIR=$(scripts/package-extension.sh)
+compozy extension validate "$PACKAGE_DIR" -o json | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 errors = [i for i in d.get("issues", []) if i.get("severity") == "error"]
@@ -34,7 +20,7 @@ raise SystemExit(0 if any(row["name"] == "batuta" for row in rows) else 1)
   compozy extension remove batuta --global -o json >/dev/null
 fi
 
-compozy extension install "$STAGE_DIR" --allow-unverified --yes -o json >/dev/null
+compozy extension install "$PACKAGE_DIR" --allow-unverified --yes -o json >/dev/null
 compozy extension enable batuta -o json | python3 -c "
 import json,sys
 d=json.load(sys.stdin)

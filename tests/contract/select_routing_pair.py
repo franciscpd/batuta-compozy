@@ -19,7 +19,7 @@ def select_pair(providers, models):
             or row.get("hidden")
             or row.get("deprecated")
             or row.get("available") is False
-            or availability in {"unavailable", "unavailable_live"}
+            or availability in {"unavailable", "unavailable_live", "unavailable_stale"}
         ):
             continue
 

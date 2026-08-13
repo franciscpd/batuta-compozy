@@ -11,25 +11,24 @@ if [[ -e .compozy/tasks/$slug ]]; then
 fi
 pattern=".compozy/tasks/$slug/task_*.md"
 OUT=$(mktemp)
+ERR=$(mktemp)
 cleanup() {
-  rm -f -- "$OUT"
+  rm -f -- "$OUT" "$ERR"
 }
 trap cleanup EXIT
 
 if compozy tool invoke ext__dev_cycle__import_tasks \
   --workspace "$WS" --input "{\"pattern\":\"$pattern\"}" -o json \
-  >"$OUT" 2>&1; then
+  >"$OUT" 2>"$ERR"; then
   printf 'import_tasks aceitou task set inexistente\n' >&2
   exit 1
 fi
 
-python3 - "$OUT" "$pattern" <<'PY'
+if ! python3 - "$OUT" "$pattern" <<'PY'
 import json
 import sys
 
-raw = open(sys.argv[1]).read()
-payload = raw[: raw.rfind("\nerror:")] if "\nerror:" in raw else raw
-data = json.loads(payload)
+data = json.load(open(sys.argv[1]))
 error = data["error"]
 details = error["details"]
 assert error["code"] == "tool_invalid_input", error
@@ -38,3 +37,9 @@ assert sys.argv[2] in details["operator_cause"], details
 assert "Create the matching task set" in details["operator_recovery"], details
 print("OK: import_tasks rejeita task set ausente com recuperacao publica")
 PY
+then
+  while IFS= read -r diagnostic; do
+    printf 'import_tasks stderr: %s\n' "$diagnostic" >&2
+  done < "$ERR"
+  exit 1
+fi

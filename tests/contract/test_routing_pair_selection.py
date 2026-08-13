@@ -48,6 +48,12 @@ class SelectRoutingPairTest(unittest.TestCase):
                 "availability_state": "unavailable_live",
             },
             {
+                "provider_id": "usable",
+                "model_id": "stale-unavailable",
+                "available": None,
+                "availability_state": "unavailable_stale",
+            },
+            {
                 "provider_id": "missing",
                 "model_id": "live-but-provider-missing",
                 "available": True,

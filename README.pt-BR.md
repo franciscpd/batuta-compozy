@@ -21,10 +21,10 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
    scripts/check-compozy-version.sh
    ```
 
-   A aceitação por contagem vale somente para builds oficiais com histórico
-   linear de `git describe`. A contagem de um histórico customizado arbitrário
-   não prova ancestralidade; baseie builds customizados em um beta/estável
-   posterior ou verifique independentemente a presença de `594d9fdf`.
+   Para builds pós-tag beta.13, o guard exige que `Version` e `Commit`
+   correspondam aos descendentes oficiais conhecidos entre `594d9fdf` e o
+   build atual verificado. Builds customizados arbitrários são rejeitados pela
+   contagem isolada; baseie-os em um beta/estável posterior.
 2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —
@@ -51,6 +51,13 @@ scripts/republish.sh
 O fluxo valida a compatibilidade antes de alterar a extensão instalada, monta
 somente os recursos declarados e então instala, habilita e verifica o
 inventário exato: `batuta`, `batuta-routing` e `batuta-deliver`.
+
+A publicação retém uma fonte endereçada por conteúdo em
+`${XDG_DATA_HOME}/batuta-compozy/packages` ou
+`~/.local/share/batuta-compozy/packages`. Use `BATUTA_PACKAGE_ROOT` para trocar
+essa raiz. Seus arquivos são somente leitura, e a árvore e os bytes exatos são
+verificados antes do reuso. A proveniência live continua apontando para esse
+pacote mínimo existente.
 
 ## Uso
 

@@ -116,14 +116,12 @@ replace it later if CompozyOS adds that public Loop surface.
 ## Compatibility
 
 The manifest minimum remains `0.3.0-beta.13` as the grammar floor accepted by
-the current daemon. Operational use requires a post-beta.13 build containing
-`594d9fdf` (six commits after the tag) or the first later beta/stable release.
-An executable guard enforces that boundary because manifest semver cannot
-express a post-tag Git commit and the daemon normalizes the current build to
-beta.13 during manifest comparison. The six-commit ordering is valid only for
-official linear `git describe` builds. An arbitrary custom history cannot prove
-ancestry from its count; custom builds must use a later release base or verify
-the fix ancestry independently.
+the current daemon. Operational use requires a beta.13 post-tag build whose
+`Version` and `Commit` match the known official descendant allowlist from
+`594d9fdf` through current `36bd8156`, or the first later beta/stable release.
+The executable guard enforces that boundary because manifest semver cannot
+express Git ancestry and the daemon normalizes the current build to beta.13
+during manifest comparison. Arbitrary custom-history counts are rejected.
 
 The extension remains local/unverified during this beta. No new permissions, secrets,
 or Host API methods are introduced.
@@ -188,14 +186,19 @@ This amendment records the operational corrections found after full review:
 - Task existence is proven by direct read-only import before dry-run. Dry-run
   is only a resolved plan and never executes the graph.
 - `0.3.0-beta.13` is only the manifest grammar floor. The plain tag is rejected;
-  official linear post-tag builds at least six commits after it, including
-  `v0.3.0-beta.13-14-g36bd8156`, and later beta/stable releases are accepted.
-  Counts from arbitrary custom histories are not ancestry evidence.
+  beta.13 post-tag builds require matching `Version` and `Commit` entries in
+  the official descendant allowlist, including current
+  `v0.3.0-beta.13-14-g36bd8156` / `36bd8156`. Later beta/stable releases remain
+  semver accepted; arbitrary custom-history counts are not ancestry evidence.
 - Routing contract verification derives one usable exact provider/model pair
   from `provider list` and `provider models list`, then projects that pair over
   four synthetic complexity rules without reading the skill's dated example or
   creating task files.
 - The extension package contains only `extension.toml`, `agents/batuta`,
   `resources/skills/batuta-routing`, and `loops/batuta-deliver`. Local
-  republication installs this staged package and verifies the exact three live
-  resources; repository metadata, docs, tests, and SDD reports are excluded.
+  republication promotes this staged package atomically into a retained,
+  content-addressed user-data directory, makes files read-only, verifies the
+  exact tree and bytes before reuse, installs from that stable source, and
+  verifies the exact three live resources. Repository metadata, docs, tests,
+  and SDD reports are excluded. Package directories remain mode `0755` because
+  Compozy copies each source directory mode before creating its children.

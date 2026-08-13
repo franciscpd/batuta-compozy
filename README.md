@@ -20,10 +20,10 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
    scripts/check-compozy-version.sh
    ```
 
-   Count-based acceptance applies only to official linear `git describe`
-   builds. A count from an arbitrary custom history does not prove ancestry;
-   base custom builds on a later beta/stable release or independently verify
-   that they contain `594d9fdf`.
+   For beta.13 post-tag builds, the guard requires both `Version` and `Commit`
+   to match the known official descendants from `594d9fdf` through the current
+   verified build. Arbitrary custom builds are rejected by count alone; base
+   them on a later beta/stable release.
 2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.
@@ -50,6 +50,13 @@ scripts/republish.sh
 The workflow validates compatibility before changing the installed extension,
 stages only declared resources, then installs, enables, and checks the exact
 inventory: `batuta`, `batuta-routing`, and `batuta-deliver`.
+
+Publication retains a content-addressed source under
+`${XDG_DATA_HOME}/batuta-compozy/packages` or
+`~/.local/share/batuta-compozy/packages`. Set `BATUTA_PACKAGE_ROOT` to override
+that root. Its files are read-only, and its exact tree and bytes are verified
+before reuse. The live extension provenance continues to reference this
+existing minimal package.
 
 ## Usage
 
