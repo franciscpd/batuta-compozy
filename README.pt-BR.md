@@ -68,17 +68,19 @@ imediatamente antes de remover ou substituir a extensão instalada.
 ## Uso
 
 Crie uma sessão com o agente `batuta` no workspace do seu projeto e converse.
-No primeiro contato, o Batuta deriva uma tabela concreta do catálogo vivo de
-provider/model, confirma-a com o operador e a armazena como override de runtime
-de `implement-tasks`. Em separado, armazena a preferência de commit em
-`loops.inputs.batuta-deliver.auto_commit`.
+No primeiro contato, o Batuta resolve a preferência de commit em
+`loops.inputs.batuta-deliver.auto_commit`. Após abrir esse gate, deriva uma
+tabela concreta do catálogo vivo de provider/model, confirma-a com o operador
+e a armazena como override de runtime de `implement-tasks`.
 
-Antes de cada despacho, o Batuta lê somente essa chave exata no workspace
-atual. `config_path_not_found` faz com que ele pergunte ao operador, grave o
-booleano no escopo workspace e confirme por releitura estruturada. Qualquer
-outro erro de configuração interrompe o despacho sem alterações; defaults
-globais, defaults dos Loops filhos, defaults da definição e dry-runs nunca
-substituem a preferência armazenada.
+Como gate inicial rígido de cada sessão nova, o Batuta lê somente essa chave
+exata no workspace atual antes de discovery, routing, PM, preflight, dry-runs
+ou inspeção de Loop. `config_path_not_found` faz com que ele pergunte ao
+operador, grave o booleano no escopo workspace e confirme imediatamente por
+uma releitura estruturada. Qualquer outro erro de configuração interrompe o
+fluxo sem alterações; defaults globais, defaults dos Loops filhos, defaults da
+definição e dry-runs nunca substituem a preferência armazenada. O Batuta repete
+a leitura antes de cada despacho.
 
 Fluxo: fase PM em conversa (PRD → TechSpec → tasks via skills `cy-*`) →
 preflight direto e somente leitura da importação de tasks → dry-run do Loop

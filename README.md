@@ -67,16 +67,18 @@ immediately before any installed extension is removed or replaced.
 ## Usage
 
 Create a session with the `batuta` agent in your project's workspace and
-talk to it. On first contact, Batuta derives a concrete routing table from the
-live provider-model catalog, confirms it with the operator, and stores it as
-the `implement-tasks` runtime override. It separately stores the operator's
-commit preference at `loops.inputs.batuta-deliver.auto_commit`.
+talk to it. On first contact, Batuta resolves the operator's commit preference
+at `loops.inputs.batuta-deliver.auto_commit`. After that gate opens, it derives
+a concrete routing table from the live provider-model catalog, confirms it
+with the operator, and stores it as the `implement-tasks` runtime override.
 
-Before every dispatch, Batuta reads only that exact key in the current
-workspace. `config_path_not_found` makes it ask the operator, write the boolean
-at workspace scope, and confirm it with a structured reread. Any other config
-error stops dispatch unchanged; global defaults, child Loop defaults,
-definition defaults, and dry-runs never substitute for the stored preference.
+As the hard initial gate of every new session, Batuta reads only that exact key
+in the current workspace before discovery, routing, PM, preflight, dry-runs, or
+Loop inspection. `config_path_not_found` makes it ask the operator, write the
+boolean at workspace scope, and immediately confirm it with a structured
+reread. Any other config error stops unchanged; global defaults, child Loop
+defaults, definition defaults, and dry-runs never substitute for the stored
+preference. Batuta repeats the read before every dispatch.
 
 Flow: PM phase in conversation (PRD → TechSpec → tasks via the `cy-*` skills)
 → direct read-only task import preflight → Loop dry-run (planning only) →

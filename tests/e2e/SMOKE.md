@@ -7,28 +7,32 @@ pequeno com suite de testes real).
 ## Roteiro
 
 1. **Sessão**: crie uma sessão no workspace cobaia com o agente `batuta`.
-2. **Bootstrap**: na primeira mensagem, peça uma feature pequena (ex.: "adicione
-   um subcomando --version"). Aceite: o batuta aplica a tabela de roteamento
-   (confira depois com dry-run: `effective_config.run_runtime_rules` preenchido) e
-   pergunta auto-commit ANTES de qualquer despacho.
-3. **Fase PM**: o batuta conduz `cy-create-tasks` (com ou sem PRD/TechSpec,
+2. **Gate inicial**: na primeira mensagem, peça uma feature pequena (ex.:
+   "adicione um subcomando --version usando literalmente todo 1.0.0"). Aceite:
+   a primeira chamada de ferramenta é `compozy__config_get` para a chave exata
+   do workspace. Quando ausente, o Batuta pergunta auto-commit sem fazer
+   discovery, routing, PM, preflight, dry-run ou inspeção de Loop.
+3. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
+   tabela de roteamento (confira depois com dry-run:
+   `effective_config.run_runtime_rules` preenchido).
+4. **Fase PM**: o batuta conduz `cy-create-tasks` (com ou sem PRD/TechSpec,
    conforme o tamanho). Aceite: `.compozy/tasks/<slug>/` existe com `_tasks.md`
    + `task_NN.md`, cada task com `complexity` no frontmatter; o breakdown foi
    apresentado para aprovação em conversa.
-4. **Despacho composto**: o Batuta chama diretamente o `import_tasks` somente
+5. **Despacho composto**: o Batuta chama diretamente o `import_tasks` somente
    leitura e confirma `count > 0`; depois roda dry-run, mostra o plano e
    submete exatamente um `batuta-deliver` com `slug`, `origin_session_id` da
    sessão atual e `auto_commit` resolvido. O dry-run apenas planeja nós e não
    executa o import. Aceite: o run composto fica visível em `compozy loop
    runs`; o daemon executa `implement-tasks` e depois `review-and-fix` como
    filhos desse run.
-5. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
+6. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
    commit por task implementada (auto_commit=true). Nenhum push.
-6. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
+7. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
    terminais dos filhos, seus `resolved_runtime` e as rodadas em
    `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada
    limpa) ou reporta `exhausted` literalmente.
-7. **Retorno e reporte final**: o efeito terminal envia exatamente um prompt à
+8. **Retorno e reporte final**: o efeito terminal envia exatamente um prompt à
    sessão original. O Batuta reinspeciona o run composto e reporta o terminal
    exato do composto, terminais dos filhos, commits e blocker.
 
@@ -45,9 +49,17 @@ por esta alteração.
 - Remova somente o valor workspace de
   `loops.inputs.batuta-deliver.auto_commit`, abra uma sessão nova e confirme
   que `compozy__config_get` retorna `config_path_not_found`. O Batuta deve
-  perguntar a preferência, gravá-la com `compozy__config_set` em escopo
-  workspace e reler a mesma chave; registre a leitura estruturada confirmando
-  o booleano escolhido antes de qualquer dry-run ou despacho.
+  perguntar a preferência sem nenhuma outra chamada, gravá-la com
+  `compozy__config_set` em escopo workspace e usar `compozy__config_get` como a
+  chamada imediatamente seguinte; registre a leitura estruturada confirmando
+  o booleano escolhido antes de discovery, routing, PM, preflight, dry-run,
+  inspeção de Loop ou despacho. Valide a ordem diretamente com:
+
+  ```bash
+  python3 tests/e2e/assert_preference_gate.py \
+    --compozy /caminho/para/compozy \
+    --session <session-id> --expected false
+  ```
 - Repita o bootstrap com uma falha de configuração diferente de
   `config_path_not_found`. O Batuta deve parar e apresentar o erro estruturado
   exato, sem consultar defaults globais, os Loops filhos, o default da
