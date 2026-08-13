@@ -73,12 +73,23 @@ provider/model, confirma-a com o operador e a armazena como override de runtime
 de `implement-tasks`. Em separado, armazena a preferência de commit em
 `loops.inputs.batuta-deliver.auto_commit`.
 
+Antes de cada despacho, o Batuta lê somente essa chave exata no workspace
+atual. `config_path_not_found` faz com que ele pergunte ao operador, grave o
+booleano no escopo workspace e confirme por releitura estruturada. Qualquer
+outro erro de configuração interrompe o despacho sem alterações; defaults
+globais, defaults dos Loops filhos, defaults da definição e dry-runs nunca
+substituem a preferência armazenada.
+
 Fluxo: fase PM em conversa (PRD → TechSpec → tasks via skills `cy-*`) →
 preflight direto e somente leitura da importação de tasks → dry-run do Loop
 (apenas planejamento) → despacho de
 `batuta-deliver(slug, origin_session_id, auto_commit)` →
 `implement-tasks` bundled (um ciclo isolado + um commit por task) →
 `review-and-fix` (rodadas de review até limpar) → resultado terminal exato.
+
+Requisitos executáveis como nomes e versões de dependências, comandos, paths,
+flags e restrições permanecem literais nos artefatos de PM, tasks e prompts de
+execução.
 
 O preflight direto precisa retornar uma contagem positiva. O dry-run resolve
 inputs e planeja nós, mas não executa `import_tasks`; portanto não detecta um

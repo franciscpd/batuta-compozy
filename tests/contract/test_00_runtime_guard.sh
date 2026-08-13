@@ -35,10 +35,15 @@ expect_reject \
 expect_accept "v0.3.0-beta.13-6-g594d9fdf" "594d9fdf"
 expect_accept "v0.3.0-beta.13-6-g594d9fdf" "$FIX_COMMIT"
 expect_accept "v0.3.0-beta.13-14-g36bd8156" "36bd8156"
+expect_accept \
+  "v0.3.0-beta.13-15-g4154d25c" \
+  "4154d25c89794dff634fccef00a3d968fc09c3f9"
 expect_accept "v0.3.0-beta.14" "deadbeef"
 expect_accept "v0.3.0" "deadbeef"
 
-official_out=$("$GUARD" --version "v0.3.0-beta.13-14-g36bd8156" --commit "36bd8156")
+official_out=$("$GUARD" \
+  --version "v0.3.0-beta.13-15-g4154d25c" \
+  --commit "4154d25c89794dff634fccef00a3d968fc09c3f9")
 case "$official_out" in
   *"known official descendant"*"594d9fdf"*) ;;
   *)

@@ -42,6 +42,20 @@ por esta alteração.
   pelo Batuta e confirme que ambos os filhos persistem
   `inputs.auto_commit=false`. Nenhum commit de implementação ou review pode
   ser criado nesse caso.
+- Remova somente o valor workspace de
+  `loops.inputs.batuta-deliver.auto_commit`, abra uma sessão nova e confirme
+  que `compozy__config_get` retorna `config_path_not_found`. O Batuta deve
+  perguntar a preferência, gravá-la com `compozy__config_set` em escopo
+  workspace e reler a mesma chave; registre a leitura estruturada confirmando
+  o booleano escolhido antes de qualquer dry-run ou despacho.
+- Repita o bootstrap com uma falha de configuração diferente de
+  `config_path_not_found`. O Batuta deve parar e apresentar o erro estruturado
+  exato, sem consultar defaults globais, os Loops filhos, o default da
+  definição ou um dry-run para inventar `auto_commit`.
+- Peça uma feature que exija literalmente `todo 1.0.0`. Confirme que
+  `_prd.md`, `_techspec.md`, `_tests.md`, `_tasks.md`, cada `task_NN.md` e os
+  prompts de execução aplicáveis preservam `todo 1.0.0` sem upgrade,
+  normalização ou paráfrase.
 - Peça ao Batuta para despachar um `slug` inexistente. O preflight direto de
   `import_tasks` deve falhar antes do dry-run e nenhum run real de
   `batuta-deliver` pode ser criado. Em seguida, envie uma submissão direta

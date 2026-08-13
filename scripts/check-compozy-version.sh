@@ -59,6 +59,7 @@ official_beta13 = {
     "26f7b488cd09c42fdc6759b15c4ebd149594e2e2": 12,
     "2e58013e4504f3fe7c7ea81762867b6ef6c621d3": 13,
     "36bd8156bba6f91b10929ed4d5e1b91623a3cb5f": 14,
+    "4154d25c89794dff634fccef00a3d968fc09c3f9": 15,
 }
 post_tag = re.fullmatch(
     r"v?(\d+)\.(\d+)\.(\d+)-beta\.(\d+)-(\d+)-g([0-9a-fA-F]+)",

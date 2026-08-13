@@ -72,11 +72,21 @@ live provider-model catalog, confirms it with the operator, and stores it as
 the `implement-tasks` runtime override. It separately stores the operator's
 commit preference at `loops.inputs.batuta-deliver.auto_commit`.
 
+Before every dispatch, Batuta reads only that exact key in the current
+workspace. `config_path_not_found` makes it ask the operator, write the boolean
+at workspace scope, and confirm it with a structured reread. Any other config
+error stops dispatch unchanged; global defaults, child Loop defaults,
+definition defaults, and dry-runs never substitute for the stored preference.
+
 Flow: PM phase in conversation (PRD → TechSpec → tasks via the `cy-*` skills)
 → direct read-only task import preflight → Loop dry-run (planning only) →
 dispatch of `batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
 `implement-tasks` (one isolated cycle + one commit per task) →
 `review-and-fix` (review rounds until clean) → exact terminal outcome.
+
+Executable requirements such as dependency names and versions, commands,
+paths, flags, and constraints remain literal throughout PM artifacts, tasks,
+and execution prompts.
 
 The direct preflight must return a positive task count. Dry-run resolves inputs
 and plans nodes but does not execute `import_tasks`, so it cannot detect a

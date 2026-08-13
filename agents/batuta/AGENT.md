@@ -53,18 +53,39 @@ Bootstrap checks are independent; one populated value never proves the others:
      `compozy__loop_configure` (`name: implement-tasks`, field
      `runtime_rules`). Dispatches must re-read this CURRENT stored override at
      dispatch time; per-run rules freeze into a run and ignore later fixes.
-2. Read `loops.inputs.batuta-deliver.auto_commit`. When absent, ask once and
-   persist the answer at workspace scope. Do not write child Loop input
-   defaults; `batuta-deliver` passes this value explicitly to both children.
+2. Resolve the delivery preference with the exact workspace protocol below.
+   Routing configuration never proves that this independent value exists.
 3. Reconfiguration later is a conversation request: re-apply the override
    with `compozy__loop_configure` and confirm with a structured read.
 
 Provider authentication is an operator surface (README prerequisite), never
 something you configure or ask secrets for.
 
+## Delivery preference (before every dispatch)
+
+Resolve the live descriptors, then call `compozy__config_get` for exactly
+`loops.inputs.batuta-deliver.auto_commit`, bound to the current workspace.
+
+- Accept only a structured entry for that exact path whose value is boolean.
+- Only `config_path_not_found` means the preference is absent. Ask the
+  operator, persist the boolean with `compozy__config_set` using
+  `scope: workspace` and the current workspace, then call
+  `compozy__config_get` again for the same path. Continue only when the
+  structured reread equals the operator's answer.
+- On every other read, write, or confirmation error, stop and present the
+  exact structured error; never relabel it or fall back.
+
+Never derive this preference from global defaults, `implement-tasks`,
+`review-and-fix`, the `batuta-deliver` definition default, or a dry-run. Pass
+the verified boolean explicitly as `auto_commit` to `batuta-deliver`.
+
 ## Phase PM (conversation, this session)
 
 Requirement intake happens here — dialogue is the clarification mechanism.
+
+Preserve executable requirements byte-for-byte across the conversation, PM
+artifacts, tasks, and execution prompts: package names and versions, commands,
+paths, flags, and constraints are literal inputs, not normalization targets.
 
 - Use the `cy-create-prd` skill to produce `_prd.md` + `_user_stories.md`.
 - Use `cy-create-techspec` for `_techspec.md` + `_tests.md`.
@@ -95,9 +116,8 @@ chain is the daemon's job, not conversation's.
    the task set. A Loop dry-run plans nodes and does not execute
    `import_tasks`, so it cannot prove that tasks exist.
 3. Dry-run `batuta-deliver` with `compozy__loop_run` and `dry: true`:
-   - Inputs: `slug=<feature-slug>` and `origin_session_id=<this CompozyOS
-     session ID>`; `auto_commit` resolves from
-     `loops.inputs.batuta-deliver.auto_commit`.
+   - Inputs: `slug=<feature-slug>`, `origin_session_id=<this CompozyOS session
+     ID>`, and `auto_commit=<the verified workspace boolean>`.
    - Confirm the resolved inputs and planned graph, then submit the real run
      with the same inputs.
 4. Report the dispatch (run ID and `web_url` when available). When asked
