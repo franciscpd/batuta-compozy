@@ -3,13 +3,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh
+REPO_ROOT=$PWD
+REPO_WORKSPACE_PREEXISTED=false
+if [[ -e .compozy ]]; then
+  REPO_WORKSPACE_PREEXISTED=true
+fi
 WS=$(require_test_workspace)
 PROVIDERS=$(mktemp)
 MODELS=$(mktemp)
 PAIR_FILE=$(mktemp)
 TMP_OUT=$(mktemp)
 cleanup() {
-  rm -f -- "$PROVIDERS" "$MODELS" "$PAIR_FILE" "$TMP_OUT"
+  local original_status=$?
+  local cleanup_failed=false
+  trap - EXIT
+
+  if [[ $REPO_WORKSPACE_PREEXISTED == false ]] && \
+    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+    cleanup_failed=true
+  fi
+  if ! rm -f -- "$PROVIDERS" "$MODELS" "$PAIR_FILE" "$TMP_OUT"; then
+    cleanup_failed=true
+  fi
+
+  if [[ $cleanup_failed == true ]]; then
+    exit 1
+  fi
+  exit "$original_status"
 }
 trap cleanup EXIT
 

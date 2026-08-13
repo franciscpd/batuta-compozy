@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
 
+cleanup_generated_workspace_marker() {
+  local repo_root=$1 marker=$1/.compozy unexpected
+  if [[ ! -e $marker ]]; then
+    return 0
+  fi
+  if [[ ! -d $marker || -L $marker || ! -f $marker/workspace.toml || \
+    -L $marker/workspace.toml ]]; then
+    printf 'refusing to clean unexpected workspace marker: %s\n' "$marker" >&2
+    return 1
+  fi
+  unexpected=$(find "$marker" -mindepth 1 \
+    ! -path "$marker/workspace.toml" -print -quit)
+  if [[ -n $unexpected ]]; then
+    printf 'refusing to clean non-minimal workspace marker: %s\n' \
+      "$unexpected" >&2
+    return 1
+  fi
+  rm -f -- "$marker/workspace.toml"
+  rmdir "$marker"
+}
+
 require_test_workspace() {
   local repo_root candidate workspaces_json resolved
   repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)

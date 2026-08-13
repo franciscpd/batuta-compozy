@@ -3,10 +3,33 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh
+REPO_ROOT=$PWD
+REPO_WORKSPACE_PREEXISTED=false
+if [[ -e .compozy ]]; then
+  REPO_WORKSPACE_PREEXISTED=true
+fi
 WS=$(require_test_workspace)
+TMP=$(mktemp)
+cleanup() {
+  local original_status=$?
+  local cleanup_failed=false
+  trap - EXIT
+
+  if ! rm -f -- "$TMP"; then
+    cleanup_failed=true
+  fi
+  if [[ $REPO_WORKSPACE_PREEXISTED == false ]] && \
+    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+    cleanup_failed=true
+  fi
+  if [[ $cleanup_failed == true ]]; then
+    exit 1
+  fi
+  exit "$original_status"
+}
+trap cleanup EXIT
 
 out=$(compozy loop validate --file loops/batuta-deliver/loop.yaml --workspace "$WS" -o json)
-TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 printf '%s' "$out" > "$TMP"
 python3 - "$TMP" <<'PY'
 import json, sys
