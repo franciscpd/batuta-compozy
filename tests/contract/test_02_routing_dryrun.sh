@@ -16,37 +16,8 @@ trap cleanup EXIT
 compozy provider list -o json > "$PROVIDERS"
 compozy provider models list -o json > "$MODELS"
 
-python3 - "$PROVIDERS" "$MODELS" > "$PAIR_FILE" <<'PY'
-import json
-import sys
-
-providers = json.load(open(sys.argv[1]))["providers"]
-models = json.load(open(sys.argv[2]))["models"]
-usable = {
-    row["name"]
-    for row in providers
-    if row.get("auth_status", {}).get("state")
-    not in {"missing_cli", "missing_credential"}
-}
-candidates = sorted(
-    (
-        row["provider_id"],
-        row["model_id"],
-    )
-    for row in models
-    if row["provider_id"] in usable
-    and not row.get("hidden")
-    and not row.get("deprecated")
-    and (row.get("available") is True or row.get("availability_state") == "available_live")
-)
-if not candidates:
-    raise SystemExit(
-        "prerequisite missing: no live-available model belongs to a provider "
-        "whose CLI/credential is present"
-    )
-print(candidates[0][0])
-print(candidates[0][1])
-PY
+python3 tests/contract/select_routing_pair.py \
+  "$PROVIDERS" "$MODELS" > "$PAIR_FILE"
 mapfile -t PAIR < "$PAIR_FILE"
 
 PROVIDER=${PAIR[0]}

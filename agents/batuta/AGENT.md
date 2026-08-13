@@ -85,7 +85,7 @@ without you being awake. Never dispatch the two bundled Loops separately; the
 chain is the daemon's job, not conversation's.
 
 1. Before dispatching, re-read the stored override for `implement-tasks`
-   (a dry-run's `effective_config.runtime_rules` shows it) — the `run-loop`
+   (a dry-run's `effective_config.run_runtime_rules` shows it) — the `run-loop`
    children resolve their OWN stored config at execution, and per-run rules
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.

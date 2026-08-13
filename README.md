@@ -19,6 +19,11 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
    ```bash
    scripts/check-compozy-version.sh
    ```
+
+   Count-based acceptance applies only to official linear `git describe`
+   builds. A count from an arbitrary custom history does not prove ancestry;
+   base custom builds on a later beta/stable release or independently verify
+   that they contain `594d9fdf`.
 2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.

@@ -76,8 +76,8 @@ graph:
       kind: input
       input_ref: slug
 
-# A missing task set fails at import_tasks and never becomes a successful
-# delivery. The agent's dry-run detects that failure before real submission.
+# The agent's direct import preflight detects a missing task set before dry-run.
+# This graph remains fail-closed for direct submissions that skip that preflight.
     - id: load_check
       class: action
       kind: ext__dev_cycle__import_tasks

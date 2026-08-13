@@ -25,7 +25,16 @@ if BATUTA_FAKE_LOG="$LOG" PATH="$TMP:$PATH" scripts/republish.sh >/dev/null 2>&1
   exit 1
 fi
 
-if [[ ! -f "$LOG" ]] || rg -q '^extension remove batuta' "$LOG"; then
+remove_seen=false
+if [[ -f $LOG ]]; then
+  while IFS= read -r call; do
+    if [[ $call == "extension remove batuta"* ]]; then
+      remove_seen=true
+    fi
+  done < "$LOG"
+fi
+
+if [[ ! -f $LOG || $remove_seen == true ]]; then
   printf 'republish removeu a extensao antes de validar o runtime\n' >&2
   exit 1
 fi

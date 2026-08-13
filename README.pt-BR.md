@@ -20,6 +20,11 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
    ```bash
    scripts/check-compozy-version.sh
    ```
+
+   A aceitação por contagem vale somente para builds oficiais com histórico
+   linear de `git describe`. A contagem de um histórico customizado arbitrário
+   não prova ancestralidade; baseie builds customizados em um beta/estável
+   posterior ou verifique independentemente a presença de `594d9fdf`.
 2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —

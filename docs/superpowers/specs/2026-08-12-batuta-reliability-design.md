@@ -120,7 +120,10 @@ the current daemon. Operational use requires a post-beta.13 build containing
 `594d9fdf` (six commits after the tag) or the first later beta/stable release.
 An executable guard enforces that boundary because manifest semver cannot
 express a post-tag Git commit and the daemon normalizes the current build to
-beta.13 during manifest comparison.
+beta.13 during manifest comparison. The six-commit ordering is valid only for
+official linear `git describe` builds. An arbitrary custom history cannot prove
+ancestry from its count; custom builds must use a later release base or verify
+the fix ancestry independently.
 
 The extension remains local/unverified during this beta. No new permissions, secrets,
 or Host API methods are introduced.
@@ -185,8 +188,9 @@ This amendment records the operational corrections found after full review:
 - Task existence is proven by direct read-only import before dry-run. Dry-run
   is only a resolved plan and never executes the graph.
 - `0.3.0-beta.13` is only the manifest grammar floor. The plain tag is rejected;
-  post-tag builds at least six commits after it, including
+  official linear post-tag builds at least six commits after it, including
   `v0.3.0-beta.13-14-g36bd8156`, and later beta/stable releases are accepted.
+  Counts from arbitrary custom histories are not ancestry evidence.
 - Routing contract verification derives one usable exact provider/model pair
   from `provider list` and `provider models list`, then projects that pair over
   four synthetic complexity rules without reading the skill's dated example or

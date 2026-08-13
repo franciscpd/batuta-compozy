@@ -13,25 +13,38 @@ fi
 
 STAGE=$(mktemp -d /tmp/batuta-lifecycle.XXXXXX)
 INV_OUT=$(mktemp)
-INSTALLED=false
+MUTATION_STARTED=false
 cleanup() {
-  if [[ $INSTALLED == true ]]; then
+  local original_status=$?
+  local cleanup_failed=false
+  trap - EXIT
+
+  if [[ $MUTATION_STARTED == true ]]; then
     if ! compozy extension remove batuta --global -o json >/dev/null; then
-      printf 'cleanup failed to remove batuta after lifecycle error\n' >&2
+      printf 'cleanup failed to remove global batuta after lifecycle mutation\n' >&2
+      cleanup_failed=true
     fi
   fi
   rm -f -- "$INV_OUT"
   case "$STAGE" in
     /tmp/batuta-lifecycle.*) rm -rf -- "$STAGE" ;;
-    *) printf 'refusing to clean unexpected staging path: %s\n' "$STAGE" >&2 ;;
+    *)
+      printf 'refusing to clean unexpected staging path: %s\n' "$STAGE" >&2
+      cleanup_failed=true
+      ;;
   esac
+
+  if [[ $cleanup_failed == true ]]; then
+    exit 1
+  fi
+  exit "$original_status"
 }
 trap cleanup EXIT
 
 scripts/stage-extension.sh "$STAGE"
+MUTATION_STARTED=true
 compozy extension install "$STAGE" --allow-unverified --yes -o json \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("install:", json.dumps(d)[:200])'
-INSTALLED=true
 
 compozy extension enable batuta -o json | python3 -c '
 import json, sys
@@ -66,4 +79,4 @@ import json,sys
 d=json.load(sys.stdin)
 assert d.get("status") in ("removed", None) or "removed" in json.dumps(d), d
 print("OK: remocao limpa")'
-INSTALLED=false
+MUTATION_STARTED=false

@@ -9,7 +9,7 @@ pequeno com suite de testes real).
 1. **Sessão**: crie uma sessão no workspace cobaia com o agente `batuta`.
 2. **Bootstrap**: na primeira mensagem, peça uma feature pequena (ex.: "adicione
    um subcomando --version"). Aceite: o batuta aplica a tabela de roteamento
-   (confira depois com dry-run: `effective_config.runtime_rules` preenchido) e
+   (confira depois com dry-run: `effective_config.run_runtime_rules` preenchido) e
    pergunta auto-commit ANTES de qualquer despacho.
 3. **Fase PM**: o batuta conduz `cy-create-tasks` (com ou sem PRD/TechSpec,
    conforme o tamanho). Aceite: `.compozy/tasks/<slug>/` existe com `_tasks.md`

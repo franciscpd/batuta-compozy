@@ -55,10 +55,19 @@ elif release:
 
 if not compatible:
     raise SystemExit(
-        f"incompatible CompozyOS {version}: Batuta requires a post-beta.13 "
-        "build containing 594d9fdf (v0.3.0-beta.13-6 or newer), or the "
-        "first later beta/stable release; upgrade CompozyOS before continuing"
+        f"incompatible CompozyOS {version}: Batuta requires an official linear "
+        "git-describe build at v0.3.0-beta.13-6 or newer (containing "
+        "594d9fdf), or a later beta/stable release; counts from arbitrary "
+        "custom histories do not prove ancestry, so base custom builds on a "
+        "later release or verify the fix ancestry before continuing"
     )
 
-print(f"OK: CompozyOS {version} satisfies Batuta's operational floor")
+if post_tag and tuple(map(int, post_tag.groups()[:3])) == (0, 3, 0):
+    print(
+        f"OK: CompozyOS {version} satisfies Batuta's operational floor for "
+        "official linear git-describe provenance; custom-history counts do "
+        "not prove ancestry"
+    )
+else:
+    print(f"OK: CompozyOS {version} satisfies Batuta's operational floor")
 PY

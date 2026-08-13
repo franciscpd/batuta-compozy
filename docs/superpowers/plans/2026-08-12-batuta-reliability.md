@@ -603,13 +603,18 @@ This dated amendment supersedes Task 2's dry-run task-existence claim and Task
 - Require a direct read-only `import_tasks` call with positive count before
   dry-run; document that dry-run plans nodes without executing them.
 - Keep beta.13 as the manifest grammar floor and enforce the operational floor
-  with a version guard: post-beta.13 build containing `594d9fdf`, or the first
-  later beta/stable release.
-- Derive the routing dry-run pair from live provider/model catalogs and create
-  no task fixture.
+  with a version guard: official linear post-beta.13 build containing
+  `594d9fdf`, or the first later beta/stable release. Custom-history counts do
+  not prove ancestry.
+- Derive the routing dry-run pair from live provider/model catalogs, preferring
+  live availability and falling back to non-explicitly-unavailable catalog
+  models on providers whose authentication is not missing; create no task
+  fixture.
 - Assert the exact live `(kind,name)` inventory.
 - Stage only the manifest and three declared resources for lifecycle install
   and republication; reject non-empty staging targets.
+- Keep the lifecycle mutation window cleanup-guarded even when install output
+  parsing fails after the daemon has committed the install.
 - Validate the guard before removal, then publish the staged package and verify
   the managed installation contains no repository metadata or development
   artifacts.
