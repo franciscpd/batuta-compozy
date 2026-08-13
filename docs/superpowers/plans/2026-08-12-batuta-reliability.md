@@ -559,9 +559,9 @@ declared local publication workflow.
 - [ ] **Step 4: Confirm live definitions**
 
 ```bash
+WS=$(bash -c 'source tests/contract/lib.sh; require_test_workspace')
 compozy extension inventory batuta -o json
-compozy loop inspect --workspace /home/franciscpd/Projects/batuta-compozy \
-  --name batuta-deliver -o json
+compozy loop inspect --workspace "$WS" --name batuta-deliver -o json
 ```
 
 Expected: all three inventory items are `live: true`; the live delivery definition
