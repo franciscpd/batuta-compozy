@@ -117,11 +117,13 @@ replace it later if CompozyOS adds that public Loop surface.
 
 The manifest minimum remains `0.3.0-beta.13` as the grammar floor accepted by
 the current daemon. Operational use requires a beta.13 post-tag build whose
-`Version` and `Commit` match the known official descendant allowlist from
-`594d9fdf` through current `36bd8156`, or the first later beta/stable release.
-The executable guard enforces that boundary because manifest semver cannot
-express Git ancestry and the daemon normalizes the current build to beta.13
-during manifest comparison. Arbitrary custom-history counts are rejected.
+`Version` and `Commit` resolve to the same canonical full hash in the known
+official descendant allowlist from `594d9fdf` through current `36bd8156`, or
+the first later beta/stable release. The full commit hash or the official
+eight-character emitted abbreviation is accepted; the describe hash must be
+an unambiguous prefix of that same full hash. The executable guard enforces
+that boundary because manifest semver cannot express Git ancestry and the
+daemon normalizes the current build to beta.13 during manifest comparison.
 
 The extension remains local/unverified during this beta. No new permissions, secrets,
 or Host API methods are introduced.
@@ -186,10 +188,11 @@ This amendment records the operational corrections found after full review:
 - Task existence is proven by direct read-only import before dry-run. Dry-run
   is only a resolved plan and never executes the graph.
 - `0.3.0-beta.13` is only the manifest grammar floor. The plain tag is rejected;
-  beta.13 post-tag builds require matching `Version` and `Commit` entries in
-  the official descendant allowlist, including current
+  beta.13 post-tag builds require `Version` and `Commit` to resolve to the same
+  canonical full hash in the official descendant allowlist, including current
   `v0.3.0-beta.13-14-g36bd8156` / `36bd8156`. Later beta/stable releases remain
-  semver accepted; arbitrary custom-history counts are not ancestry evidence.
+  semver accepted; extended hashes that merely share an eight-character prefix
+  are rejected.
 - Routing contract verification derives one usable exact provider/model pair
   from `provider list` and `provider models list`, then projects that pair over
   four synthetic complexity rules without reading the skill's dated example or
@@ -202,3 +205,8 @@ This amendment records the operational corrections found after full review:
   verifies the exact three live resources. Repository metadata, docs, tests,
   and SDD reports are excluded. Package directories remain mode `0755` because
   Compozy copies each source directory mode before creating its children.
+  A package-root cross-process lock spans package creation and verification,
+  extension validation, package revalidation, removal, and installation. This
+  prevents cooperating publishers from replacing writable-directory entries
+  between verification and consumption; revalidation fails closed before
+  installed state changes if validation itself observes an altered package.

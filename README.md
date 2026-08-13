@@ -20,10 +20,12 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
    scripts/check-compozy-version.sh
    ```
 
-   For beta.13 post-tag builds, the guard requires both `Version` and `Commit`
-   to match the known official descendants from `594d9fdf` through the current
-   verified build. Arbitrary custom builds are rejected by count alone; base
-   them on a later beta/stable release.
+   For beta.13 post-tag builds, the guard resolves `Version` and `Commit`
+   against canonical full hashes for the known official descendants from
+   `594d9fdf` through the current verified build. `Commit` must be the exact
+   full hash or the official eight-character build abbreviation, and the
+   describe hash must be an unambiguous prefix of that same commit. Arbitrary
+   custom builds are rejected; base them on a later beta/stable release.
 2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.
@@ -56,7 +58,9 @@ Publication retains a content-addressed source under
 `~/.local/share/batuta-compozy/packages`. Set `BATUTA_PACKAGE_ROOT` to override
 that root. Its files are read-only, and its exact tree and bytes are verified
 before reuse. The live extension provenance continues to reference this
-existing minimal package.
+existing minimal package. A cross-process lock serializes package creation,
+verification, validation, and installation; the package is reverified under
+that lock immediately before any installed extension is removed or replaced.
 
 ## Usage
 

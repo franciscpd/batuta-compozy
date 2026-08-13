@@ -50,15 +50,15 @@ import sys
 
 version, commit = sys.argv[1:]
 official_beta13 = {
-    "594d9fdf": 6,
-    "714b7347": 7,
-    "81e49510": 8,
-    "fee93b73": 9,
-    "765eba13": 10,
-    "5579d107": 11,
-    "26f7b488": 12,
-    "2e58013e": 13,
-    "36bd8156": 14,
+    "594d9fdf041e722fca5f60a62351c4c084c71430": 6,
+    "714b7347ba8922eb123ea0c57630cf2a01b92b37": 7,
+    "81e49510735deac14201f144fe068c9cc1ff97ef": 8,
+    "fee93b73b740650d64fb47a749b6248889baa613": 9,
+    "765eba13aceda231d2c5537053b7415fe08466a0": 10,
+    "5579d10763db6d0b9552768237acd5a8d26e6ddf": 11,
+    "26f7b488cd09c42fdc6759b15c4ebd149594e2e2": 12,
+    "2e58013e4504f3fe7c7ea81762867b6ef6c621d3": 13,
+    "36bd8156bba6f91b10929ed4d5e1b91623a3cb5f": 14,
 }
 post_tag = re.fullmatch(
     r"v?(\d+)\.(\d+)\.(\d+)-beta\.(\d+)-(\d+)-g([0-9a-fA-F]+)",
@@ -70,11 +70,21 @@ release = re.fullmatch(
 )
 
 
-def resolve_official_hash(value):
+def resolve_commit(value):
+    value = value.lower()
+    if len(value) not in {8, 40} or not re.fullmatch(r"[0-9a-f]+", value):
+        return None
+    if len(value) == 40:
+        return value if value in official_beta13 else None
+    matches = [known for known in official_beta13 if known.startswith(value)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def resolve_described_hash(value):
     value = value.lower()
     if not re.fullmatch(r"[0-9a-f]{7,40}", value):
         return None
-    matches = [known for known in official_beta13 if known.startswith(value) or value.startswith(known)]
+    matches = [known for known in official_beta13 if known.startswith(value)]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -85,8 +95,8 @@ if post_tag:
     described_hash = post_tag.group(6)
     core = (major, minor, patch)
     if core == (0, 3, 0) and beta == 13:
-        resolved_commit = resolve_official_hash(commit)
-        resolved_described = resolve_official_hash(described_hash)
+        resolved_commit = resolve_commit(commit)
+        resolved_described = resolve_described_hash(described_hash)
         compatible = (
             resolved_commit is not None
             and resolved_commit == resolved_described

@@ -2,6 +2,14 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
+lock_fd=${BATUTA_PACKAGE_LOCK_FD:-}
+lock_path=${BATUTA_PACKAGE_LOCK_PATH:-}
+if ! python3 "$ROOT/scripts/with-package-lock.py" \
+  --check "$lock_fd" "$lock_path"; then
+  exec python3 "$ROOT/scripts/with-package-lock.py" \
+    "$ROOT/scripts/package-extension.sh" "$@"
+fi
+
 if [[ -n ${BATUTA_PACKAGE_ROOT:-} ]]; then
   requested_root=$BATUTA_PACKAGE_ROOT
 elif [[ -n ${XDG_DATA_HOME:-} ]]; then
@@ -23,6 +31,10 @@ if [[ -L $requested_root || ! -d $requested_root ]]; then
   exit 2
 fi
 PACKAGE_ROOT=$(cd "$requested_root" && pwd -P)
+if [[ $lock_path != "$PACKAGE_ROOT/.publication.lock" ]]; then
+  printf 'package lock does not protect package root: %s\n' "$PACKAGE_ROOT" >&2
+  exit 2
+fi
 
 PACKAGE_TEMP=$(mktemp -d "$PACKAGE_ROOT/.staging.XXXXXX")
 cleanup() {

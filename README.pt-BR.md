@@ -21,10 +21,12 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
    scripts/check-compozy-version.sh
    ```
 
-   Para builds pós-tag beta.13, o guard exige que `Version` e `Commit`
-   correspondam aos descendentes oficiais conhecidos entre `594d9fdf` e o
-   build atual verificado. Builds customizados arbitrários são rejeitados pela
-   contagem isolada; baseie-os em um beta/estável posterior.
+   Para builds pós-tag beta.13, o guard resolve `Version` e `Commit` contra os
+   hashes completos canônicos dos descendentes oficiais conhecidos entre
+   `594d9fdf` e o build atual verificado. `Commit` deve ser o hash completo
+   exato ou a abreviação oficial de oito caracteres, e o hash describe deve ser
+   um prefixo não ambíguo desse mesmo commit. Builds customizados arbitrários
+   são rejeitados; baseie-os em um beta/estável posterior.
 2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —
@@ -57,7 +59,9 @@ A publicação retém uma fonte endereçada por conteúdo em
 `~/.local/share/batuta-compozy/packages`. Use `BATUTA_PACKAGE_ROOT` para trocar
 essa raiz. Seus arquivos são somente leitura, e a árvore e os bytes exatos são
 verificados antes do reuso. A proveniência live continua apontando para esse
-pacote mínimo existente.
+pacote mínimo existente. Um lock entre processos serializa criação,
+verificação, validação e instalação; o pacote é revalidado sob esse lock
+imediatamente antes de remover ou substituir a extensão instalada.
 
 ## Uso
 

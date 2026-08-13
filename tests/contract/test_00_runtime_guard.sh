@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 GUARD=scripts/check-compozy-version.sh
+FIX_COMMIT=594d9fdf041e722fca5f60a62351c4c084c71430
 
 expect_reject() {
   local version=$1 commit=$2 out
@@ -28,8 +29,11 @@ expect_reject "v0.3.0-beta.13" "594d9fdf"
 expect_reject "v0.3.0-beta.13-5-g594d9fdf" "594d9fdf"
 expect_reject "v0.3.0-beta.13-6-gdeadbee" "deadbeef"
 expect_reject "v0.3.0-beta.13-6-g594d9fdf" "714b7347"
+expect_reject \
+  "v0.3.0-beta.13-6-g594d9fdf11111111111111111111111111111111" \
+  "594d9fdf22222222222222222222222222222222"
 expect_accept "v0.3.0-beta.13-6-g594d9fdf" "594d9fdf"
-expect_accept "v0.3.0-beta.13-6-g594d9fdf" "594d9fdf00000000000000000000000000000000"
+expect_accept "v0.3.0-beta.13-6-g594d9fdf" "$FIX_COMMIT"
 expect_accept "v0.3.0-beta.13-14-g36bd8156" "36bd8156"
 expect_accept "v0.3.0-beta.14" "deadbeef"
 expect_accept "v0.3.0" "deadbeef"

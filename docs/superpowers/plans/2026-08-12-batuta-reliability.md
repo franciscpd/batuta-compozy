@@ -603,9 +603,11 @@ This dated amendment supersedes Task 2's dry-run task-existence claim and Task
 - Require a direct read-only `import_tasks` call with positive count before
   dry-run; document that dry-run plans nodes without executing them.
 - Keep beta.13 as the manifest grammar floor and enforce the operational floor
-  with a version guard: beta.13 post-tag `Version` and `Commit` must match the
-  known official descendant allowlist from `594d9fdf` through current, or the
-  build must use the first later beta/stable release.
+  with a version guard: beta.13 post-tag `Version` and `Commit` must resolve to
+  the same canonical full hash in the official descendant allowlist from
+  `594d9fdf` through current. Accept only exact full commit hashes or the
+  official eight-character emitted abbreviation; later beta/stable releases
+  remain accepted.
 - Derive the routing dry-run pair from live provider/model catalogs, preferring
   live availability and falling back to non-explicitly-unavailable catalog
   models on providers whose authentication is not missing; create no task
@@ -615,6 +617,9 @@ This dated amendment supersedes Task 2's dry-run task-existence claim and Task
   temporary sibling into a content-addressed package under user data, make
   files read-only, verify exact tree and bytes before reuse, and install from
   the retained final directory.
+- Hold one cross-process package-root lock across creation, validation,
+  revalidation, removal, and installation. Revalidate the retained package
+  under that lock immediately before changing installed extension state.
 - Keep the lifecycle mutation window cleanup-guarded even when install output
   parsing fails after the daemon has committed the install.
 - Validate the guard before removal, then publish from the retained digest
