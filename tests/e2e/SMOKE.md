@@ -33,6 +33,11 @@ pequeno com suite de testes real).
 - Ask Batuta to dispatch a missing slug. Confirm dry-run fails and no real
   `batuta-deliver` run is created.
 - Submit one deliberate direct invalid run. Confirm its terminal is not `done`.
+- After one terminal delivery, the original session receives exactly one
+  queued/direct turn.
+- Replaying the same terminal effect identity does not add another turn.
+- No watcher or reporting-agent runtime exists, and returning the terminal
+  spends no reporting-agent model tokens.
 
 ## Falhas que reprovam
 

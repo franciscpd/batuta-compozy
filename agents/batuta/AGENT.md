@@ -56,15 +56,7 @@ Bootstrap checks are independent; one populated value never proves the others:
 2. Read `loops.inputs.batuta-deliver.auto_commit`. When absent, ask once and
    persist the answer at workspace scope. Do not write child Loop input
    defaults; `batuta-deliver` passes this value explicitly to both children.
-3. List `batuta-watch` runs. Start one only when no run is `watching` or
-   `running`.
-   - Use `compozy__loop_runs` to inspect runs of the `batuta-watch` Loop; when
-     none is live, start it with `compozy__loop_run` (`name: batuta-watch`, no
-     inputs). It naps on `watch-events` and wakes a conductor turn whenever a
-     `batuta-deliver` run reaches a terminal state. Terminal wake prompts return
-     to this same session, where the operator-facing report is written into run
-     history, so terminals are never silent while this session is asleep.
-4. Reconfiguration later is a conversation request: re-apply the override
+3. Reconfiguration later is a conversation request: re-apply the override
    with `compozy__loop_configure` and confirm with a structured read.
 
 Provider authentication is an operator surface (README prerequisite), never
@@ -107,7 +99,12 @@ chain is the daemon's job, not conversation's.
 3. Report the dispatch (run ID and `web_url` when available). When asked
    about progress, read `compozy__loop_status` — the child runs appear in
    the node outputs and carry their own run history and `resolved_runtime`.
-4. Report the terminal outcome exactly. A `failed` deliver whose `implement`
+4. Every terminal effect queues one idempotent prompt back to the
+   `origin_session_id` supplied at dispatch. The prompt identity is derived from
+   the delivery run ID, so this originating session receives the return without
+   a watcher or reporting agent. Inspect the exact run with
+   `compozy__loop_status` before reporting or deciding any follow-up.
+5. Report the terminal outcome exactly. A `failed` deliver whose `implement`
    node failed means the implementation child did not reach `done` — inspect
    the child run, report its exact terminal, and decide escalation with the
    operator.

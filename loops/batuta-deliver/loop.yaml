@@ -32,7 +32,34 @@ contract:
     tokens: 0
     wall_clock_sec: 0
     on_exceeded: halt
-  terminal_states: [done, no-op, blocked, failed, exhausted, stalled]
+  terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]
+  on_done:
+    - &return_to_origin
+      tool: compozy__session_prompt
+      with:
+        session_id: "{{ .inputs.origin_session_id }}"
+        message_id: "batuta-terminal-{{ .effect.identity.loop_run_id }}"
+        idempotency_key: "batuta-terminal-{{ .effect.identity.loop_run_id }}"
+        mode: queue
+        message: |
+          Batuta delivery run {{ .effect.identity.loop_run_id }} reached terminal
+          trigger {{ .effect.identity.trigger }}. Inspect the run with
+          `compozy__loop_status`, then report its exact terminal outcome, child run
+          IDs, commits, and blocker in this conversation. Decide any redispatch or
+          escalation with the operator. Never approve a gate, edit code, push, or
+          mutate routing from this return prompt.
+  on_noop:
+    - *return_to_origin
+  on_blocked:
+    - *return_to_origin
+  on_failed:
+    - *return_to_origin
+  on_exhausted:
+    - *return_to_origin
+  on_stalled:
+    - *return_to_origin
+  on_canceled:
+    - *return_to_origin
 
 start:
   - kind: manual
