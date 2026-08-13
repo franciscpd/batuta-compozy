@@ -48,11 +48,11 @@ case "$official_out" in
 esac
 
 repo_had_compozy=false
-if [[ -e .compozy ]]; then
+if [[ -e .compozy || -L .compozy ]]; then
   repo_had_compozy=true
 fi
 "$GUARD" >/dev/null
-if [[ $repo_had_compozy == false && -e .compozy ]]; then
+if [[ $repo_had_compozy == false && ( -e .compozy || -L .compozy ) ]]; then
   printf 'version guard generated .compozy in the repository\n' >&2
   exit 1
 fi

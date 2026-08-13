@@ -6,18 +6,14 @@ REPO_ROOT=$(cd "$CONTRACT_DIR/../.." && pwd -P)
 GENERATED_WORKSPACE="$REPO_ROOT/.compozy"
 source "$CONTRACT_DIR/lib.sh"
 
-if [[ -e $GENERATED_WORKSPACE ]]; then
-  printf 'contract suite requires a clean repository without %s\n' \
-    "$GENERATED_WORKSPACE" >&2
-  exit 1
-fi
+preflight_contract_workspace "$REPO_ROOT"
 
 cleanup() {
   local original_status=$?
   local cleanup_failed=false
   trap - EXIT
 
-  if [[ -e $GENERATED_WORKSPACE ]]; then
+  if workspace_marker_present "$REPO_ROOT"; then
     printf 'contract suite generated repository state: %s\n' \
       "$GENERATED_WORKSPACE" >&2
     if ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
@@ -37,7 +33,7 @@ cd "$CONTRACT_DIR"
 for t in test_*.sh; do
   echo "=== $t ==="
   "./$t"
-  if [[ -e $GENERATED_WORKSPACE ]]; then
+  if workspace_marker_present "$REPO_ROOT"; then
     printf '%s generated repository state\n' "$t" >&2
     exit 1
   fi

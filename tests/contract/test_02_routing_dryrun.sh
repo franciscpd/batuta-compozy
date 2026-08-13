@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh
 REPO_ROOT=$PWD
 REPO_WORKSPACE_PREEXISTED=false
-if [[ -e .compozy ]]; then
+if workspace_marker_present "$REPO_ROOT"; then
   REPO_WORKSPACE_PREEXISTED=true
 fi
 WS=$(require_test_workspace)

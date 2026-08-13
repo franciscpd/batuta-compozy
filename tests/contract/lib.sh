@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 
+workspace_marker_present() {
+  local marker=$1/.compozy
+  [[ -e $marker || -L $marker ]]
+}
+
+preflight_contract_workspace() {
+  local repo_root=$1
+  if workspace_marker_present "$repo_root"; then
+    printf 'contract suite requires a clean repository without %s/.compozy\n' \
+      "$repo_root" >&2
+    return 1
+  fi
+}
+
 cleanup_generated_workspace_marker() {
   local repo_root=$1 marker=$1/.compozy unexpected
-  if [[ ! -e $marker ]]; then
+  if [[ ! -e $marker && ! -L $marker ]]; then
     return 0
   fi
-  if [[ ! -d $marker || -L $marker || ! -f $marker/workspace.toml || \
+  if [[ -L $marker || ! -d $marker || ! -f $marker/workspace.toml || \
     -L $marker/workspace.toml ]]; then
     printf 'refusing to clean unexpected workspace marker: %s\n' "$marker" >&2
     return 1

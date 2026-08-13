@@ -4,13 +4,13 @@ cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh
 REPO_ROOT=$PWD
 REPO_WORKSPACE_PREEXISTED=false
-if [[ -e .compozy ]]; then
+if workspace_marker_present "$REPO_ROOT"; then
   REPO_WORKSPACE_PREEXISTED=true
 fi
 WS=$(require_test_workspace)
 
 slug="_batuta_missing_contract_$(date +%s%N)_${RANDOM}_$$"
-if [[ -e .compozy/tasks/$slug ]]; then
+if [[ -e .compozy/tasks/$slug || -L .compozy/tasks/$slug ]]; then
   printf 'nao foi possivel obter slug ausente unico: %s\n' "$slug" >&2
   exit 1
 fi
