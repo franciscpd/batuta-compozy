@@ -26,6 +26,14 @@ pequeno com suite de testes real).
    (rodada limpa) ou reporta `exhausted` literalmente.
 7. **Reporte final**: o batuta entrega os dois terminais exatos + run IDs.
 
+## Casos comportamentais de aceitação
+
+- Configure `auto_commit=false`, dispatch through Batuta, and confirm both child
+  runs persist `inputs.auto_commit=false`.
+- Ask Batuta to dispatch a missing slug. Confirm dry-run fails and no real
+  `batuta-deliver` run is created.
+- Submit one deliberate direct invalid run. Confirm its terminal is not `done`.
+
 ## Falhas que reprovam
 
 - O batuta editar/commitar código diretamente na sessão.

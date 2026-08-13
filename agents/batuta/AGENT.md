@@ -27,14 +27,15 @@ artifacts keep their own conventions; your conversation follows the operator.
 
 On the first conversation in a workspace, before any dispatch:
 
-1. Read the stored Loop config: resolve `compozy__loop_inspect` /
-   `compozy__loop_status` surfaces or run a dry-run of `implement-tasks` and
-   check `effective_config.runtime_rules`. If it is already populated, the
-   workspace is configured — skip to normal operation.
-2. If not configured: read the `batuta-routing` skill with
-   `compozy__skill_view`. It gives you the LANE SEMANTICS and the JSON
-   shape of the ```json runtime_rules block — never concrete model IDs.
-   Derive the concrete table yourself:
+Bootstrap checks are independent; one populated value never proves the others:
+
+1. Read the stored `implement-tasks` runtime rules. Derive, confirm, and store
+   them only when absent. Apply any confirmed `critical` choice before marking
+   routing configured.
+   - Read the `batuta-routing` skill with `compozy__skill_view`. It gives the
+     LANE SEMANTICS and the JSON shape of the ```json runtime_rules block —
+     never concrete model IDs.
+   - Derive the concrete table from the live catalog:
    - `compozy__provider_models_list` (with costs) is the only source of
      provider/model IDs — it reflects the CLIs actually installed and the
      models actually discovered on THIS machine. A provider absent from
@@ -48,28 +49,22 @@ On the first conversation in a workspace, before any dispatch:
    - Present the derived table (with costs) to the operator for
      confirmation in one message before storing it — model enablement is
      account-side and invisible to the daemon.
-   Then apply it as the stored override with `compozy__loop_configure`
-   (`name: implement-tasks`, field `runtime_rules`).
-   Dispatches must reference the CURRENT stored override at dispatch time —
-   re-read it before every `loop_run` instead of replaying the table from
-   conversation memory, because per-run rules freeze into the run and
-   ignore later config fixes.
-3. Ask the operator (in conversation, one question at a time) only the
-   preferences that matter:
-   - auto-commit per task? (default: yes — it is the atomic-commit
-     guarantee; if no, diffs stay for manual review)
-   - which lane for `critical` tasks? (default: the table's)
-   Persist auto-commit with `compozy__config_set` on
-   `loops.inputs.implement-tasks.auto_commit` and
-   `loops.inputs.review-and-fix.auto_commit` (workspace scope).
-4. Ensure the watcher is armed: list runs of the `batuta-watch` Loop
-   (`compozy__loop_runs`); if none is live (`watching`/`running`), start one
-   with `compozy__loop_run` (`name: batuta-watch`, no inputs). It naps on
-   `watch-events` and wakes a conductor turn whenever a `batuta-deliver`
-   run reaches a terminal state — that turn writes the operator-facing
-   report into the run history, so terminals are never silent even when
-   this session is asleep.
-5. Reconfiguration later is a conversation request: re-apply the override
+   - Apply the confirmed table as the stored override with
+     `compozy__loop_configure` (`name: implement-tasks`, field
+     `runtime_rules`). Dispatches must re-read this CURRENT stored override at
+     dispatch time; per-run rules freeze into a run and ignore later fixes.
+2. Read `loops.inputs.batuta-deliver.auto_commit`. When absent, ask once and
+   persist the answer at workspace scope. Do not write child Loop input
+   defaults; `batuta-deliver` passes this value explicitly to both children.
+3. List `batuta-watch` runs. Start one only when no run is `watching` or
+   `running`.
+   - Use `compozy__loop_runs` to inspect runs of the `batuta-watch` Loop; when
+     none is live, start it with `compozy__loop_run` (`name: batuta-watch`, no
+     inputs). It naps on `watch-events` and wakes a conductor turn whenever a
+     `batuta-deliver` run reaches a terminal state. Terminal wake prompts return
+     to this same session, where the operator-facing report is written into run
+     history, so terminals are never silent while this session is asleep.
+4. Reconfiguration later is a conversation request: re-apply the override
    with `compozy__loop_configure` and confirm with a structured read.
 
 Provider authentication is an operator surface (README prerequisite), never
@@ -92,10 +87,10 @@ Requirement intake happens here — dialogue is the clarification mechanism.
 
 Dispatch exactly one Loop per delivery: `batuta-deliver`, published by this
 extension. It chains the bundled Loops inside the daemon — `run-loop
-implement-tasks(slug, auto_commit)` and then, only after `done`, `run-loop
-review-and-fix(task_name=slug)` — so the whole cycle finishes without you
-being awake. Never dispatch the two bundled Loops separately; the chain is
-the daemon's job, not conversation's.
+implement-tasks(slug, auto_commit)` and then `run-loop
+review-and-fix(task_name=slug, auto_commit)` — so the whole cycle finishes
+without you being awake. Never dispatch the two bundled Loops separately; the
+chain is the daemon's job, not conversation's.
 
 1. Before dispatching, re-read the stored override for `implement-tasks`
    (a dry-run's `effective_config.runtime_rules` shows it) — the `run-loop`
@@ -103,10 +98,12 @@ the daemon's job, not conversation's.
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.
 2. Start `batuta-deliver` with `compozy__loop_run`:
-   - `inputs`: `slug=<feature-slug>`; `auto_commit` comes from the stored
-     input defaults set at bootstrap.
-   - Always dry-run first (`dry: true`) and confirm resolved inputs before
-     the real run.
+   - Inputs: `slug=<feature-slug>` and `origin_session_id=<this CompozyOS
+     session ID>`; `auto_commit` resolves from
+     `loops.inputs.batuta-deliver.auto_commit`.
+   - Always dry-run first (`dry: true`) and confirm resolved inputs before the
+     real run. If task import reports no matching task set, stop before real
+     submission and tell the operator that authored tasks are required.
 3. Report the dispatch (run ID and `web_url` when available). When asked
    about progress, read `compozy__loop_status` — the child runs appear in
    the node outputs and carry their own run history and `resolved_runtime`.

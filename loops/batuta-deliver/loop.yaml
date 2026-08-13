@@ -14,6 +14,9 @@ inputs:
   slug:
     type: string
     required: true
+  origin_session_id:
+    type: string
+    required: true
   auto_commit:
     type: boolean
     default: true
@@ -46,39 +49,16 @@ graph:
       kind: input
       input_ref: slug
 
-# Guard: a slug with no pending task files must never reach the children.
-# Lesson from 2026-08-12: without this, review-and-fix runs a full (expensive)
-# reviewer pass even for a nonexistent slug.
-# import_tasks HARD-ERRORS on zero matches (taskSetNotFoundError, by design) —
-# it never returns an empty list. Without on_error.route the coordinator
-# reattempts the failure forever (observed live: gens 1-3, quarantine).
-# The error route absorbs the failure into a cheap no-op exit; the success
-# path is skipped on error and the route node is skipped on success.
+# A missing task set fails at import_tasks and never becomes a successful
+# delivery. The agent's dry-run detects that failure before real submission.
     - id: load_check
       class: action
       kind: ext__dev_cycle__import_tasks
-      on_error:
-        route: no_tasks
       params:
         pattern: ".compozy/tasks/{{ .inputs.slug }}/task_*.md"
       produces:
         tasks: array
         count: integer
-
-    - id: no_tasks
-      class: action
-      kind: transform
-      params:
-        map:
-          # transform values are NOT template-interpolated (verified live) — keep
-          # the message static; the slug is already recorded in slug_input's output.
-          note:
-            value: "No task set matched the slug under .compozy/tasks — nothing to deliver; authored tasks are required before dispatch."
-
-    - id: has_tasks
-      class: control
-      kind: branch
-      condition: "size(nodes.load_check.output.tasks) > 0"
 
     - id: implement
       class: action
@@ -102,10 +82,6 @@ graph:
     - from: slug_input
       to: load_check
     - from: load_check
-      to: no_tasks
-    - from: load_check
-      to: has_tasks
-    - from: has_tasks
       to: implement
     - from: implement
       to: review
