@@ -9,5 +9,7 @@ d = json.load(sys.stdin)
 issues = d.get('issues') or []
 errors = [i for i in issues if i.get('severity') == 'error']
 assert not errors, f'validate retornou erros: {errors}'
+manifest = d.get(\"manifest\") or {}
+assert manifest.get(\"min_compozy_version\") == \"0.3.0-beta.13\", manifest
 print('OK: manifest valido, sem issues de severidade error')
 "

@@ -2,7 +2,8 @@
 # Extrai runtime_rules da skill batuta-routing e valida por dry-run do implement-tasks.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-WS="$PWD"
+source tests/contract/lib.sh
+WS=$(require_test_workspace)
 SKILL="resources/skills/batuta-routing/SKILL.md"
 
 RULES_JSON=$(python3 - "$SKILL" <<'PY'
@@ -19,8 +20,16 @@ PY
 )
 
 # Fixture descartavel: uma task minima para o import do dry-run resolver.
-mkdir -p .compozy/tasks/_routing_probe
-cat > .compozy/tasks/_routing_probe/task_01.md <<'TASK'
+mkdir -p .compozy/tasks
+PROBE_DIR=$(mktemp -d .compozy/tasks/_routing_probe_XXXXXX)
+PROBE_SLUG=$(basename "$PROBE_DIR")
+TMP_OUT=$(mktemp)
+cleanup() {
+  rm -rf -- "$PROBE_DIR"
+  rm -f -- "$TMP_OUT"
+}
+trap cleanup EXIT
+cat > "$PROBE_DIR/task_01.md" <<'TASK'
 ---
 status: pending
 title: Routing probe
@@ -30,10 +39,10 @@ complexity: low
 # Routing probe
 Dry-run probe only.
 TASK
-cat > .compozy/tasks/_routing_probe/_tasks.md <<'MANIFEST'
+cat > "$PROBE_DIR/_tasks.md" <<MANIFEST
 ---
 schema_version: "compozy.tasks/v2"
-workflow: _routing_probe
+workflow: $PROBE_SLUG
 graph:
   nodes:
     - id: task_01
@@ -42,7 +51,6 @@ graph:
 ---
 # Routing Probe Task List
 MANIFEST
-trap 'rm -rf .compozy/tasks/_routing_probe' EXIT
 
 # Monta os --runtime a partir do JSON da skill (expressao provider/model@reasoning).
 mapfile -t RUNTIME_FLAGS < <(python3 - <<PY
@@ -60,13 +68,11 @@ for f in "${RUNTIME_FLAGS[@]}"; do ARGS+=(--runtime "$f"); done
 
 # Nota: o dry-run valida providers, mas IDs exatos de modelo passam adiante sem validação (typo em model nao falha aqui).
 out=$(compozy loop run --workspace "$WS" --name implement-tasks \
-  --input slug=_routing_probe "${ARGS[@]}" --dry-run -o json)
+  --input slug=$PROBE_SLUG "${ARGS[@]}" --dry-run -o json)
 
 # Nota: nao usar `echo "$out" | python3 - <<PY`; `python3 -` le o proprio
 # script do stdin, consumindo-o antes que o script possa ler $out de sys.stdin.
 # Passa o JSON por arquivo temporario + argv em vez disso.
-TMP_OUT=$(mktemp)
-trap 'rm -rf .compozy/tasks/_routing_probe "$TMP_OUT"' EXIT
 printf '%s' "$out" > "$TMP_OUT"
 
 python3 - "$TMP_OUT" <<'PY'

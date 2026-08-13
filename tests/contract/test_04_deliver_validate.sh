@@ -2,8 +2,10 @@
 # Valida a definição do Loop batuta-deliver sem publicar (lint + compile no daemon).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+source tests/contract/lib.sh
+WS=$(require_test_workspace)
 
-out=$(compozy loop validate --file loops/batuta-deliver/loop.yaml --workspace "$PWD" -o json)
+out=$(compozy loop validate --file loops/batuta-deliver/loop.yaml --workspace "$WS" -o json)
 TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 printf '%s' "$out" > "$TMP"
 python3 - "$TMP" <<'PY'
