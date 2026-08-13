@@ -15,16 +15,20 @@ pequeno com suite de testes real).
    conforme o tamanho). Aceite: `.compozy/tasks/<slug>/` existe com `_tasks.md`
    + `task_NN.md`, cada task com `complexity` no frontmatter; o breakdown foi
    apresentado para aprovação em conversa.
-4. **Despacho**: o batuta roda dry-run, mostra o plano, e dispara
-   `implement-tasks`. Aceite: run visível em `compozy loop runs`; cada geração
-   com `resolved_runtime` coerente com a lane da task.
+4. **Despacho composto**: o Batuta roda dry-run, mostra o plano e submete
+   exatamente um `batuta-deliver` com `slug`, `origin_session_id` da sessão
+   atual e `auto_commit` resolvido. Aceite: o run composto fica visível em
+   `compozy loop runs`; o daemon executa `implement-tasks` e depois
+   `review-and-fix` como filhos desse run.
 5. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
    commit por task implementada (auto_commit=true). Nenhum push.
-6. **Review**: o batuta reporta o terminal exato do run e, em `done`, dispara
-   `review-and-fix` com `task_name=<slug>`. Aceite: rodada(s) em
-   `.compozy/tasks/<slug>/reviews-NNN/` com issues triadas, run termina `done`
-   (rodada limpa) ou reporta `exhausted` literalmente.
-7. **Reporte final**: o batuta entrega os dois terminais exatos + run IDs.
+6. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
+   terminais dos filhos, seus `resolved_runtime` e as rodadas em
+   `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada
+   limpa) ou reporta `exhausted` literalmente.
+7. **Retorno e reporte final**: o efeito terminal envia exatamente um prompt à
+   sessão original. O Batuta reinspeciona o run composto e reporta o terminal
+   exato do composto, terminais dos filhos, commits e blocker.
 
 ## Casos comportamentais de aceitação
 
