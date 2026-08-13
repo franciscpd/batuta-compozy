@@ -205,8 +205,11 @@ This amendment records the operational corrections found after full review:
   verifies the exact three live resources. Repository metadata, docs, tests,
   and SDD reports are excluded. Package directories remain mode `0755` because
   Compozy copies each source directory mode before creating its children.
-  A package-root cross-process lock spans package creation and verification,
-  extension validation, package revalidation, removal, and installation. This
-  prevents cooperating publishers from replacing writable-directory entries
-  between verification and consumption; revalidation fails closed before
-  installed state changes if validation itself observes an altered package.
+  A stable per-user lock at `~/.compozy/locks/batuta-republish.lock` spans
+  package creation and verification, extension validation, package
+  revalidation, removal, installation, enabling, and final inventory
+  verification. It is independent of package root, so publishers using
+  different package stores still serialize mutations of the same global
+  Batuta extension. The package-root lock remains limited to local package
+  construction. Revalidation fails closed before installed state changes if
+  the package changes during validation.

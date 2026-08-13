@@ -58,9 +58,11 @@ Publication retains a content-addressed source under
 `~/.local/share/batuta-compozy/packages`. Set `BATUTA_PACKAGE_ROOT` to override
 that root. Its files are read-only, and its exact tree and bytes are verified
 before reuse. The live extension provenance continues to reference this
-existing minimal package. A cross-process lock serializes package creation,
-verification, validation, and installation; the package is reverified under
-that lock immediately before any installed extension is removed or replaced.
+existing minimal package. A stable per-user lock at
+`~/.compozy/locks/batuta-republish.lock`, independent of package location,
+serializes package creation, verification, validation, installation, enabling,
+and final inventory verification. The package is reverified under that lock
+immediately before any installed extension is removed or replaced.
 
 ## Usage
 

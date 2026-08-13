@@ -617,9 +617,11 @@ This dated amendment supersedes Task 2's dry-run task-existence claim and Task
   temporary sibling into a content-addressed package under user data, make
   files read-only, verify exact tree and bytes before reuse, and install from
   the retained final directory.
-- Hold one cross-process package-root lock across creation, validation,
-  revalidation, removal, and installation. Revalidate the retained package
-  under that lock immediately before changing installed extension state.
+- Hold one stable per-user global-Batuta lock, independent of package root,
+  across package creation, validation, revalidation, removal, installation,
+  enabling, and final inventory verification. Keep the package-root lock for
+  local construction only. Revalidate the retained package under the global
+  lock immediately before changing installed extension state.
 - Keep the lifecycle mutation window cleanup-guarded even when install output
   parsing fails after the daemon has committed the install.
 - Validate the guard before removal, then publish from the retained digest

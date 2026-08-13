@@ -4,12 +4,13 @@ cd "$(dirname "$0")/../.."
 
 TMP=$(mktemp -d /tmp/batuta-package-lock-test.XXXXXX)
 PACKAGE_ROOT="$TMP/packages"
+GLOBAL_LOCK_ROOT="$TMP/global-lock"
 READY_FIFO="$TMP/ready"
 RELEASE_FIFO="$TMP/release"
 PID=""
 cleanup() {
   if [[ -n $PID ]] && kill -0 "$PID" 2>/dev/null; then
-    kill "$PID" 2>/dev/null || true
+    printf 'release\n' > "$RELEASE_FIFO" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
   fi
   case "$TMP" in
@@ -46,7 +47,8 @@ esac
 SH
 chmod +x "$TMP/compozy"
 
-BATUTA_PACKAGE_ROOT="$PACKAGE_ROOT" BATUTA_READY_FIFO="$READY_FIFO" \
+BATUTA_PACKAGE_ROOT="$PACKAGE_ROOT" \
+  BATUTA_REPUBLISH_LOCK_ROOT="$GLOBAL_LOCK_ROOT" BATUTA_READY_FIFO="$READY_FIFO" \
   BATUTA_RELEASE_FIFO="$RELEASE_FIFO" PATH="$TMP:$PATH" \
   scripts/republish.sh > "$TMP/out" 2> "$TMP/err" &
 PID=$!
@@ -54,7 +56,7 @@ PID=$!
 IFS= read -r ready < "$READY_FIFO"
 [[ $ready == ready ]]
 
-if ! python3 - "$PACKAGE_ROOT/.publication.lock" <<'PY'
+if ! python3 - "$GLOBAL_LOCK_ROOT/batuta-republish.lock" <<'PY'
 import fcntl
 import os
 import sys
@@ -67,11 +69,11 @@ except BlockingIOError:
 raise SystemExit(1)
 PY
 then
-  printf 'republish did not hold the package publication lock\n' >&2
+  printf 'republish did not hold the global Batuta publication lock\n' >&2
   exit 1
 fi
 
 printf 'release\n' > "$RELEASE_FIFO"
 wait "$PID"
 PID=""
-printf 'OK: publication lock spans package creation and extension consumption\n'
+printf 'OK: global lock spans package creation and extension consumption\n'

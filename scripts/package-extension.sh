@@ -4,9 +4,9 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 lock_fd=${BATUTA_PACKAGE_LOCK_FD:-}
 lock_path=${BATUTA_PACKAGE_LOCK_PATH:-}
-if ! python3 "$ROOT/scripts/with-package-lock.py" \
+if ! python3 "$ROOT/scripts/with-batuta-lock.py" \
   --check "$lock_fd" "$lock_path"; then
-  exec python3 "$ROOT/scripts/with-package-lock.py" \
+  exec python3 "$ROOT/scripts/with-batuta-lock.py" package \
     "$ROOT/scripts/package-extension.sh" "$@"
 fi
 

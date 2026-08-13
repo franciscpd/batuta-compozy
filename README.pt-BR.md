@@ -59,8 +59,10 @@ A publicação retém uma fonte endereçada por conteúdo em
 `~/.local/share/batuta-compozy/packages`. Use `BATUTA_PACKAGE_ROOT` para trocar
 essa raiz. Seus arquivos são somente leitura, e a árvore e os bytes exatos são
 verificados antes do reuso. A proveniência live continua apontando para esse
-pacote mínimo existente. Um lock entre processos serializa criação,
-verificação, validação e instalação; o pacote é revalidado sob esse lock
+pacote mínimo existente. Um lock estável por usuário em
+`~/.compozy/locks/batuta-republish.lock`, independente da localização do
+pacote, serializa criação, verificação, validação, instalação, ativação e a
+verificação final do inventário. O pacote é revalidado sob esse lock
 imediatamente antes de remover ou substituir a extensão instalada.
 
 ## Uso
