@@ -181,64 +181,30 @@ git commit -m "test: harden workspace and compatibility contracts"
 ### Task 2: Composite delivery preference and truthful preflight
 
 **Files:**
-- Modify: `tests/contract/test_04_deliver_validate.sh`
-- Create: `tests/contract/test_06_agent_contract.sh`
 - Modify: `loops/batuta-deliver/loop.yaml`
 - Modify: `agents/batuta/AGENT.md`
+- Modify: `tests/e2e/SMOKE.md`
 
 **Interfaces:**
 - `batuta-deliver` inputs become `slug: string`, `origin_session_id: string`, and `auto_commit: boolean`.
 - Workspace preference path becomes `loops.inputs.batuta-deliver.auto_commit`.
 - The agent must refuse real submission after a task-set dry-run error.
 
-- [ ] **Step 1: Add failing delivery-definition assertions**
-
-Extend the Python assertion block in `test_04_deliver_validate.sh`:
-
-```python
-assert "origin_session_id:" in text, "origin session input missing"
-assert "required: true" in text.split("origin_session_id:", 1)[1].split("contract:", 1)[0]
-assert "on_error:" not in text, "missing task errors must not become success routes"
-assert "id: no_tasks" not in text
-assert "id: has_tasks" not in text
-assert text.count('auto_commit: "{{ .inputs.auto_commit }}"') == 2
-```
-
-- [ ] **Step 2: Add failing agent contract test**
-
-Create `tests/contract/test_06_agent_contract.sh`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")/../.."
-
-python3 - agents/batuta/AGENT.md <<'PY'
-import sys
-
-text = open(sys.argv[1]).read()
-assert "loops.inputs.batuta-deliver.auto_commit" in text
-assert "loops.inputs.implement-tasks.auto_commit" not in text
-assert "loops.inputs.review-and-fix.auto_commit" not in text
-assert "origin_session_id" in text
-assert "task set" in text.lower() and "dry-run" in text
-assert "independent" in text.lower()
-print("OK: batuta bootstrap and dispatch contracts are explicit")
-PY
-```
-
-- [ ] **Step 3: Run focused tests and verify RED**
+- [ ] **Step 1: Record RED behavior from public surfaces**
 
 Run:
 
 ```bash
-tests/contract/test_04_deliver_validate.sh
-tests/contract/test_06_agent_contract.sh
+compozy config get loops.inputs.batuta-deliver.auto_commit \
+  --workspace "$(source tests/contract/lib.sh; require_test_workspace)" -o json
+compozy loop status --workspace ws_13d8f64cc29e9d5c \
+  --run-id looprun-0e0226eee2324cea -o json
 ```
 
-Expected: both FAIL on missing new contracts.
+Expected RED evidence: input default path is missing; historical invalid task-set
+run reports `status: done`. Save the bounded command outputs in the task report.
 
-- [ ] **Step 4: Simplify `batuta-deliver` graph**
+- [ ] **Step 2: Simplify `batuta-deliver` graph**
 
 Add input:
 
@@ -264,7 +230,7 @@ Keep explicit `auto_commit` input mapping on both child nodes. Update comments t
 state that missing task sets fail at `import_tasks` and never become successful
 delivery.
 
-- [ ] **Step 5: Rewrite bootstrap as independent checks**
+- [ ] **Step 3: Rewrite bootstrap as independent checks**
 
 In `AGENT.md`, replace the single configured/not-configured shortcut with these
 binding rules:
@@ -284,7 +250,7 @@ Bootstrap checks are independent; one populated value never proves the others:
 Keep live catalog derivation and exact terminal reporting. Remove duplicated
 bootstrap prose that no longer changes behavior.
 
-- [ ] **Step 6: Bind dispatch to current session and fail dry-run closed**
+- [ ] **Step 4: Bind dispatch to current session and fail dry-run closed**
 
 Update dispatch instructions:
 
@@ -298,25 +264,37 @@ Update dispatch instructions:
 
 State that terminal wake prompts return to this same session.
 
-- [ ] **Step 7: Verify GREEN**
+- [ ] **Step 5: Add guided behavioral cases before running implementation**
+
+Add these acceptance cases to `tests/e2e/SMOKE.md` before live verification:
+
+```markdown
+- Configure `auto_commit=false`, dispatch through Batuta, and confirm both child
+  runs persist `inputs.auto_commit=false`.
+- Ask Batuta to dispatch a missing slug. Confirm dry-run fails and no real
+  `batuta-deliver` run is created.
+- Submit one deliberate direct invalid run. Confirm its terminal is not `done`.
+```
+
+These cases test consuming-agent and daemon behavior. Do not replace them with
+grep assertions against YAML or AGENT.md.
+
+- [ ] **Step 6: Verify compiled configuration**
 
 Run:
 
 ```bash
-tests/contract/test_04_deliver_validate.sh
-tests/contract/test_06_agent_contract.sh
 compozy loop validate --file loops/batuta-deliver/loop.yaml \
   --workspace "$(source tests/contract/lib.sh; require_test_workspace)" -o json
 ```
 
-Expected: all PASS; Loop validation returns `valid: true`.
+Expected: Loop validation returns `valid: true`. The live behavioral cases remain
+pending until Task 5 republication; do not claim them from source inspection.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add agents/batuta/AGENT.md loops/batuta-deliver/loop.yaml \
-  tests/contract/test_04_deliver_validate.sh \
-  tests/contract/test_06_agent_contract.sh
+git add agents/batuta/AGENT.md loops/batuta-deliver/loop.yaml tests/e2e/SMOKE.md
 git commit -m "fix: preserve delivery preference and reject invalid task sets"
 ```
 
@@ -325,38 +303,28 @@ git commit -m "fix: preserve delivery preference and reject invalid task sets"
 ### Task 3: Deterministic return-to-session watcher
 
 **Files:**
-- Modify: `tests/contract/test_05_watch_validate.sh`
 - Modify: `loops/batuta-watch/loop.yaml`
+- Modify: `tests/e2e/SMOKE.md`
 
 **Interfaces:**
 - Consumes: terminal `watch-events.output.events[]` items.
 - Consumes: `batuta-deliver.run.inputs.origin_session_id` from `compozy__loop_status`.
 - Produces: one queued prompt admission per terminal run using deterministic identities.
 
-- [ ] **Step 1: Replace watcher assertions with behavioral structure checks**
+- [ ] **Step 1: Record RED behavior from live watcher history**
 
-Keep daemon validation, then assert:
+Run:
 
-```python
-assert 'stop_when: "false"' in text
-assert "iteration_cap: 0" in text
-assert "kind: run-agent" not in text
-assert "kind: fan-out" in text
-assert "kind: compozy__loop_status" in text
-assert "kind: compozy__session_prompt" in text
-assert "kind: collect" in text
-assert "mode: queue" in text
-assert "origin_session_id" in text
-assert text.count("batuta-terminal-{{ .nodes.read_deliver.output.run.id }}") == 2
+```bash
+compozy loop status --workspace ws_13d8f64cc29e9d5c \
+  --run-id looprun-1eef4226a7d3b11b -o json
 ```
 
-- [ ] **Step 2: Run watcher test and verify RED**
+Expected RED evidence: watcher is terminal `done`, contains an isolated reporting
+session, and reports non-zero model token use. Save only those bounded fields in the
+task report.
 
-Run: `tests/contract/test_05_watch_validate.sh`
-
-Expected: FAIL because current watcher contains `run-agent` and lacks native prompt delivery.
-
-- [ ] **Step 3: Make watcher contract persistent**
+- [ ] **Step 2: Make watcher contract persistent**
 
 Add:
 
@@ -368,7 +336,7 @@ Add:
 Update goal and definition of done to say each observed terminal is queued to its
 origin session and the Loop returns to watching. Keep `concurrency: forbid`.
 
-- [ ] **Step 4: Replace isolated agent with deterministic graph**
+- [ ] **Step 3: Replace isolated agent with deterministic graph**
 
 Use this graph shape:
 
@@ -427,7 +395,7 @@ graph:
       to: delivered
 ```
 
-- [ ] **Step 5: Validate native tool schemas against current daemon**
+- [ ] **Step 4: Validate native tool schemas against current daemon**
 
 Run:
 
@@ -439,23 +407,38 @@ compozy tool info compozy__session_prompt \
 ```
 
 Confirm `run_id`; `session_id`, `message`, `message_id`, `idempotency_key`, and
-`mode=queue` remain accepted. If schema differs, change YAML and test together to
-the live descriptor; do not guess or suppress validation.
+`mode=queue` remain accepted. The live descriptor governs any schema correction;
+record exact differences in the report.
 
-- [ ] **Step 6: Verify GREEN**
+- [ ] **Step 5: Add guided behavioral cases**
+
+Add to `tests/e2e/SMOKE.md` before live execution:
+
+```markdown
+- After one terminal delivery, original session receives exactly one queued/direct
+  turn and watcher returns to `watching`.
+- Replaying the same terminal identity does not add another turn.
+- Watcher generation contains no reporting-agent session or resolved runtime and
+  spends no model tokens.
+```
+
+Do not substitute source-text assertions for these effects.
+
+- [ ] **Step 6: Verify compiled configuration**
 
 Run:
 
 ```bash
-tests/contract/test_05_watch_validate.sh
+compozy loop validate --file loops/batuta-watch/loop.yaml \
+  --workspace "$(source tests/contract/lib.sh; require_test_workspace)" -o json
 ```
 
-Expected: PASS; daemon validation returns `valid: true`.
+Expected: `valid: true`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add loops/batuta-watch/loop.yaml tests/contract/test_05_watch_validate.sh
+git add loops/batuta-watch/loop.yaml tests/e2e/SMOKE.md
 git commit -m "fix: return terminal delivery to originating session"
 ```
 
@@ -474,26 +457,7 @@ git commit -m "fix: return terminal delivery to originating session"
 - Documents the public `batuta-deliver(slug, origin_session_id, auto_commit)` contract.
 - Documents the registered-workspace prerequisite and current extension inventory.
 
-- [ ] **Step 1: Add failing documentation assertions to agent contract test**
-
-Extend `test_06_agent_contract.sh`:
-
-```python
-for path in ("README.md", "README.pt-BR.md"):
-    doc = open(path).read()
-    assert "batuta-deliver" in doc, path
-    assert "origin_session_id" in doc, path
-    assert "batuta-watch" in doc, path
-    assert "0.3.0-beta.13" in doc, path
-```
-
-- [ ] **Step 2: Run and verify RED**
-
-Run: `tests/contract/test_06_agent_contract.sh`
-
-Expected: FAIL because current READMEs describe separate child dispatches and omit session binding.
-
-- [ ] **Step 3: Rewrite both README flows**
+- [ ] **Step 1: Rewrite both README flows**
 
 Document:
 
@@ -505,7 +469,7 @@ Document:
 - contract tests require `compozy workspace add <repo>` once;
 - minimum supported daemon is `0.3.0-beta.13`.
 
-- [ ] **Step 4: Expand guided E2E smoke**
+- [ ] **Step 2: Consolidate guided E2E smoke**
 
 Add explicit checks:
 
@@ -524,7 +488,7 @@ Add explicit checks:
 Record exact run IDs, session ID, prompt admission delivery, watcher status, and
 token count when the operator executes the smoke.
 
-- [ ] **Step 5: Mark historical documents superseded**
+- [ ] **Step 3: Mark historical documents superseded**
 
 Add a note after each old title:
 
@@ -536,25 +500,28 @@ Add a note after each old title:
 
 Do not rewrite historical decisions as if they were originally current.
 
-- [ ] **Step 6: Verify GREEN and documentation consistency**
+- [ ] **Step 4: Review documentation against live public surfaces**
 
 Run:
 
 ```bash
-tests/contract/test_06_agent_contract.sh
-rg -n "batuta-deliver|origin_session_id|batuta-watch|0.3.0-beta.13" \
-  README.md README.pt-BR.md tests/e2e/SMOKE.md
+compozy extension inventory batuta -o json
+compozy loop inspect --workspace "$(source tests/contract/lib.sh; require_test_workspace)" \
+  --name batuta-deliver -o json
+compozy loop inspect --workspace "$(source tests/contract/lib.sh; require_test_workspace)" \
+  --name batuta-watch -o json
 ```
 
-Expected: test PASS; both language variants name the same public contract.
+Before republication these reads show prior live definitions. Compare public field names
+only; verify new live behavior after Task 5. Human prose receives editorial review, not
+change-detector tests.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add README.md README.pt-BR.md tests/e2e/SMOKE.md \
   docs/superpowers/specs/2026-08-11-batuta-compozy-design.md \
-  docs/superpowers/plans/2026-08-11-batuta-compozy.md \
-  tests/contract/test_06_agent_contract.sh
+  docs/superpowers/plans/2026-08-11-batuta-compozy.md
 git commit -m "docs: align batuta flow with return-to-session delivery"
 ```
 
