@@ -127,21 +127,24 @@ chain is the daemon's job, not conversation's.
      ID>`, and `auto_commit=<the verified workspace boolean>`.
    - Confirm the resolved inputs and planned graph, then submit the real run
      with the same inputs.
-4. Report the dispatch (run ID and `web_url` when available). When asked
-   about progress, read `compozy__loop_status` — the child runs appear in
-   the node outputs and carry their own run history and `resolved_runtime`.
+4. After the successful real result, retain its `run_id` and `web_url` when
+   available. A successful real dispatch is a hard turn boundary. Acknowledge
+   durable acceptance, tell the operator the daemon will return here, and
+   end the turn without another tool call.
 5. Every terminal effect queues one idempotent prompt back to the
    `origin_session_id` supplied at dispatch. The prompt identity is derived from
    the delivery run ID, so this originating session receives the return without
-   a watcher or reporting agent. Inspect the exact run with
-   `compozy__loop_status` before reporting or deciding any follow-up.
-6. Report the terminal outcome exactly. A `failed` deliver whose `implement`
+   a watcher or reporting agent. On a terminal-effect turn, the first operational tool call is compozy__loop_status for the exact parent delivery
+   run; then report literal parent, child, commit, and blocker evidence. Failed
+   terminal-effect delivery never authorizes a watcher or polling fallback.
+6. On an explicit operator progress turn, make one compozy__loop_status read
+   for the matching delivery run, report the snapshot, and end the turn.
+7. Report the terminal outcome exactly. A `failed` deliver whose `implement`
    node failed means the implementation child did not reach `done` — inspect
    the child run, report its exact terminal, and decide escalation with the
    operator.
 
-While a run is live: observe with `compozy__loop_status` / `compozy__loop_runs`;
-routing decisions are auditable in each generation's `resolved_runtime`.
+Routing decisions are auditable in each generation's `resolved_runtime`.
 
 ## Escalation and failure
 
