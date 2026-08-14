@@ -417,21 +417,24 @@ the already reviewed task commits merely to hide the correction history.
 - Runtime evidence only under the fresh lab's `qa-artifacts/qa/`
 - Verify live package sourced from the Batuta candidate commit
 
-- [ ] **Step 1: Rebuild and identify the clean merged Compozy binary**
+- [ ] **Step 1: Download and identify the official Compozy beta.16 binary**
 
-From `/home/franciscpd/Projects/compozy`, verify the repository is clean and at
-the exact merged commit, then build:
+Inside lab-owned scratch only, download the Linux x86_64 asset,
+`checksums.txt`, and its Sigstore bundle from the official
+[`v0.3.0-beta.16` release](https://github.com/compozy/compozy/releases/tag/v0.3.0-beta.16),
+published `2026-08-14T18:23:42Z`. Verify the checksum bundle signature, verify
+the asset against that signed checksum list, reject unsafe archive paths, and
+extract only inside lab scratch. The asset metadata digest is
+`f0bee98c16ea7e04584c21e0cc76564f20b490c0f33824e862cf1e3fb3815742`.
 
-```bash
-test "$(git rev-parse HEAD)" = c88b3e5274e86103215fbf900faf742d6593b7dd
-test -z "$(git status --porcelain)"
-make build
-./bin/compozy version -o json
-sha256sum ./bin/compozy
-```
-
-Expected: the JSON identifies `v0.3.0-beta.15-26-gc88b3e52` and commit
-`c88b3e52`; record the full SHA-256 before starting the lab.
+Expected: `compozy version -o json` identifies `v0.3.0-beta.16` and commit
+`c38ba0fa`; the annotated release tag resolves to
+`c38ba0fac69aa657140fc578067d2c538b18ec10`, which contains the trusted
+post-tag development commit `c88b3e5274e86103215fbf900faf742d6593b7dd`.
+Record the extracted binary's full SHA-256 before starting runtime QA. Release
+notes must include #372, #373, and #401. The exact c88 version/hash pair remains
+the Task 1 development-build allowlist; beta.16 is accepted independently by
+the release floor.
 
 - [ ] **Step 2: Bootstrap a fresh targeted lab**
 
@@ -447,7 +450,11 @@ python3 .agents/skills/eng/eng-qa-bootstrap/scripts/bootstrap-qa-env.py \
   --required-surface cli
 ```
 
-Record the emitted `BOOTSTRAP_MANIFEST`, source only its `bootstrap.env`, register every process in `qa-artifacts/qa/pids/`, and use the clean Compozy binary at commit `c88b3e5274e86103215fbf900faf742d6593b7dd`.
+Record the emitted `BOOTSTRAP_MANIFEST`, source only its `bootstrap.env`,
+register every process in `qa-artifacts/qa/pids/`, and use only the verified
+beta.16 binary extracted inside lab scratch. Record the separately superseded
+c88 source-build lab and require its exact teardown to report `clean: true`
+with zero survivors before starting this fresh release lab.
 
 - [ ] **Step 3: Publish only the candidate Batuta package inside the lab**
 
