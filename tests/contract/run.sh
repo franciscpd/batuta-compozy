@@ -7,6 +7,24 @@ GENERATED_WORKSPACE="$REPO_ROOT/.compozy"
 source "$CONTRACT_DIR/lib.sh"
 
 preflight_contract_workspace "$REPO_ROOT"
+WORKSPACE_ID=$(compozy workspace list -o json | python3 -c '
+import json
+import os
+import sys
+
+repo_root = os.path.realpath(sys.argv[1])
+for workspace in json.load(sys.stdin):
+    if os.path.realpath(workspace["root_dir"]) == repo_root:
+        print(workspace["id"])
+        break
+' "$REPO_ROOT")
+WORKSPACE_CREATED=false
+if [[ -z $WORKSPACE_ID ]]; then
+  WORKSPACE_ID=$(compozy workspace add "$REPO_ROOT" -o json | python3 -c \
+    'import json, sys; print(json.load(sys.stdin)["id"])')
+  WORKSPACE_CREATED=true
+  cleanup_generated_workspace_marker "$REPO_ROOT"
+fi
 
 cleanup() {
   local original_status=$?
@@ -20,6 +38,18 @@ cleanup() {
       cleanup_failed=true
     fi
     original_status=1
+  fi
+
+  if [[ $WORKSPACE_CREATED == true ]] && \
+    ! compozy workspace remove "$WORKSPACE_ID" -o json >/dev/null; then
+    printf 'cleanup failed to remove generated workspace registration: %s\n' \
+      "$WORKSPACE_ID" >&2
+    cleanup_failed=true
+  fi
+
+  if workspace_marker_present "$REPO_ROOT" && \
+    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+    cleanup_failed=true
   fi
 
   if [[ $cleanup_failed == true ]]; then
