@@ -22,7 +22,9 @@ cleanup() {
     if ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
       cleanup_failed=true
     fi
-    original_status=1
+    if [[ $original_status -eq 0 ]]; then
+      original_status=1
+    fi
   fi
 
   if [[ $WORKSPACE_CREATION_ATTEMPTED == true ]]; then
@@ -96,10 +98,6 @@ PY
     exit 1
   fi
   cleanup_generated_workspace_marker "$REPO_ROOT"
-fi
-
-if [[ ${BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP:-} == 1 ]]; then
-  exit 0
 fi
 
 cd "$CONTRACT_DIR"

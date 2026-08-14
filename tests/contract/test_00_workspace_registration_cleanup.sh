@@ -5,6 +5,8 @@ cd "$(dirname "$0")/../.."
 
 RUNNER=$PWD/tests/contract/run.sh
 LIB=$PWD/tests/contract/lib.sh
+NOOP_FIXTURE=$PWD/tests/contract/fixtures/noop-contract-test.sh
+EXIT_42_FIXTURE=$PWD/tests/contract/fixtures/exit-42-with-marker.sh
 CASE_DIR=
 STATE_DIR=
 
@@ -85,8 +87,14 @@ prepare_case() {
   STATE_DIR=$(mktemp -d /tmp/batuta-contract-registration-state.XXXXXX)
   mkdir -p "$CASE_DIR/tests/contract"
   cp "$RUNNER" "$LIB" "$CASE_DIR/tests/contract/"
+  cp "$NOOP_FIXTURE" "$CASE_DIR/tests/contract/test_99_noop.sh"
   : > "$STATE_DIR/log"
 }
+
+if grep -F 'BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP' "$RUNNER" >/dev/null; then
+  printf 'production runner retains a contract-suite stop hook\n' >&2
+  exit 1
+fi
 
 assert_created_registration_removed() {
   local label=$1
@@ -107,13 +115,17 @@ run_parse_case() {
   set +e
   FAKE_COMPOZY_STATE=$STATE_DIR \
     FAKE_COMPOZY_SCENARIO=$scenario \
-    BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP=1 \
     "$CASE_DIR/tests/contract/run.sh" >"$output" 2>&1
   status=$?
   set -e
   cat "$output"
   if grep -F 'Traceback (most recent call last):' "$output" >/dev/null; then
     printf '%s exposed a parser traceback\n' "$scenario" >&2
+    rm -f -- "$output"
+    return 1
+  fi
+  if ! grep -Fx 'OK: isolated contract fixture ran' "$output" >/dev/null; then
+    printf '%s did not run the normal contract-test loop\n' "$scenario" >&2
     rm -f -- "$output"
     return 1
   fi
@@ -139,7 +151,6 @@ run_marker_cleanup_failure_case() {
   set +e
   FAKE_COMPOZY_STATE=$STATE_DIR \
     FAKE_COMPOZY_SCENARIO=marker-cleanup-failure \
-    BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP=1 \
     "$CASE_DIR/tests/contract/run.sh" >"$output" 2>&1
   status=$?
   set -e
@@ -164,7 +175,6 @@ run_preexisting_registration_case() {
   set +e
   FAKE_COMPOZY_STATE=$STATE_DIR \
     FAKE_COMPOZY_SCENARIO=preexisting-registration \
-    BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP=1 \
     "$CASE_DIR/tests/contract/run.sh" >"$output" 2>&1
   status=$?
   set -e
@@ -187,8 +197,45 @@ run_preexisting_registration_case() {
   STATE_DIR=
 }
 
+run_nonzero_status_case() {
+  local marker_failure=$1 output status expected
+  prepare_case
+  cp "$EXIT_42_FIXTURE" "$CASE_DIR/tests/contract/test_99_exit_42.sh"
+  rm -f -- "$CASE_DIR/tests/contract/test_99_noop.sh"
+  output=$(mktemp)
+  if [[ $marker_failure == true ]]; then
+    expected=1
+  else
+    expected=42
+  fi
+  set +e
+  FAKE_COMPOZY_STATE=$STATE_DIR \
+    FAKE_COMPOZY_SCENARIO=normal \
+    FIXTURE_MARKER_CLEANUP_FAILURE=$([[ $marker_failure == true ]] && printf 1) \
+    "$CASE_DIR/tests/contract/run.sh" >"$output" 2>&1
+  status=$?
+  set -e
+  cat "$output"
+  rm -f -- "$output"
+  assert_created_registration_removed "nonzero-status-$marker_failure"
+  [[ $status -eq $expected ]] || {
+    printf 'nonzero-status-%s exited %s, expected %s\n' \
+      "$marker_failure" "$status" "$expected" >&2
+    return 1
+  }
+  if [[ $marker_failure == false && -e $CASE_DIR/.compozy ]]; then
+    printf 'nonzero-status-success left a workspace marker\n' >&2
+    return 1
+  fi
+  rm -rf -- "$CASE_DIR" "$STATE_DIR"
+  CASE_DIR=
+  STATE_DIR=
+}
+
 run_parse_case malformed-add-output
 run_parse_case missing-add-id
 run_marker_cleanup_failure_case
 run_preexisting_registration_case
+run_nonzero_status_case false
+run_nonzero_status_case true
 printf 'OK: workspace bootstrap cleanup survives add-output and marker-cleanup failures\n'
