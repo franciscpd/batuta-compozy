@@ -6,25 +6,10 @@ REPO_ROOT=$(cd "$CONTRACT_DIR/../.." && pwd -P)
 GENERATED_WORKSPACE="$REPO_ROOT/.compozy"
 source "$CONTRACT_DIR/lib.sh"
 
-preflight_contract_workspace "$REPO_ROOT"
-WORKSPACE_ID=$(compozy workspace list -o json | python3 -c '
-import json
-import os
-import sys
-
-repo_root = os.path.realpath(sys.argv[1])
-for workspace in json.load(sys.stdin):
-    if os.path.realpath(workspace["root_dir"]) == repo_root:
-        print(workspace["id"])
-        break
-' "$REPO_ROOT")
-WORKSPACE_CREATED=false
-if [[ -z $WORKSPACE_ID ]]; then
-  WORKSPACE_ID=$(compozy workspace add "$REPO_ROOT" -o json | python3 -c \
-    'import json, sys; print(json.load(sys.stdin)["id"])')
-  WORKSPACE_CREATED=true
-  cleanup_generated_workspace_marker "$REPO_ROOT"
-fi
+WORKSPACE_ID=
+WORKSPACE_NAME="batuta-contract-$$"
+WORKSPACE_CREATION_ATTEMPTED=false
+WORKSPACE_ADD_OUTPUT=
 
 cleanup() {
   local original_status=$?
@@ -40,15 +25,26 @@ cleanup() {
     original_status=1
   fi
 
-  if [[ $WORKSPACE_CREATED == true ]] && \
-    ! compozy workspace remove "$WORKSPACE_ID" -o json >/dev/null; then
-    printf 'cleanup failed to remove generated workspace registration: %s\n' \
-      "$WORKSPACE_ID" >&2
-    cleanup_failed=true
+  if [[ $WORKSPACE_CREATION_ATTEMPTED == true ]]; then
+    local created_workspace_id
+    if ! created_workspace_id=$(workspace_id_for_canonical_root \
+      "$REPO_ROOT" "$WORKSPACE_NAME"); then
+      printf 'cleanup failed to resolve generated workspace registration\n' >&2
+      cleanup_failed=true
+    elif [[ -n $created_workspace_id ]] && \
+      ! compozy workspace remove "$created_workspace_id" -o json >/dev/null; then
+      printf 'cleanup failed to remove generated workspace registration: %s\n' \
+        "$created_workspace_id" >&2
+      cleanup_failed=true
+    fi
   fi
 
   if workspace_marker_present "$REPO_ROOT" && \
     ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+    cleanup_failed=true
+  fi
+
+  if [[ -n $WORKSPACE_ADD_OUTPUT ]] && ! rm -f -- "$WORKSPACE_ADD_OUTPUT"; then
     cleanup_failed=true
   fi
 
@@ -58,6 +54,53 @@ cleanup() {
   exit "$original_status"
 }
 trap cleanup EXIT
+
+preflight_contract_workspace "$REPO_ROOT"
+if ! WORKSPACE_ID=$(workspace_id_for_canonical_root "$REPO_ROOT"); then
+  exit 1
+fi
+if [[ -z $WORKSPACE_ID ]]; then
+  WORKSPACE_ADD_OUTPUT=$(mktemp)
+  WORKSPACE_CREATION_ATTEMPTED=true
+  compozy workspace add "$REPO_ROOT" --name "$WORKSPACE_NAME" -o json \
+    > "$WORKSPACE_ADD_OUTPUT"
+
+  reported_workspace_id=
+  if ! reported_workspace_id=$(python3 - "$WORKSPACE_ADD_OUTPUT" <<'PY'
+import json
+import sys
+
+try:
+    workspace = json.load(open(sys.argv[1]))
+    workspace_id = workspace["id"]
+except (json.JSONDecodeError, KeyError, OSError) as error:
+    raise SystemExit(f"workspace add result is unreadable: {error}") from None
+if not isinstance(workspace_id, str):
+    raise SystemExit("workspace add result has invalid id")
+print(workspace_id)
+PY
+  ); then
+    printf 'workspace add result could not be parsed; resolving by canonical root\n' >&2
+  fi
+
+  if ! WORKSPACE_ID=$(workspace_id_for_canonical_root \
+    "$REPO_ROOT" "$WORKSPACE_NAME"); then
+    exit 1
+  fi
+  if [[ -z $WORKSPACE_ID ]]; then
+    printf 'workspace add did not register the expected canonical root\n' >&2
+    exit 1
+  fi
+  if [[ -n $reported_workspace_id && $reported_workspace_id != "$WORKSPACE_ID" ]]; then
+    printf 'workspace add result id does not match its canonical registration\n' >&2
+    exit 1
+  fi
+  cleanup_generated_workspace_marker "$REPO_ROOT"
+fi
+
+if [[ ${BATUTA_CONTRACT_STOP_AFTER_WORKSPACE_SETUP:-} == 1 ]]; then
+  exit 0
+fi
 
 cd "$CONTRACT_DIR"
 for t in test_*.sh; do

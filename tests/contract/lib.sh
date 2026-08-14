@@ -35,6 +35,46 @@ cleanup_generated_workspace_marker() {
   rmdir "$marker"
 }
 
+workspace_id_for_canonical_root() {
+  local repo_root=$1 expected_name=${2:-} workspaces_json resolved
+  workspaces_json=$(mktemp)
+
+  if ! compozy workspace list -o json > "$workspaces_json"; then
+    rm -f -- "$workspaces_json"
+    return 1
+  fi
+
+  if ! resolved=$(python3 - "$repo_root" "$expected_name" "$workspaces_json" <<'PY'
+import json
+import os
+import sys
+
+repo_root = os.path.realpath(sys.argv[1])
+expected_name = sys.argv[2]
+rows = json.load(open(sys.argv[3]))
+matches = [
+    row["id"]
+    for row in rows
+    if isinstance(row.get("id"), str)
+    and os.path.realpath(row["root_dir"]) == repo_root
+    and (not expected_name or row.get("name") == expected_name)
+]
+if len(matches) > 1:
+    raise SystemExit(
+        f"ambiguous workspace registrations for {repo_root}"
+    )
+if matches:
+    print(matches[0])
+PY
+  ); then
+    rm -f -- "$workspaces_json"
+    return 1
+  fi
+
+  rm -f -- "$workspaces_json"
+  printf '%s\n' "$resolved"
+}
+
 require_test_workspace() {
   local repo_root candidate workspaces_json resolved
   repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
