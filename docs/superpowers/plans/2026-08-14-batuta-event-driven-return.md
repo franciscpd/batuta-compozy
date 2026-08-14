@@ -174,7 +174,7 @@ assert_event_driven_return.py \
 
 Implementation rules:
 
-- `fetch_events` calls `compozy session events "$SESSION_ID" --archive all --last 10000 -o json`, requires a JSON list, sorts by `sequence`, rejects duplicate sequences, and fails closed when the first sequence is not `1`.
+- `fetch_events` calls `compozy session events "$SESSION_ID" --archive all --last 1000 -o json`, requires a JSON list, sorts by `sequence`, rejects duplicate sequences, and fails closed when the first sequence is not `1`. The platform-enforced maximum governs this user-approved correction from the original 10000-event request.
 - Locate the real dispatch call by `tool == "compozy__loop_run"`, `arguments.name == "batuta-deliver"`, and `arguments.dry` absent or `false`.
 - Correlate its result with `tool_call_id`; accept only when `structuredContent.run.id == run_id`.
 - Reject every `tool_call` after that result with the same `turn_id`, regardless of tool name. This covers status, shell sleep, session wait/prompt, and future polling aliases without maintaining a bypassable denylist.
