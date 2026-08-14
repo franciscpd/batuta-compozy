@@ -36,26 +36,88 @@ from pathlib import Path
 import re
 
 agent = Path("agents/batuta/AGENT.md").read_text()
-required_clauses = (
-    "successful real dispatch is a hard turn boundary",
-    "end the turn without another tool call",
-    "first operational tool call is compozy__loop_status",
-    "one compozy__loop_status read",
-)
-for clause in required_clauses:
-    assert clause in agent, f"missing Batuta return-boundary clause: {clause!r}"
 
-assert "While a run is live: observe with" not in agent, (
-    "live-run watcher instruction must not remain after accepted dispatch"
+
+def dispatch_section(text):
+    match = re.search(r"(?ms)^## Dispatch .*?(?=^## |\Z)", text)
+    assert match, "missing Batuta Dispatch section"
+    return match.group()
+
+
+def assert_dispatch_contract(text):
+    dispatch = dispatch_section(text)
+    ordered_clauses = (
+        (
+            "hard dispatch boundary",
+            r"^4\.\s+After the successful real result, retain its \x60run_id\x60 and "
+            r"\x60web_url\x60 when\s+available\. A successful real dispatch is a hard "
+            r"turn boundary\. Acknowledge\s+durable acceptance, tell the operator "
+            r"the daemon will return here, and\s+end the turn without another "
+            r"tool call\.",
+        ),
+        (
+            "terminal-effect return",
+            r"^5\.\s+.*?On a terminal-effect turn, the first operational tool "
+            r"call is compozy__loop_status for the exact parent delivery\s+run; "
+            r"then report literal parent, child, commit, and blocker evidence\. "
+            r"Failed\s+terminal-effect delivery never authorizes a watcher or "
+            r"polling fallback\.",
+        ),
+        (
+            "operator progress return",
+            r"^6\.\s+On an explicit operator progress turn, make one "
+            r"compozy__loop_status read\s+for the matching delivery run, report "
+            r"the snapshot, and end the turn\.",
+        ),
+    )
+    for description, pattern in ordered_clauses:
+        assert re.search(pattern, dispatch, re.MULTILINE | re.DOTALL), (
+            f"missing positive ordered Dispatch clause: {description}"
+        )
+
+    assert "While a run is live: observe with" not in dispatch, (
+        "live-run watcher instruction must not remain after accepted dispatch"
+    )
+    watcher_instruction = re.compile(r"\b(?:poll|keep\s+watching)\b", re.IGNORECASE)
+    assert not watcher_instruction.search(dispatch), (
+        "Dispatch must not instruct Batuta to poll or keep watching after acceptance"
+    )
+
+
+assert_dispatch_contract(agent)
+
+
+def assert_rejected(label, mutated):
+    try:
+        assert_dispatch_contract(mutated)
+    except AssertionError:
+        return
+    raise AssertionError(f"authored Dispatch contract accepted {label}")
+
+
+assert_rejected(
+    "negated hard-boundary guidance",
+    agent.replace(
+        "A successful real dispatch is a hard turn boundary.",
+        "Never claim that a successful real dispatch is a hard turn boundary.",
+    ),
 )
-accepted_dispatch = r"(?:after|following)\s+(?:an?\s+)?accepted(?:\s+real)?\s+dispatch"
-watcher_instruction = r"(?:poll|keep\s+watching)"
-assert not re.search(
-    rf"{accepted_dispatch}[^.\n]*{watcher_instruction}", agent, re.IGNORECASE
-), "accepted dispatch must not instruct Batuta to poll or keep watching"
-assert not re.search(
-    rf"{watcher_instruction}[^.\n]*{accepted_dispatch}", agent, re.IGNORECASE
-), "accepted dispatch must not instruct Batuta to poll or keep watching"
+assert_rejected(
+    "successful-real-dispatch watcher guidance",
+    agent.replace(
+        "\n## Escalation and failure",
+        "\nAfter a successful real dispatch.\nKeep watching for terminal effects."
+        "\n\n## Escalation and failure",
+    ),
+)
+assert_rejected(
+    "successful-real-dispatch polling guidance",
+    agent.replace(
+        "\n## Escalation and failure",
+        "\nAfter a successful real dispatch, poll for terminal effects."
+        "\n\n## Escalation and failure",
+    ),
+)
 print("OK: Batuta dispatch boundary is authored")
 PY
 
