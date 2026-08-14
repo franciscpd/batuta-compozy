@@ -44,6 +44,37 @@ def dispatch_section(text):
     return match.group()
 
 
+def assert_no_document_watcher_guidance(text):
+    assert "While a run is live: observe with" not in text, (
+        "live-run watcher instruction must not remain anywhere in AGENT.md"
+    )
+    dispatch_context = re.compile(
+        r"\b(?:accepted|successful)(?:\s+real)?\s+dispatch\b", re.IGNORECASE
+    )
+    watcher_instruction = re.compile(r"\b(?:poll|keep\s+watching)\b", re.IGNORECASE)
+    negated_watcher = re.compile(
+        r"\b(?:must\s+not|should\s+not|do\s+not|(?:must\s+)?never)"
+        r"\s+(?:\w+\s+){0,3}(?:poll|keep\s+watching)\b"
+        r"|\bnot\s+authorized\s+to\s+(?:poll|keep\s+watching)\b",
+        re.IGNORECASE,
+    )
+    paragraphs = re.split(r"\n\s*\n", text)
+    for current, following in zip(paragraphs, paragraphs[1:] + [""]):
+        context_window = f"{current} {following}"
+        if not dispatch_context.search(context_window):
+            continue
+        for instruction in re.split(
+            r"(?<=[.!?])\s+", re.sub(r"\s+", " ", context_window)
+        ):
+            assert not (
+                watcher_instruction.search(instruction)
+                and not negated_watcher.search(instruction)
+            ), (
+                "accepted or successful real dispatch must not instruct Batuta "
+                "to poll or keep watching"
+            )
+
+
 def assert_dispatch_contract(text):
     dispatch = dispatch_section(text)
     ordered_clauses = (
@@ -75,13 +106,7 @@ def assert_dispatch_contract(text):
             f"missing positive ordered Dispatch clause: {description}"
         )
 
-    assert "While a run is live: observe with" not in dispatch, (
-        "live-run watcher instruction must not remain after accepted dispatch"
-    )
-    watcher_instruction = re.compile(r"\b(?:poll|keep\s+watching)\b", re.IGNORECASE)
-    assert not watcher_instruction.search(dispatch), (
-        "Dispatch must not instruct Batuta to poll or keep watching after acceptance"
-    )
+    assert_no_document_watcher_guidance(text)
 
 
 assert_dispatch_contract(agent)
@@ -116,6 +141,48 @@ assert_rejected(
         "\n## Escalation and failure",
         "\nAfter a successful real dispatch, poll for terminal effects."
         "\n\n## Escalation and failure",
+    ),
+)
+assert_rejected(
+    "outside-Dispatch successful-real-dispatch watcher guidance",
+    agent.replace(
+        "## Escalation and failure",
+        "## Escalation and failure"
+        "\n\nAfter a successful real dispatch.\nKeep watching for terminal effects.",
+    ),
+)
+assert_rejected(
+    "outside-Dispatch legacy watcher guidance",
+    agent.replace(
+        "## Escalation and failure",
+        "## Escalation and failure"
+        "\n\nWhile a run is live: observe with status reads.",
+    ),
+)
+assert_rejected(
+    "outside-Dispatch separated successful-real-dispatch watcher guidance",
+    agent.replace(
+        "## Escalation and failure",
+        "## Escalation and failure"
+        "\n\nAfter a successful real dispatch. Record the run ID."
+        "\nKeep watching for terminal effects.",
+    ),
+)
+
+
+def assert_accepted(label, mutated):
+    try:
+        assert_dispatch_contract(mutated)
+    except AssertionError as error:
+        raise AssertionError(f"authored Dispatch contract rejected {label}") from error
+
+
+assert_accepted(
+    "negated successful-real-dispatch polling guidance",
+    agent.replace(
+        "## Escalation and failure",
+        "## Escalation and failure"
+        "\n\nAfter a successful real dispatch.\nYou must not poll for terminal effects.",
     ),
 )
 print("OK: Batuta dispatch boundary is authored")
