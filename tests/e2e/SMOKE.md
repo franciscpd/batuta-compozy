@@ -32,15 +32,43 @@ pequeno com suite de testes real).
    terminais dos filhos, seus `resolved_runtime` e as rodadas em
    `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada
    limpa) ou reporta `exhausted` literalmente.
-8. **Retorno e reporte final**: o efeito terminal envia exatamente um prompt à
-   sessão original. O Batuta reinspeciona o run composto e reporta o terminal
-   exato do composto, terminais dos filhos, commits e blocker.
+8. **Retorno e reporte final**: registre a sequência de resultados de
+   ferramentas do despacho real e o ID daquele turno. O resultado aceito de
+   `batuta-deliver` retorna `run_id` e, quando disponível, `web_url`; não pode
+   haver outra chamada de ferramenta nesse turno. O efeito terminal inicia um
+   turno posterior na sessão original, com a identidade exata desse run. Nesse
+   turno posterior, `loop_status` com o pai exato é a primeira ferramenta
+   operacional; só então o Batuta reporta o terminal exato do composto,
+   terminais dos filhos, commits e blocker.
 
 ## Casos comportamentais de aceitação
 
 Execute estes casos somente após republicar a extensão local. Eles são prova
 de comportamento do daemon e do agente consumidor; ainda não foram executados
 por esta alteração.
+
+Para a aceitação do retorno dirigido a eventos, registre o despacho real, a
+sequência de resultados de ferramentas e seu ID de turno; confirme que não há
+chamada posterior de ferramenta nesse turno. Registre também o prompt terminal
+posterior com a identidade exata do run e confirme que `loop_status` do pai
+exato é sua primeira ferramenta operacional. Se um turno de solicitação
+explícita de progresso for exercitado separadamente, ele deve fazer exatamente
+uma chamada de status, sem polling. Não use `sleep`, espera, watcher, prompt
+lógico terminal extra, push ou código autorado pelo Batuta. Valide a evidência
+registrada com:
+
+```bash
+COMPOZY_BIN=/absolute/path/to/compozy
+SESSION_ID=sess-example
+DELIVERY_RUN_ID=looprun-example
+python3 tests/e2e/assert_event_driven_return.py \
+  --compozy "$COMPOZY_BIN" \
+  --session "$SESSION_ID" \
+  --run-id "$DELIVERY_RUN_ID"
+```
+
+Somente quando esse caso explícito de progresso tiver sido efetivamente
+exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
 
 - Configure `loops.inputs.batuta-deliver.auto_commit=false`, faça o despacho
   pelo Batuta e confirme que ambos os filhos persistem

@@ -100,8 +100,12 @@ task set ausente.
 O Batuta fornece o ID da sessão CompozyOS atual em `origin_session_id`. O Loop
 composto propaga `auto_commit` explicitamente aos dois filhos. Os sete efeitos
 terminais nativos do contrato enfileiram um prompt idempotente para essa mesma
-conversa. Não há recurso `batuta-watch`, watcher em segundo plano nem agente
-de reporte.
+conversa. Quando o despacho é aceito, o resultado da ferramenta retorna
+`run_id` e `web_url` opcional, e o Batuta encerra esse turno. O efeito terminal
+idempotente já existente do CompozyOS inicia o turno posterior de reporte;
+nesse turno, o Batuta verifica o run exato antes de reportar. Uma solicitação
+explícita de progresso obtém um snapshot de status e não faz polling. Não há
+recurso `batuta-watch`, watcher em segundo plano nem agente de reporte.
 
 ## Roteamento
 

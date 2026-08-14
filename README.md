@@ -97,8 +97,12 @@ missing task set.
 Batuta supplies its current CompozyOS session ID as `origin_session_id`. The
 composite Loop passes `auto_commit` explicitly to both children. All seven
 native contract terminal effects queue one idempotent prompt to that same
-conversation. There is no `batuta-watch` resource, background watcher, or
-reporting agent.
+conversation. When dispatch is accepted, its tool result returns `run_id` and
+an optional `web_url`, and Batuta ends that turn. CompozyOS's existing
+idempotent terminal effect starts the later reporting turn; in that turn,
+Batuta verifies the exact run before reporting. An explicit progress request
+takes one status snapshot and does not poll. There is no `batuta-watch`
+resource, background watcher, or reporting agent.
 
 ## Routing
 
