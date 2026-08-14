@@ -176,6 +176,10 @@ def validate_delivery(events: list[dict], run_id: str) -> ValidationResult:
     ]
     assert terminal_calls, f"terminal prompt at sequence {terminal_prompt_sequence} has no tool call"
     first_call = terminal_calls[0]
+    assert sequence(first_call) > terminal_prompt_sequence, (
+        f"terminal prompt at sequence {terminal_prompt_sequence} requires its first tool call "
+        f"at sequence {sequence(first_call)} to occur after the terminal prompt"
+    )
     assert tool_name(first_call) == "compozy__loop_status", (
         f"first tool call after terminal prompt is {tool_name(first_call)!r} "
         f"at sequence {sequence(first_call)} ({content(first_call).get('tool_call_id')!r}); "

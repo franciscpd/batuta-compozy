@@ -155,6 +155,18 @@ class ValidateDeliveryTests(unittest.TestCase):
             validator.ValidationResult(2, DISPATCH_TURN, 5, 7),
         )
 
+    def test_rejects_terminal_status_that_precedes_the_terminal_prompt(self) -> None:
+        events = accepted_dispatch() + [
+            matching_status(3, TERMINAL_TURN),
+            terminal_prompt(5, TERMINAL_TURN),
+        ]
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            r"terminal prompt at sequence 5.*after the terminal prompt",
+        ):
+            validator.validate_delivery(events, RUN_ID)
+
     def test_rejects_terminal_turn_starting_with_another_tool(self) -> None:
         events = accepted_dispatch() + [
             terminal_prompt(),
