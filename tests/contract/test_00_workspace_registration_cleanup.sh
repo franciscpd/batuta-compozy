@@ -22,7 +22,7 @@ cleanup() {
 trap cleanup EXIT
 
 compozy() {
-  local root name id
+  local root name id expected_id
   case "$1 $2" in
     "workspace list")
       if [[ ! -f $FAKE_COMPOZY_STATE/registration ]]; then
@@ -65,7 +65,6 @@ compozy() {
       id=$3
       printf 'remove:%s\n' "$id" >> "$FAKE_COMPOZY_STATE/log"
       IFS= read -r root < "$FAKE_COMPOZY_STATE/registration"
-      IFS= read -r name < <(sed -n '2p' "$FAKE_COMPOZY_STATE/registration")
       IFS= read -r expected_id < <(sed -n '3p' "$FAKE_COMPOZY_STATE/registration")
       [[ $id == "$expected_id" ]]
       rm -f -- "$FAKE_COMPOZY_STATE/registration"
