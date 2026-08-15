@@ -123,11 +123,12 @@ Third-party actions are pinned to full commit SHAs. Default token permissions
 are read-only. Shell steps use strict mode, validate paths before cleanup, and
 never consume the repository's `.compozy` directory.
 
-The workflow follows a stage-then-publish boundary. A failure before draft
-creation leaves no tag or release. A failure after draft creation leaves a
-draft and annotated tag for inspection; it never publishes a partially
-verified release. Re-running with an existing tag or release fails closed
-rather than overwriting assets.
+The workflow follows a stage-then-publish boundary. A failure before the
+annotated tag step leaves no remote mutation. A failure after the tag is pushed
+may leave the exact tag, or the tag plus a draft, for inspection and explicit
+operator recovery; the workflow does not delete or overwrite either
+automatically. It never publishes a partially verified release. Re-running
+with an existing tag or release fails closed rather than overwriting assets.
 
 ## Verification and acceptance
 
