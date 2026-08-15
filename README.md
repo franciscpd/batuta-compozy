@@ -2,12 +2,32 @@
 
 > 🇧🇷 [Versão em português](README.pt-BR.md)
 
-Batuta as a resource-only CompozyOS extension: a conductor agent that
+Batuta is a resource-only CompozyOS extension: a conductor agent that
 orchestrates the spec-cycle (the `cy-*` skills + bundled Loops) with
 cost/complexity runtime routing. The conductor never writes code — it
 classifies, decomposes, dispatches, and reports.
 
-Current design: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-design.md`.
+CompozyOS provides the session, tool-policy, and durable Loop runtime. Learn
+more in the [official CompozyOS documentation](https://www.compozy.com/docs/)
+and [official repository](https://github.com/compozy/compozy). Batuta is an
+**Independent community project**, not an official or endorsed CompozyOS
+component.
+
+## How Batuta fits
+
+Read the [architecture guide](docs/architecture.md) for the boundary between
+Batuta, `spec-cycle`, and CompozyOS. The forthcoming
+[version-subcommand case study](docs/case-studies/version-subcommand.md)
+records a reproducible journey; [contribution guidance](CONTRIBUTING.md),
+[beta.2 release notes](docs/releases/0.1.0-beta.2.md), and the [MIT
+license](LICENSE) cover participation and distribution.
+
+The extension archive contains exactly five package files: `LICENSE`,
+`extension.toml`, `agents/batuta/AGENT.md`,
+`resources/skills/batuta-routing/SKILL.md`, and
+`loops/batuta-deliver/loop.yaml`. Those package files install three live
+resources: the `batuta` agent, `batuta-routing` skill, and `batuta-deliver`
+Loop.
 
 ## Prerequisites
 
@@ -93,7 +113,8 @@ Verified Batuta behavior is resource-only orchestration with one `batuta`
 agent, one `batuta-routing` skill, and one `batuta-deliver` Loop. Two upstream
 CompozyOS limitations remain: executor sessions are not visually nested and
 remain active/idle after normal terminal completion. Neither limitation is
-fixed by this preview.
+fixed by this preview. This is a beta preview with known session
+nesting/lifecycle limitations.
 
 ## Usage
 

@@ -2,12 +2,32 @@
 
 > 🇺🇸 [English version](README.md)
 
-O Batuta como extensão resource-only do CompozyOS: um agente maestro que rege
+O Batuta é uma extensão resource-only do CompozyOS: um agente maestro que rege
 o spec-cycle (skills `cy-*` + Loops bundled) com roteamento de runtime por
 custo/complexidade. O maestro nunca escreve código — classifica, decompõe,
 despacha e reporta.
 
-Design atual: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-design.md`.
+O CompozyOS fornece o runtime de sessões, política de ferramentas e Loops
+duráveis. Saiba mais na [documentação oficial do CompozyOS](https://www.compozy.com/docs/)
+e no [repositório oficial](https://github.com/compozy/compozy). O Batuta é um
+**Projeto independente da comunidade**, não um componente oficial ou endossado
+do CompozyOS.
+
+## Como o Batuta se encaixa
+
+Leia o [guia de arquitetura](docs/architecture.md) para entender a fronteira
+entre Batuta, `spec-cycle` e CompozyOS. O futuro
+[estudo de caso version-subcommand](docs/case-studies/version-subcommand.md)
+registra uma jornada reproduzível; o [guia de contribuição](CONTRIBUTING.md),
+as [notas da versão beta.2](docs/releases/0.1.0-beta.2.md) e a [licença
+MIT](LICENSE) cobrem participação e distribuição.
+
+O arquivo da extensão contém exatamente cinco arquivos de pacote: `LICENSE`,
+`extension.toml`, `agents/batuta/AGENT.md`,
+`resources/skills/batuta-routing/SKILL.md` e
+`loops/batuta-deliver/loop.yaml`. Esses arquivos de pacote instalam três
+recursos live: o agente `batuta`, a skill `batuta-routing` e o Loop
+`batuta-deliver`.
 
 ## Pré-requisitos
 
@@ -94,7 +114,8 @@ O comportamento verificado do Batuta é a orquestração resource-only com um
 agente `batuta`, uma skill `batuta-routing` e um Loop `batuta-deliver`. Duas
 limitações upstream do CompozyOS permanecem: as sessões dos executores não são
 visualmente aninhadas e permanecem active/idle após a conclusão terminal
-normal. Nenhuma dessas limitações é corrigida por este preview.
+normal. Nenhuma dessas limitações é corrigida por este preview. Este é um beta
+preview com limitações conhecidas de aninhamento/ciclo de vida das sessões.
 
 ## Uso
 
