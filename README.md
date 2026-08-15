@@ -3,11 +3,11 @@
 > 🇧🇷 [Versão em português](README.pt-BR.md)
 
 Batuta as a resource-only CompozyOS extension: a conductor agent that
-orchestrates the dev-cycle (the `cy-*` skills + bundled Loops) with
+orchestrates the spec-cycle (the `cy-*` skills + bundled Loops) with
 cost/complexity runtime routing. The conductor never writes code — it
 classifies, decomposes, dispatches, and reports.
 
-Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
+Current design: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-design.md`.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ Current design: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`
    full hash or the official eight-character build abbreviation, and the
    describe hash must be an unambiguous prefix of that same commit. Arbitrary
    custom builds are rejected; base them on a later beta/stable release.
-2. Bundled `dev-cycle` extension active (`compozy extension list`) — it
+2. Bundled `spec-cycle` 0.4.0 extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.
 3. **Provider authentication** (an operator surface, once and global — outside
@@ -80,11 +80,15 @@ reread. Any other config error stops unchanged; global defaults, child Loop
 defaults, definition defaults, and dry-runs never substitute for the stored
 preference. Batuta repeats the read before every dispatch.
 
-Flow: PM phase in conversation (PRD → TechSpec → tasks via the `cy-*` skills)
-→ direct read-only task import preflight → Loop dry-run (planning only) →
-dispatch of `batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
-`implement-tasks` (one isolated cycle + one commit per task) →
-`review-and-fix` (review rounds until clean) → exact terminal outcome.
+Flow: requirements and unified spec via `cy-create-spec` → operator approval
+of `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md`, and `_uiux.md` only
+for Web-bearing work → tasks via `cy-create-tasks` → direct read-only task
+import preflight → Loop dry-run (planning only) → dispatch of
+`batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
+`implement-tasks` → `review-and-fix` → exact terminal outcome.
+
+A simple request may use a short grill but may not skip `cy-create-spec` or
+task creation.
 
 Executable requirements such as dependency names and versions, commands,
 paths, flags, and constraints remain literal throughout PM artifacts, tasks,

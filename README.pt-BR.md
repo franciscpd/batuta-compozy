@@ -3,11 +3,11 @@
 > 🇺🇸 [English version](README.md)
 
 O Batuta como extensão resource-only do CompozyOS: um agente maestro que rege
-o dev-cycle (skills `cy-*` + Loops bundled) com roteamento de runtime por
+o spec-cycle (skills `cy-*` + Loops bundled) com roteamento de runtime por
 custo/complexidade. O maestro nunca escreve código — classifica, decompõe,
 despacha e reporta.
 
-Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
+Design atual: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-design.md`.
 
 ## Pré-requisitos
 
@@ -27,7 +27,7 @@ Design atual: `docs/superpowers/specs/2026-08-12-batuta-reliability-design.md`.
    exato ou a abreviação oficial de oito caracteres, e o hash describe deve ser
    um prefixo não ambíguo desse mesmo commit. Builds customizados arbitrários
    são rejeitados; baseie-os em um beta/estável posterior.
-2. Extensão bundled `dev-cycle` ativa (`compozy extension list`) — ela publica
+2. Extensão bundled `spec-cycle` 0.4.0 ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —
    fora do escopo da extensão). Derive IDs concretos de provider/model pelo
@@ -82,12 +82,16 @@ fluxo sem alterações; defaults globais, defaults dos Loops filhos, defaults da
 definição e dry-runs nunca substituem a preferência armazenada. O Batuta repete
 a leitura antes de cada despacho.
 
-Fluxo: fase PM em conversa (PRD → TechSpec → tasks via skills `cy-*`) →
+Fluxo: requisitos e spec unificada via `cy-create-spec` → aprovação pelo
+operador de `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md` e de
+`_uiux.md` somente quando houver mudança Web → tasks via `cy-create-tasks` →
 preflight direto e somente leitura da importação de tasks → dry-run do Loop
 (apenas planejamento) → despacho de
 `batuta-deliver(slug, origin_session_id, auto_commit)` →
-`implement-tasks` bundled (um ciclo isolado + um commit por task) →
-`review-and-fix` (rodadas de review até limpar) → resultado terminal exato.
+`implement-tasks` bundled → `review-and-fix` → resultado terminal exato.
+
+Um pedido simples pode ter um grill curto, mas não pode pular `cy-create-spec`
+nem a criação de tasks.
 
 Requisitos executáveis como nomes e versões de dependências, comandos, paths,
 flags e restrições permanecem literais nos artefatos de PM, tasks e prompts de

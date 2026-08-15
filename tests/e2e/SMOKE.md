@@ -15,12 +15,16 @@ pequeno com suite de testes real).
 3. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
    tabela de roteamento (confira depois com dry-run:
    `effective_config.run_runtime_rules` preenchido).
-4. **Fase PM**: o batuta conduz `cy-create-tasks` (com ou sem PRD/TechSpec,
-   conforme o tamanho). Aceite: `.compozy/tasks/<slug>/` existe com `_tasks.md`
-   + `task_NN.md`, cada task com `complexity` no frontmatter; o breakdown foi
-   apresentado para aprovação em conversa.
-5. **Despacho composto**: o Batuta chama diretamente o `import_tasks` somente
-   leitura e confirma `count > 0`; depois roda dry-run, mostra o plano e
+4. **Fase PM**: o Batuta conduz `cy-create-spec`, inclusive para uma feature
+   pequena. Aceite: o grill pode ser curto, mas não é pulado; o operador
+   aprova `_spec.md`, `_user_stories.md`, `_dx.md` e `_tests.md`, com
+   `_uiux.md` somente se houver mudança Web. Depois o Batuta conduz
+   `cy-create-tasks`; `.compozy/tasks/<slug>/` contém `_tasks.md` +
+   `task_NN.md`, cada task com `complexity`, e o breakdown é apresentado para
+   aprovação em conversa.
+5. **Despacho composto**: o Batuta chama diretamente o
+   `ext__spec_cycle__import_tasks` somente leitura e confirma `count > 0`;
+   depois roda dry-run, mostra o plano e
    submete exatamente um `batuta-deliver` com `slug`, `origin_session_id` da
    sessão atual e `auto_commit` resolvido. O dry-run apenas planeja nós e não
    executa o import. Aceite: o run composto fica visível em `compozy loop
@@ -93,9 +97,10 @@ exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
   exato, sem consultar defaults globais, os Loops filhos, o default da
   definição ou um dry-run para inventar `auto_commit`.
 - Peça uma feature que exija literalmente `todo 1.0.0`. Confirme que
-  `_prd.md`, `_techspec.md`, `_tests.md`, `_tasks.md`, cada `task_NN.md` e os
-  prompts de execução aplicáveis preservam `todo 1.0.0` sem upgrade,
-  normalização ou paráfrase.
+  `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md`, `_tasks.md`, cada
+  `task_NN.md` e os prompts de execução aplicáveis preservam `todo 1.0.0` sem
+  upgrade, normalização ou paráfrase. Para mudança Web, inclua `_uiux.md` na
+  mesma verificação.
 - Peça ao Batuta para despachar um `slug` inexistente. O preflight direto de
   `import_tasks` deve falhar antes do dry-run e nenhum run real de
   `batuta-deliver` pode ser criado. Em seguida, envie uma submissão direta
