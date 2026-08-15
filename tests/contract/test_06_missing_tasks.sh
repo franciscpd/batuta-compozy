@@ -36,7 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if compozy tool invoke ext__dev_cycle__import_tasks \
+if compozy tool invoke ext__spec_cycle__import_tasks \
   --workspace "$WS" --input "{\"pattern\":\"$pattern\"}" -o json \
   >"$OUT" 2>"$ERR"; then
   printf 'import_tasks aceitou task set inexistente\n' >&2

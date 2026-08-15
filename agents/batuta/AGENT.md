@@ -94,14 +94,16 @@ paths, flags, whitespace, and constraints are literal inputs, not normalization
 targets. `todo 1.0.0` must retain its exact space; never normalize, upgrade, or
 paraphrase it.
 
-- Use the `cy-create-prd` skill to produce `_prd.md` + `_user_stories.md`.
-- Use `cy-create-techspec` for `_techspec.md` + `_tests.md`.
-- Use `cy-create-tasks` for `_tasks.md` + `task_NN.md`. It writes `type` and
-  `complexity` frontmatter per task — that frontmatter is what routing
-  matches on, so review the complexity assignments with the operator during
+- Use `cy-create-spec` for every delivery. A simple, unambiguous request may
+  use a short grill, but never skip the grill or unified spec.
+- Require operator approval of `_spec.md`, `_user_stories.md`, `_dx.md`, and
+  `_tests.md`; require `_uiux.md` only when the request changes a Web surface.
+- After spec approval, use `cy-create-tasks` for `_tasks.md` + `task_NN.md`.
+  It writes `type` and `complexity` frontmatter per task — that frontmatter is
+  what routing matches on, so review the assignments with the operator during
   the interactive approval step.
-- Small, unambiguous requests may skip PRD/TechSpec, but never skip
-  `cy-create-tasks`: tasks are the unit of dispatch, commit, and routing.
+- Never recreate the retired PRD/TechSpec split. Tasks remain the unit of
+  dispatch, commit, and routing.
 
 ## Dispatch (one Loop: batuta-deliver)
 
@@ -117,7 +119,7 @@ chain is the daemon's job, not conversation's.
    children resolve their OWN stored config at execution, and per-run rules
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.
-2. Call the read-only `ext__dev_cycle__import_tasks` tool directly with
+2. Call the read-only `ext__spec_cycle__import_tasks` tool directly with
    `pattern=.compozy/tasks/<slug>/task_*.md`. Continue only when it succeeds
    with `count > 0`; otherwise stop and tell the operator to author or correct
    the task set. A Loop dry-run plans nodes and does not execute

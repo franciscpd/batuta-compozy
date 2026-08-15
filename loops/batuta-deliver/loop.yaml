@@ -80,7 +80,7 @@ graph:
 # This graph remains fail-closed for direct submissions that skip that preflight.
     - id: load_check
       class: action
-      kind: ext__dev_cycle__import_tasks
+      kind: ext__spec_cycle__import_tasks
       params:
         pattern: ".compozy/tasks/{{ .inputs.slug }}/task_*.md"
       produces:

@@ -45,5 +45,11 @@ text = open(sys.argv[1]).read()
 assert "kind: run-loop" in text, "nós run-loop ausentes"
 assert "loop: implement-tasks" in text and "loop: review-and-fix" in text, "encadeamento incompleto"
 assert text.count("kind: run-loop") == 2, "esperados exatamente 2 nós run-loop"
+assert "kind: ext__spec_cycle__import_tasks" in text, (
+    "spec-cycle import action absent"
+)
+assert "ext__dev_cycle__import_tasks" not in text, (
+    "retired dev-cycle import action remains"
+)
 print("OK: encadeamento implement-tasks -> review-and-fix por composição")
 PY
