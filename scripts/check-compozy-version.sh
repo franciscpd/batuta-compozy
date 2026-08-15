@@ -66,6 +66,8 @@ trusted_post_tag_builds = {
         "v0.3.0-beta.15-6-gef1bc78d",
     "c88b3e5274e86103215fbf900faf742d6593b7dd":
         "v0.3.0-beta.15-26-gc88b3e52",
+    "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c":
+        "v0.3.0-beta.16-9-ga35eda6d",
 }
 post_tag = re.fullmatch(
     r"v?(\d+)\.(\d+)\.(\d+)-beta\.(\d+)-(\d+)-g([0-9a-fA-F]+)",

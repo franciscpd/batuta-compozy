@@ -56,6 +56,19 @@ expect_reject \
 expect_reject \
   "v0.3.0-beta.15-26-gc88b3e52" \
   "c88b3e5274e86103215fbf900faf742d6593b7de"
+CURRENT_SPEC_CYCLE_COMMIT=a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+
+expect_accept \
+  "v0.3.0-beta.16-9-ga35eda6d" \
+  "$CURRENT_SPEC_CYCLE_COMMIT"
+expect_accept "v0.3.0-beta.16-9-ga35eda6d" "a35eda6d"
+expect_reject "v0.3.0-beta.16-9-ga35eda6d" "a35eda6"
+expect_reject \
+  "v0.3.0-beta.16-8-ga35eda6d" \
+  "$CURRENT_SPEC_CYCLE_COMMIT"
+expect_reject \
+  "v0.3.0-beta.16-9-ga35eda6d" \
+  "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1d"
 expect_accept "v0.3.0-beta.14" "deadbeef"
 expect_accept "v0.3.0" "deadbeef"
 
