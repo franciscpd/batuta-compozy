@@ -11,21 +11,17 @@ Current design: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-d
 
 ## Prerequisites
 
-1. A post-`0.3.0-beta.13` CompozyOS build containing fix `594d9fdf`, or the
-   first later release (`0.3.0-beta.14`/stable expected), with the daemon
-   running. The manifest keeps `0.3.0-beta.13` only as its grammar floor; the
-   plain beta.13 tag is not operationally supported. Verify the runtime with:
+1. CompozyOS `v0.3.0-beta.16-9-ga35eda6d` at the verified full commit
+   `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`, or a later release that
+   contains it, with the daemon running. The manifest keeps `0.3.0-beta.13`
+   only as its grammar floor. Verify the runtime with:
 
    ```bash
    scripts/check-compozy-version.sh
    ```
 
-   For beta.13 post-tag builds, the guard resolves `Version` and `Commit`
-   against canonical full hashes for the known official descendants from
-   `594d9fdf` through the current verified build. `Commit` must be the exact
-   full hash or the official eight-character build abbreviation, and the
-   describe hash must be an unambiguous prefix of that same commit. Arbitrary
-   custom builds are rejected; base them on a later beta/stable release.
+   The guard accepts the exact verified build and supported later releases;
+   arbitrary custom histories are rejected.
 2. Bundled `spec-cycle` 0.4.0 extension active (`compozy extension list`) — it
    publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
    Loops.
@@ -63,6 +59,41 @@ existing minimal package. A stable per-user lock at
 serializes package creation, verification, validation, installation, enabling,
 and final inventory verification. The package is reverified under that lock
 immediately before any installed extension is removed or replaced.
+
+## Preview installation: v0.1.0-beta.2
+
+The reviewed preview is published from `franciscpd/batuta-compozy` as exactly
+`batuta-compozy_0.1.0-beta.2.tar.gz` and `SHA256SUMS`. Download and verify
+both assets before extracting them into a new directory:
+
+```bash
+preview_dir=$(mktemp -d)
+gh release download v0.1.0-beta.2 --repo franciscpd/batuta-compozy --dir "$preview_dir"
+(cd "$preview_dir" && sha256sum --check SHA256SUMS)
+extracted_directory=$(mktemp -d)
+tar -xzf "$preview_dir/batuta-compozy_0.1.0-beta.2.tar.gz" -C "$extracted_directory"
+compozy extension validate "$extracted_directory" -o json
+```
+
+This is a preview trust boundary: only after explicitly accepting the
+unverified preview source, install that validated extracted directory:
+
+```bash
+compozy extension install "$extracted_directory" --allow-unverified --yes
+```
+
+To remove this preview or roll back before installing another validated
+package, run:
+
+```bash
+compozy extension remove batuta --global
+```
+
+Verified Batuta behavior is resource-only orchestration with one `batuta`
+agent, one `batuta-routing` skill, and one `batuta-deliver` Loop. Two upstream
+CompozyOS limitations remain: executor sessions are not visually nested and
+remain active/idle after normal terminal completion. Neither limitation is
+fixed by this preview.
 
 ## Usage
 

@@ -11,22 +11,17 @@ Design atual: `docs/superpowers/specs/2026-08-15-batuta-spec-cycle-migration-des
 
 ## Pré-requisitos
 
-1. Um build do CompozyOS posterior a `0.3.0-beta.13` que contenha o fix
-   `594d9fdf`, ou o primeiro release posterior (`0.3.0-beta.14`/estável
-   esperado), com o daemon rodando. O manifest mantém `0.3.0-beta.13` apenas
-   como piso da gramática; a tag beta.13 pura não tem suporte operacional.
-   Verifique o runtime com:
+1. CompozyOS `v0.3.0-beta.16-9-ga35eda6d` no commit completo verificado
+   `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`, ou um release posterior que o
+   contenha, com o daemon rodando. O manifest mantém `0.3.0-beta.13` apenas
+   como piso da gramática. Verifique o runtime com:
 
    ```bash
    scripts/check-compozy-version.sh
    ```
 
-   Para builds pós-tag beta.13, o guard resolve `Version` e `Commit` contra os
-   hashes completos canônicos dos descendentes oficiais conhecidos entre
-   `594d9fdf` e o build atual verificado. `Commit` deve ser o hash completo
-   exato ou a abreviação oficial de oito caracteres, e o hash describe deve ser
-   um prefixo não ambíguo desse mesmo commit. Builds customizados arbitrários
-   são rejeitados; baseie-os em um beta/estável posterior.
+   O guard aceita o build exato verificado e releases posteriores suportados;
+   históricos customizados arbitrários são rejeitados.
 2. Extensão bundled `spec-cycle` 0.4.0 ativa (`compozy extension list`) — ela publica
    as skills `cy-*` e os Loops `implement-tasks` / `review-and-fix`.
 3. **Autenticação de providers** (superfície de operador, uma vez e global —
@@ -64,6 +59,42 @@ pacote mínimo existente. Um lock estável por usuário em
 pacote, serializa criação, verificação, validação, instalação, ativação e a
 verificação final do inventário. O pacote é revalidado sob esse lock
 imediatamente antes de remover ou substituir a extensão instalada.
+
+## Instalação do preview: v0.1.0-beta.2
+
+O preview revisado é publicado em `franciscpd/batuta-compozy` exatamente como
+`batuta-compozy_0.1.0-beta.2.tar.gz` e `SHA256SUMS`. Baixe e verifique ambos
+os assets antes de extraí-los em um diretório novo:
+
+```bash
+preview_dir=$(mktemp -d)
+gh release download v0.1.0-beta.2 --repo franciscpd/batuta-compozy --dir "$preview_dir"
+(cd "$preview_dir" && sha256sum --check SHA256SUMS)
+extracted_directory=$(mktemp -d)
+tar -xzf "$preview_dir/batuta-compozy_0.1.0-beta.2.tar.gz" -C "$extracted_directory"
+compozy extension validate "$extracted_directory" -o json
+```
+
+Este é um limite de confiança do preview: somente após aceitar explicitamente
+a fonte de preview não verificada, instale aquele diretório extraído e
+validado:
+
+```bash
+compozy extension install "$extracted_directory" --allow-unverified --yes
+```
+
+Para remover este preview ou fazer rollback antes de instalar outro pacote
+validado, execute:
+
+```bash
+compozy extension remove batuta --global
+```
+
+O comportamento verificado do Batuta é a orquestração resource-only com um
+agente `batuta`, uma skill `batuta-routing` e um Loop `batuta-deliver`. Duas
+limitações upstream do CompozyOS permanecem: as sessões dos executores não são
+visualmente aninhadas e permanecem active/idle após a conclusão terminal
+normal. Nenhuma dessas limitações é corrigida por este preview.
 
 ## Uso
 
