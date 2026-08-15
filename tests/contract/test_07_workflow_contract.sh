@@ -56,6 +56,26 @@ require_release_order() {
   fi
 }
 
+release_step_block() {
+  local name=$1
+  awk -v marker="      - name: $name" '
+    $0 == marker {
+      found = 1
+    }
+    found && $0 != marker && /^      - name: / {
+      exit
+    }
+    found {
+      print
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+    }
+  ' "$RELEASE_WORKFLOW"
+}
+
 [[ -f $WORKFLOW ]] || {
   printf 'missing CI workflow: %s\n' "$WORKFLOW" >&2
   exit 1
@@ -107,8 +127,24 @@ require_release_block $'permissions:\n  contents: read'
 require_release_block $'concurrency:\n  group: preview-release-${{ github.repository }}\n  cancel-in-progress: false'
 require_release_block $'  verify:\n    uses: ./.github/workflows/ci.yml\n    with:\n      checkout_ref: ${{ inputs.release_ref }}'
 require_release_block $'  publish:\n    needs: verify\n    runs-on: ubuntu-latest\n    timeout-minutes: 30\n    permissions:\n      contents: write\n      id-token: write\n      attestations: write'
-if grep -qE '^  (pull_request|push|schedule|workflow_call):' "$RELEASE_WORKFLOW"; then
-  printf 'preview release workflow has a non-manual trigger\n' >&2
+release_triggers=$(awk '
+  /^on:$/ {
+    in_triggers = 1
+    next
+  }
+  in_triggers && /^[^[:space:]]/ {
+    exit
+  }
+  in_triggers && /^  [^[:space:]][^:]*:/ {
+    trigger = $0
+    sub(/^  /, "", trigger)
+    sub(/:.*/, "", trigger)
+    print trigger
+  }
+' "$RELEASE_WORKFLOW")
+if [[ $release_triggers != workflow_dispatch ]]; then
+  printf 'preview release workflow trigger set is not exactly workflow_dispatch: %s\n' \
+    "$release_triggers" >&2
   exit 1
 fi
 [[ $(grep -cF -- 'contents: write' "$RELEASE_WORKFLOW") -eq 1 ]]
@@ -118,9 +154,33 @@ require_release "uses: actions/checkout@$CHECKOUT_SHA"
 require_release 'ref: ${{ inputs.release_ref }}'
 require_release 'fetch-depth: 0'
 require_release 'fetch-tags: true'
+require_release 'persist-credentials: false'
 require_release 'RELEASE_REF: ${{ inputs.release_ref }}'
 require_release 'RELEASE_VERSION: ${{ inputs.release_version }}'
-require_release 'GH_TOKEN: ${{ github.token }}'
+if grep -qE '^ {0,8}GH_TOKEN:' "$RELEASE_WORKFLOW"; then
+  printf 'preview release token is exposed above step scope\n' >&2
+  exit 1
+fi
+[[ $(grep -cF -- 'GH_TOKEN: ${{ github.token }}' "$RELEASE_WORKFLOW") -eq 6 ]]
+[[ $(grep -cF -- '${{ github.token }}' "$RELEASE_WORKFLOW") -eq 6 ]]
+for token_step in \
+  'Check remote release preconditions' \
+  'Create and push annotated release tag' \
+  'Create draft prerelease' \
+  'Download and verify draft assets' \
+  'Publish verified prerelease' \
+  'Verify published release metadata'; do
+  token_step_block=$(release_step_block "$token_step")
+  if ! grep -qF -- 'GH_TOKEN: ${{ github.token }}' <<<"$token_step_block"; then
+    printf 'preview release token missing from required step: %s\n' "$token_step" >&2
+    exit 1
+  fi
+done
+build_step_block=$(release_step_block 'Build and validate release assets')
+if grep -qF -- 'GH_TOKEN:' <<<"$build_step_block"; then
+  printf 'preview release build step receives a GitHub token\n' >&2
+  exit 1
+fi
 require_release '[[ $(git rev-parse HEAD) == "$RELEASE_REF" ]]'
 require_release '[[ $RELEASE_REF =~ ^[0-9a-f]{40}$ ]]'
 require_release '[[ $GITHUB_SHA == "$RELEASE_REF" ]]'
@@ -149,6 +209,9 @@ require_release 'subject-path: ${{ runner.temp }}/release-assets/batuta-compozy_
 require_release 'subject-path: ${{ runner.temp }}/release-assets/SHA256SUMS'
 require_release 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
 require_release '[[ $(git cat-file -t "$tag") == tag ]]'
+require_release 'GIT_CONFIG_COUNT=1'
+require_release 'GIT_CONFIG_KEY_0=http.https://github.com/.extraheader'
+require_release 'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"'
 require_release 'git push origin "refs/tags/${tag}:refs/tags/${tag}"'
 require_release 'gh release create "$tag"'
 require_release '--verify-tag'
@@ -167,18 +230,30 @@ require_release '(.isDraft == false) and'
 require_release '(.isPrerelease == true) and'
 require_release '(.tagName == $tag) and'
 require_release '([.assets[].name] | sort) == (["SHA256SUMS", $archive] | sort)'
+require_release_block $'published_json=$(gh api graphql \\\n            -f query=\'query($owner: String!, $name: String!, $tagRef: String!, $tagName: String!) {'
+require_release '... on Tag {'
+require_release '... on Commit { oid }'
 require_release 'release(tagName: $tagName) { isLatest tagName }'
+require_release '(.data.repository.ref != null) and'
+require_release '(.data.repository.ref.target != null) and'
+require_release '(.data.repository.ref.target.__typename == "Tag") and'
+require_release '(.data.repository.ref.target.target != null) and'
+require_release '(.data.repository.ref.target.target.__typename == "Commit") and'
+require_release '(.data.repository.ref.target.target.oid == $release_ref) and'
 require_release '(.data.repository.release.isLatest == false) and'
 require_release '(.data.repository.release.tagName == $tag)'
 
-require_release_order './scripts/build-preview-assets.sh "$RELEASE_VERSION" "$asset_dir"' "uses: actions/attest-build-provenance@$ATTEST_SHA"
+require_release_order '(cd "$asset_dir" && sha256sum --check SHA256SUMS)' "uses: actions/attest-build-provenance@$ATTEST_SHA"
 require_release_order 'subject-path: ${{ runner.temp }}/release-assets/SHA256SUMS' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
 require_release_order 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"' 'gh release create "$tag"'
 require_release_order 'gh release download "$tag" --dir "$download_dir"' '(cd "$download_dir" && sha256sum --check SHA256SUMS)'
 require_release_order '(cd "$download_dir" && sha256sum --check SHA256SUMS)' 'gh release edit "$tag" --draft=false --prerelease --latest=false'
 require_release_order 'gh release edit "$tag" --draft=false --prerelease --latest=false' 'gh release view "$tag" --json isDraft,isPrerelease,tagName,assets'
+require_release_order 'gh release edit "$tag" --draft=false --prerelease --latest=false' 'published_json=$(gh api graphql \'
+require_release_order 'published_json=$(gh api graphql \' '... on Tag {'
+require_release_order 'gh release edit "$tag" --draft=false --prerelease --latest=false' 'release(tagName: $tagName) { isLatest tagName }'
 
-if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release delete|git tag -d|git push origin ['\"]?:refs/tags/" "$RELEASE_WORKFLOW"; then
+if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release delete|git tag -d|git push origin ['\"]?:refs/tags/|git config .*extraheader|git remote set-url .*token" "$RELEASE_WORKFLOW"; then
   printf 'preview release workflow contains destructive recovery behavior\n' >&2
   exit 1
 fi

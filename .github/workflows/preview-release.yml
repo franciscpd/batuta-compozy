@@ -36,7 +36,6 @@ jobs:
     env:
       RELEASE_REF: ${{ inputs.release_ref }}
       RELEASE_VERSION: ${{ inputs.release_version }}
-      GH_TOKEN: ${{ github.token }}
     defaults:
       run:
         shell: bash
@@ -47,6 +46,7 @@ jobs:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Verify release identity and mutation preconditions
         run: |
@@ -76,6 +76,11 @@ jobs:
             "$notes_file"
           [[ ! -e .compozy && ! -L .compozy ]]
 
+      - name: Check remote release preconditions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
           tag="v${RELEASE_VERSION}"
           owner=${GITHUB_REPOSITORY%%/*}
           name=${GITHUB_REPOSITORY#*/}
@@ -124,6 +129,8 @@ jobs:
           subject-path: ${{ runner.temp }}/release-assets/SHA256SUMS
 
       - name: Create and push annotated release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
@@ -131,9 +138,16 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"
           [[ $(git cat-file -t "$tag") == tag ]]
-          git push origin "refs/tags/${tag}:refs/tags/${tag}"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push origin "refs/tags/${tag}:refs/tags/${tag}"
+          unset auth
 
       - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
@@ -150,6 +164,8 @@ jobs:
             --notes-file "$notes_file"
 
       - name: Download and verify draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
@@ -166,12 +182,16 @@ jobs:
           (cd "$download_dir" && sha256sum --check SHA256SUMS)
 
       - name: Publish verified prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
           gh release edit "$tag" --draft=false --prerelease --latest=false
 
       - name: Verify published release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
@@ -186,19 +206,37 @@ jobs:
 
           owner=${GITHUB_REPOSITORY%%/*}
           name=${GITHUB_REPOSITORY#*/}
-          latest_json=$(gh api graphql \
-            -f query='query($owner: String!, $name: String!, $tagName: String!) {
+          published_json=$(gh api graphql \
+            -f query='query($owner: String!, $name: String!, $tagRef: String!, $tagName: String!) {
               repository(owner: $owner, name: $name) {
+                ref(qualifiedName: $tagRef) {
+                  target {
+                    __typename
+                    ... on Tag {
+                      target {
+                        __typename
+                        ... on Commit { oid }
+                      }
+                    }
+                  }
+                }
                 release(tagName: $tagName) { isLatest tagName }
               }
             }' \
             -f owner="$owner" \
             -f name="$name" \
+            -f tagRef="refs/tags/$tag" \
             -f tagName="$tag")
-          jq -e --arg tag "$tag" '
+          jq -e --arg tag "$tag" --arg release_ref "$RELEASE_REF" '
             (.errors == null) and
             (.data.repository != null) and
+            (.data.repository.ref != null) and
+            (.data.repository.ref.target != null) and
+            (.data.repository.ref.target.__typename == "Tag") and
+            (.data.repository.ref.target.target != null) and
+            (.data.repository.ref.target.target.__typename == "Commit") and
+            (.data.repository.ref.target.target.oid == $release_ref) and
             (.data.repository.release != null) and
             (.data.repository.release.isLatest == false) and
             (.data.repository.release.tagName == $tag)
-          ' <<<"$latest_json" >/dev/null
+          ' <<<"$published_json" >/dev/null
