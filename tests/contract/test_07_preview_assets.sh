@@ -24,9 +24,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
-marker_snapshot="$PREVIEW_ROOT/compozy-marker.tar"
-tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-  -cf "$marker_snapshot" -C . .compozy
+snapshot_marker() {
+  local marker_root=$1
+  local snapshot=$2
+  python3 - "$marker_root" "$snapshot" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+snapshot = Path(sys.argv[2])
+paths = [root]
+for current, directories, files in os.walk(root, topdown=True, followlinks=False):
+    directories.sort()
+    files.sort()
+    paths.extend(Path(current) / name for name in [*directories, *files])
+
+with snapshot.open("w", encoding="utf-8") as output:
+    for path in paths:
+        metadata = path.lstat()
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        if stat.S_ISREG(metadata.st_mode):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            kind = "file"
+        elif stat.S_ISDIR(metadata.st_mode):
+            digest = None
+            kind = "directory"
+        elif stat.S_ISLNK(metadata.st_mode):
+            digest = os.readlink(path)
+            kind = "symlink"
+        else:
+            raise SystemExit(f"unsupported marker entry: {path}")
+        record = {
+            "digest_or_target": digest,
+            "gid": metadata.st_gid,
+            "kind": kind,
+            "mode": stat.S_IMODE(metadata.st_mode),
+            "mtime_ns": metadata.st_mtime_ns,
+            "path": relative,
+            "size": metadata.st_size,
+            "uid": metadata.st_uid,
+        }
+        output.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
+        output.write("\n")
+PY
+}
+
+marker_snapshot="$PREVIEW_ROOT/compozy-marker.manifest"
+snapshot_marker .compozy "$marker_snapshot"
 
 version=$(python3 - extension.toml <<'PY'
 import sys
@@ -94,9 +142,25 @@ expect_failure "$BUILDER" "$version" "relative-preview-output"
 expect_failure "$BUILDER" "$version" "$nonempty_output"
 expect_failure "$BUILDER" "$version" "$symlink_output"
 
-marker_after="$PREVIEW_ROOT/compozy-marker-after.tar"
-tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-  -cf "$marker_after" -C . .compozy
+marker_after="$PREVIEW_ROOT/compozy-marker-after.manifest"
+snapshot_marker .compozy "$marker_after"
 cmp -s "$marker_snapshot" "$marker_after"
+
+tampered_marker="$PREVIEW_ROOT/tampered-compozy"
+cp -a -- .compozy "$tampered_marker"
+python3 - "$tampered_marker/workspace.toml" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+metadata = os.stat(path)
+os.utime(path, ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 1))
+PY
+tampered_snapshot="$PREVIEW_ROOT/tampered-compozy.manifest"
+snapshot_marker "$tampered_marker" "$tampered_snapshot"
+if cmp -s "$marker_snapshot" "$tampered_snapshot"; then
+  printf 'marker snapshot failed to detect a timestamp-only change\n' >&2
+  exit 1
+fi
 
 printf 'OK: deterministic preview assets validate, reject unsafe outputs, and exclude .compozy\n'
