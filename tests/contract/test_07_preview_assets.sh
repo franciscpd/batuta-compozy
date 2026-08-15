@@ -3,9 +3,13 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 BUILDER=scripts/build-preview-assets.sh
-if [[ ! -d .compozy || -L .compozy ]]; then
-  printf 'expected the pre-existing .compozy marker directory\n' >&2
-  exit 1
+MARKER_PRESENT=false
+if [[ -e .compozy || -L .compozy ]]; then
+  if [[ ! -d .compozy || -L .compozy ]]; then
+    printf 'expected .compozy to be an absent entry or a real directory\n' >&2
+    exit 1
+  fi
+  MARKER_PRESENT=true
 fi
 
 PREVIEW_ROOT=$(mktemp -d /tmp/batuta-preview-assets.XXXXXX)
@@ -111,89 +115,10 @@ with snapshot.open("w", encoding="utf-8") as output:
 PY
 }
 
-marker_snapshot="$PREVIEW_ROOT/compozy-marker.manifest"
-snapshot_marker .compozy "$marker_snapshot"
-
-copy_marker_noatime() {
-  local marker_root=$1
-  local destination=$2
-  python3 - "$marker_root" "$destination" <<'PY'
-import os
-from pathlib import Path
-import stat
-import sys
-
-source_root = Path(sys.argv[1])
-destination_root = Path(sys.argv[2])
-noatime = getattr(os, "O_NOATIME", None)
-directory = getattr(os, "O_DIRECTORY", None)
-if noatime is None or directory is None:
-    raise SystemExit("refusing to copy marker without Linux O_NOATIME support")
-
-
-def open_noatime(path, *, is_directory=False):
-    flags = os.O_RDONLY | noatime
-    if is_directory:
-        flags |= directory
-    try:
-        return os.open(path, flags)
-    except OSError as error:
-        raise SystemExit(f"refusing marker copy without O_NOATIME: {path}: {error}")
-
-
-def children(path):
-    fd = open_noatime(path, is_directory=True)
-    try:
-        with os.scandir(fd) as entries:
-            return sorted(entries, key=lambda entry: entry.name)
-    finally:
-        os.close(fd)
-
-
-def preserve_metadata(destination, metadata):
-    if not stat.S_ISLNK(metadata.st_mode):
-        os.chmod(destination, stat.S_IMODE(metadata.st_mode))
-    os.chown(destination, metadata.st_uid, metadata.st_gid, follow_symlinks=False)
-    os.utime(
-        destination,
-        ns=(metadata.st_atime_ns, metadata.st_mtime_ns),
-        follow_symlinks=False,
-    )
-
-
-def copy_entry(source, destination):
-    metadata = source.lstat()
-    if stat.S_ISDIR(metadata.st_mode):
-        destination.mkdir(mode=stat.S_IMODE(metadata.st_mode))
-        for entry in children(source):
-            copy_entry(source / entry.name, destination / entry.name)
-    elif stat.S_ISREG(metadata.st_mode):
-        source_fd = open_noatime(source)
-        try:
-            destination_fd = os.open(
-                destination,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                stat.S_IMODE(metadata.st_mode),
-            )
-            try:
-                while chunk := os.read(source_fd, 1024 * 1024):
-                    written = 0
-                    while written < len(chunk):
-                        written += os.write(destination_fd, chunk[written:])
-            finally:
-                os.close(destination_fd)
-        finally:
-            os.close(source_fd)
-    elif stat.S_ISLNK(metadata.st_mode):
-        os.symlink(os.readlink(source), destination)
-    else:
-        raise SystemExit(f"unsupported marker entry: {source}")
-    preserve_metadata(destination, metadata)
-
-
-copy_entry(source_root, destination_root)
-PY
-}
+if [[ $MARKER_PRESENT == true ]]; then
+  marker_snapshot="$PREVIEW_ROOT/compozy-marker.manifest"
+  snapshot_marker .compozy "$marker_snapshot"
+fi
 
 version=$(python3 - extension.toml <<'PY'
 import sys
@@ -261,12 +186,19 @@ expect_failure "$BUILDER" "$version" "relative-preview-output"
 expect_failure "$BUILDER" "$version" "$nonempty_output"
 expect_failure "$BUILDER" "$version" "$symlink_output"
 
-marker_after="$PREVIEW_ROOT/compozy-marker-after.manifest"
-snapshot_marker .compozy "$marker_after"
-cmp -s "$marker_snapshot" "$marker_after"
+if [[ $MARKER_PRESENT == true ]]; then
+  marker_after="$PREVIEW_ROOT/compozy-marker-after.manifest"
+  snapshot_marker .compozy "$marker_after"
+  cmp -s "$marker_snapshot" "$marker_after"
+else
+  [[ ! -e .compozy && ! -L .compozy ]]
+fi
 
 tampered_marker="$PREVIEW_ROOT/tampered-compozy"
-copy_marker_noatime .compozy "$tampered_marker"
+mkdir "$tampered_marker"
+printf 'synthetic marker\n' > "$tampered_marker/workspace.toml"
+synthetic_marker_before="$PREVIEW_ROOT/tampered-compozy-before.manifest"
+snapshot_marker "$tampered_marker" "$synthetic_marker_before"
 python3 - "$tampered_marker/workspace.toml" <<'PY'
 import os
 import sys
@@ -277,7 +209,7 @@ os.utime(path, ns=(metadata.st_atime_ns, metadata.st_mtime_ns + 1))
 PY
 tampered_snapshot="$PREVIEW_ROOT/tampered-compozy.manifest"
 snapshot_marker "$tampered_marker" "$tampered_snapshot"
-if cmp -s "$marker_snapshot" "$tampered_snapshot"; then
+if cmp -s "$synthetic_marker_before" "$tampered_snapshot"; then
   printf 'marker snapshot failed to detect a timestamp-only change\n' >&2
   exit 1
 fi
