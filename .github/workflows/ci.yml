@@ -1,0 +1,109 @@
+name: Candidate CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ inputs.checkout_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}/candidate
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+          path: ${{ github.workspace }}/candidate
+          fetch-depth: 0
+
+      - name: Check out pinned CompozyOS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: compozy/compozy
+          ref: a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+          path: ${{ github.workspace }}/compozy-source
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.4
+
+      - name: Build CompozyOS
+        working-directory: ${{ github.workspace }}/compozy-source
+        run: make build-go
+
+      - name: Verify CompozyOS build identity
+        working-directory: ${{ github.workspace }}/compozy-source
+        run: |
+          version_json=$(./bin/compozy version -o json)
+          python3 - "$version_json" <<'PY'
+          import json
+          import sys
+
+          data = json.loads(sys.argv[1])
+          expected_commit = "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
+          if data.get("Commit") != expected_commit:
+              raise SystemExit(
+                  "built CompozyOS commit differs from the pinned candidate gate"
+              )
+          PY
+          echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"
+
+      - name: Check Bash syntax
+        run: bash -n scripts/*.sh tests/contract/*.sh
+
+      - name: Run Python validators
+        run: python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v
+
+      - name: Start isolated CompozyOS daemon
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: |
+          [[ ! -e .compozy && ! -L .compozy ]]
+          compozy daemon start
+
+      - name: Run contract suite
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: tests/contract/run.sh
+
+      - name: Check tracked workspace cleanliness
+        run: git diff --exit-code
+
+      - name: Upload failed CompozyOS logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: compozy-daemon-logs
+          path: ${{ runner.temp }}/batuta-compozy-home/logs
+          if-no-files-found: ignore
+
+      - name: Stop isolated CompozyOS daemon
+        if: always()
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: |
+          compozy daemon stop || true
+          [[ $COMPOZY_HOME == "$RUNNER_TEMP"/batuta-compozy-home ]]
+          rm -rf -- "$COMPOZY_HOME"
