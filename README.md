@@ -83,7 +83,8 @@ preference. Batuta repeats the read before every dispatch.
 Flow: requirements and unified spec via `cy-create-spec` → operator approval
 of `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md`, and `_uiux.md` only
 for Web-bearing work → tasks via `cy-create-tasks` → direct read-only task
-import preflight → Loop dry-run (planning only) → dispatch of
+preflight via `ext__spec_cycle__import_tasks` → Loop dry-run (planning only) →
+dispatch of
 `batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
 `implement-tasks` → `review-and-fix` → exact terminal outcome.
 

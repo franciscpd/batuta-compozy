@@ -85,7 +85,8 @@ a leitura antes de cada despacho.
 Fluxo: requisitos e spec unificada via `cy-create-spec` → aprovação pelo
 operador de `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md` e de
 `_uiux.md` somente quando houver mudança Web → tasks via `cy-create-tasks` →
-preflight direto e somente leitura da importação de tasks → dry-run do Loop
+preflight direto e somente leitura via `ext__spec_cycle__import_tasks` →
+dry-run do Loop
 (apenas planejamento) → despacho de
 `batuta-deliver(slug, origin_session_id, auto_commit)` →
 `implement-tasks` bundled → `review-and-fix` → resultado terminal exato.
