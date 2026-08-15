@@ -49,6 +49,14 @@ jobs:
         with:
           go-version: 1.26.4
 
+      - name: Verify pinned CompozyOS source
+        working-directory: ${{ github.workspace }}/compozy-source
+        run: |
+          set -euo pipefail
+          expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
+          actual_source_commit=$(git rev-parse HEAD)
+          [[ $actual_source_commit == "$expected_source_commit" ]]
+
       - name: Build CompozyOS
         working-directory: ${{ github.workspace }}/compozy-source
         run: make build-go
@@ -56,16 +64,18 @@ jobs:
       - name: Verify CompozyOS build identity
         working-directory: ${{ github.workspace }}/compozy-source
         run: |
+          set -euo pipefail
+          expected_embedded_commit=$(git rev-parse --short HEAD)
           version_json=$(./bin/compozy version -o json)
-          python3 - "$version_json" <<'PY'
+          python3 - "$version_json" "$expected_embedded_commit" <<'PY'
           import json
           import sys
 
           data = json.loads(sys.argv[1])
-          expected_commit = "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
+          expected_commit = sys.argv[2]
           if data.get("Commit") != expected_commit:
               raise SystemExit(
-                  "built CompozyOS commit differs from the pinned candidate gate"
+                  "built CompozyOS commit differs from its canonical source abbreviation"
               )
           PY
           echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"

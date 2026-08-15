@@ -56,8 +56,9 @@ require_release_order() {
   fi
 }
 
-release_step_block() {
-  local name=$1
+workflow_step_block() {
+  local workflow=$1
+  local name=$2
   awk -v marker="      - name: $name" '
     $0 == marker {
       found = 1
@@ -73,7 +74,12 @@ release_step_block() {
         exit 1
       }
     }
-  ' "$RELEASE_WORKFLOW"
+  ' "$workflow"
+}
+
+release_step_block() {
+  local name=$1
+  workflow_step_block "$RELEASE_WORKFLOW" "$name"
 }
 
 [[ -f $WORKFLOW ]] || {
@@ -101,8 +107,6 @@ require 'fetch-depth: 0'
 require 'fetch-tags: true'
 require 'make build-go'
 require './bin/compozy version -o json'
-require "expected_commit = \"$COMPOZY_COMMIT\""
-require 'data.get("Commit") != expected_commit'
 require 'echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"'
 require 'bash -n scripts/*.sh tests/contract/*.sh'
 require "python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v"
@@ -116,6 +120,45 @@ require 'path: ${{ runner.temp }}/batuta-compozy-home/logs'
 require 'if: always()'
 require 'compozy daemon stop || true'
 require 'rm -rf -- "$COMPOZY_HOME"'
+
+source_identity_line=$(grep -nF -- '- name: Verify pinned CompozyOS source' "$WORKFLOW" | head -n 1 | cut -d: -f1)
+build_line=$(grep -nF -- '- name: Build CompozyOS' "$WORKFLOW" | head -n 1 | cut -d: -f1)
+runtime_identity_line=$(grep -nF -- '- name: Verify CompozyOS build identity' "$WORKFLOW" | head -n 1 | cut -d: -f1)
+if [[ -z $source_identity_line || -z $build_line || -z $runtime_identity_line ||
+      $source_identity_line -ge $build_line || $build_line -ge $runtime_identity_line ]]; then
+  printf 'CI identity ordering must be full source check, build, then runtime check\n' >&2
+  exit 1
+fi
+
+source_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify pinned CompozyOS source')
+for source_requirement in \
+  'set -euo pipefail' \
+  'expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"' \
+  'actual_source_commit=$(git rev-parse HEAD)' \
+  '[[ $actual_source_commit == "$expected_source_commit" ]]'; do
+  if ! grep -qF -- "$source_requirement" <<<"$source_identity_block"; then
+    printf 'missing pinned source identity contract: %s\n' "$source_requirement" >&2
+    exit 1
+  fi
+done
+
+runtime_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify CompozyOS build identity')
+for runtime_requirement in \
+  'set -euo pipefail' \
+  'expected_embedded_commit=$(git rev-parse --short HEAD)' \
+  'python3 - "$version_json" "$expected_embedded_commit"' \
+  'expected_commit = sys.argv[2]' \
+  'data.get("Commit") != expected_commit'; do
+  if ! grep -qF -- "$runtime_requirement" <<<"$runtime_identity_block"; then
+    printf 'missing exact runtime identity contract: %s\n' "$runtime_requirement" >&2
+    exit 1
+  fi
+done
+if grep -qE -- 'starts?with|ends?with|[[:space:]](not[[:space:]]+)?in[[:space:]]|\[[^]]*:[^]]*\]|==.*\*|!=.*\*' \
+  <<<"$runtime_identity_block"; then
+  printf 'CI runtime identity permits prefix or substring matching\n' >&2
+  exit 1
+fi
 
 [[ -f $RELEASE_WORKFLOW ]] || {
   printf 'missing preview release workflow: %s\n' "$RELEASE_WORKFLOW" >&2
