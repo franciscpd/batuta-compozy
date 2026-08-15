@@ -30,6 +30,7 @@ fi
 
 actual=$(cd "$first" && find . -type f -print | LC_ALL=C sort)
 expected=$(printf '%s\n' \
+  './LICENSE' \
   './agents/batuta/AGENT.md' \
   './extension.toml' \
   './loops/batuta-deliver/loop.yaml' \

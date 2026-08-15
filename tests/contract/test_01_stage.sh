@@ -12,6 +12,7 @@ scripts/stage-extension.sh "$STAGE"
 
 actual=$(cd "$STAGE" && find . -type f -print | LC_ALL=C sort)
 expected=$(printf '%s\n' \
+  './LICENSE' \
   './agents/batuta/AGENT.md' \
   './extension.toml' \
   './loops/batuta-deliver/loop.yaml' \

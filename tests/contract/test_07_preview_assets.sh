@@ -149,6 +149,7 @@ mkdir "$extracted"
 tar -xzf "$first_archive" -C "$extracted"
 actual=$(cd "$extracted" && find . -type f -print | LC_ALL=C sort)
 expected=$(printf '%s\n' \
+  './LICENSE' \
   './agents/batuta/AGENT.md' \
   './extension.toml' \
   './loops/batuta-deliver/loop.yaml' \

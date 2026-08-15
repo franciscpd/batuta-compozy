@@ -19,6 +19,7 @@ if [[ -n $(find "$STAGE" -mindepth 1 -print -quit) ]]; then
 fi
 
 mkdir -p "$STAGE/agents" "$STAGE/resources/skills" "$STAGE/loops"
+cp -- "$ROOT/LICENSE" "$STAGE/LICENSE"
 cp -- "$ROOT/extension.toml" "$STAGE/extension.toml"
 cp -R -- "$ROOT/agents/batuta" "$STAGE/agents/"
 cp -R -- "$ROOT/resources/skills/batuta-routing" "$STAGE/resources/skills/"
