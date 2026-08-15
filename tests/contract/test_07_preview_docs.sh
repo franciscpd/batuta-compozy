@@ -35,9 +35,19 @@ for document in "${documents[@]}"; do
   require "$document" 'SHA256SUMS'
   require "$document" 'gh release download'
   require "$document" 'sha256sum --check'
+  require "$document" 'tar -xzf "$preview_dir/batuta-compozy_0.1.0-beta.2.tar.gz" -C "$extracted_directory"'
+  require "$document" 'compozy extension validate "$extracted_directory" -o json'
+  require "$document" 'compozy extension install "$extracted_directory" --allow-unverified --yes'
   require "$document" 'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c'
   require "$document" 'compozy extension remove batuta --global'
 done
+
+require_wrapped README.md 'This is a preview trust boundary'
+require_wrapped README.md 'unverified preview source'
+require_wrapped README.pt-BR.md 'Este é um limite de confiança do preview'
+require_wrapped README.pt-BR.md 'fonte de preview não verificada'
+require_wrapped "$release_notes" 'explicit trust boundary'
+require_wrapped "$release_notes" 'unverified preview source'
 
 for document in README.md "$release_notes"; do
   require_wrapped "$document" 'executor sessions are not visually nested'
