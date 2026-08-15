@@ -77,6 +77,22 @@ workflow_step_block() {
   ' "$workflow"
 }
 
+require_step_sequence() {
+  local label=$1
+  local block=$2
+  shift 2
+  local expected line_number previous_line=0
+  for expected in "$@"; do
+    line_number=$(grep -nxF -- "$expected" <<<"$block" | cut -d: -f1 || true)
+    if [[ -z $line_number || $line_number == *$'\n'* ||
+          ( $previous_line -ne 0 && $line_number -ne $((previous_line + 1)) ) ]]; then
+      printf 'missing executable %s sequence line: %s\n' "$label" "$expected" >&2
+      exit 1
+    fi
+    previous_line=$line_number
+  done
+}
+
 release_step_block() {
   local name=$1
   workflow_step_block "$RELEASE_WORKFLOW" "$name"
@@ -131,29 +147,25 @@ if [[ -z $source_identity_line || -z $build_line || -z $runtime_identity_line ||
 fi
 
 source_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify pinned CompozyOS source')
-for source_requirement in \
-  'set -euo pipefail' \
-  'expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"' \
-  'actual_source_commit=$(git rev-parse HEAD)' \
-  '[[ $actual_source_commit == "$expected_source_commit" ]]'; do
-  if ! grep -qF -- "$source_requirement" <<<"$source_identity_block"; then
-    printf 'missing pinned source identity contract: %s\n' "$source_requirement" >&2
-    exit 1
-  fi
-done
+require_step_sequence 'pinned source identity' "$source_identity_block" \
+  '          set -euo pipefail' \
+  '          expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"' \
+  '          actual_source_commit=$(git rev-parse HEAD)' \
+  '          [[ $actual_source_commit == "$expected_source_commit" ]]'
 
 runtime_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify CompozyOS build identity')
-for runtime_requirement in \
-  'set -euo pipefail' \
-  'expected_embedded_commit=$(git rev-parse --short HEAD)' \
-  'python3 - "$version_json" "$expected_embedded_commit"' \
-  'expected_commit = sys.argv[2]' \
-  'data.get("Commit") != expected_commit'; do
-  if ! grep -qF -- "$runtime_requirement" <<<"$runtime_identity_block"; then
-    printf 'missing exact runtime identity contract: %s\n' "$runtime_requirement" >&2
-    exit 1
-  fi
-done
+require_step_sequence 'runtime identity setup' "$runtime_identity_block" \
+  '          set -euo pipefail' \
+  '          expected_embedded_commit=$(git rev-parse --short HEAD)' \
+  '          version_json=$(./bin/compozy version -o json)' \
+  '          python3 - "$version_json" "$expected_embedded_commit" <<'\''PY'\'''
+require_step_sequence 'runtime identity expectation' "$runtime_identity_block" \
+  '          expected_commit = sys.argv[2]'
+require_step_sequence 'runtime exact comparison' "$runtime_identity_block" \
+  '          if data.get("Commit") != expected_commit:' \
+  '              raise SystemExit(' \
+  '                  "built CompozyOS commit differs from its canonical source abbreviation"' \
+  '              )'
 if grep -qE -- 'starts?with|ends?with|[[:space:]](not[[:space:]]+)?in[[:space:]]|\[[^]]*:[^]]*\]|==.*\*|!=.*\*' \
   <<<"$runtime_identity_block"; then
   printf 'CI runtime identity permits prefix or substring matching\n' >&2
