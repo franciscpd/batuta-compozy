@@ -243,6 +243,7 @@ require_release '(.data.repository.ref.target.target.oid == $release_ref) and'
 require_release '(.data.repository.release.isLatest == false) and'
 require_release '(.data.repository.release.tagName == $tag)'
 
+require_release_order './scripts/build-preview-assets.sh "$RELEASE_VERSION" "$asset_dir"' '(cd "$asset_dir" && sha256sum --check SHA256SUMS)'
 require_release_order '(cd "$asset_dir" && sha256sum --check SHA256SUMS)' "uses: actions/attest-build-provenance@$ATTEST_SHA"
 require_release_order 'subject-path: ${{ runner.temp }}/release-assets/SHA256SUMS' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
 require_release_order 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"' 'gh release create "$tag"'
