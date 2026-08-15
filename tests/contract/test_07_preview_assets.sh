@@ -37,18 +37,55 @@ import sys
 
 root = Path(sys.argv[1])
 snapshot = Path(sys.argv[2])
-paths = [root]
-for current, directories, files in os.walk(root, topdown=True, followlinks=False):
-    directories.sort()
-    files.sort()
-    paths.extend(Path(current) / name for name in [*directories, *files])
+noatime = getattr(os, "O_NOATIME", None)
+directory = getattr(os, "O_DIRECTORY", None)
+if noatime is None or directory is None:
+    raise SystemExit("refusing to read marker without Linux O_NOATIME support")
+
+
+def open_noatime(path, *, is_directory=False):
+    flags = os.O_RDONLY | noatime
+    if is_directory:
+        flags |= directory
+    try:
+        return os.open(path, flags)
+    except OSError as error:
+        raise SystemExit(f"refusing marker read without O_NOATIME: {path}: {error}")
+
+
+def sorted_paths(path):
+    paths = [path]
+    fd = open_noatime(path, is_directory=True)
+    try:
+        with os.scandir(fd) as entries:
+            children = sorted(entries, key=lambda entry: entry.name)
+    finally:
+        os.close(fd)
+    for entry in children:
+        child = path / entry.name
+        paths.extend(sorted_paths(child) if entry.is_dir(follow_symlinks=False) else [child])
+    return paths
+
+
+def sha256_noatime(path):
+    digest = hashlib.sha256()
+    fd = open_noatime(path)
+    try:
+        while chunk := os.read(fd, 1024 * 1024):
+            digest.update(chunk)
+    finally:
+        os.close(fd)
+    return digest.hexdigest()
+
+
+paths = sorted_paths(root)
 
 with snapshot.open("w", encoding="utf-8") as output:
     for path in paths:
         metadata = path.lstat()
         relative = "." if path == root else path.relative_to(root).as_posix()
         if stat.S_ISREG(metadata.st_mode):
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = sha256_noatime(path)
             kind = "file"
         elif stat.S_ISDIR(metadata.st_mode):
             digest = None
@@ -63,6 +100,7 @@ with snapshot.open("w", encoding="utf-8") as output:
             "gid": metadata.st_gid,
             "kind": kind,
             "mode": stat.S_IMODE(metadata.st_mode),
+            "atime_ns": metadata.st_atime_ns,
             "mtime_ns": metadata.st_mtime_ns,
             "path": relative,
             "size": metadata.st_size,
@@ -75,6 +113,87 @@ PY
 
 marker_snapshot="$PREVIEW_ROOT/compozy-marker.manifest"
 snapshot_marker .compozy "$marker_snapshot"
+
+copy_marker_noatime() {
+  local marker_root=$1
+  local destination=$2
+  python3 - "$marker_root" "$destination" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+source_root = Path(sys.argv[1])
+destination_root = Path(sys.argv[2])
+noatime = getattr(os, "O_NOATIME", None)
+directory = getattr(os, "O_DIRECTORY", None)
+if noatime is None or directory is None:
+    raise SystemExit("refusing to copy marker without Linux O_NOATIME support")
+
+
+def open_noatime(path, *, is_directory=False):
+    flags = os.O_RDONLY | noatime
+    if is_directory:
+        flags |= directory
+    try:
+        return os.open(path, flags)
+    except OSError as error:
+        raise SystemExit(f"refusing marker copy without O_NOATIME: {path}: {error}")
+
+
+def children(path):
+    fd = open_noatime(path, is_directory=True)
+    try:
+        with os.scandir(fd) as entries:
+            return sorted(entries, key=lambda entry: entry.name)
+    finally:
+        os.close(fd)
+
+
+def preserve_metadata(destination, metadata):
+    if not stat.S_ISLNK(metadata.st_mode):
+        os.chmod(destination, stat.S_IMODE(metadata.st_mode))
+    os.chown(destination, metadata.st_uid, metadata.st_gid, follow_symlinks=False)
+    os.utime(
+        destination,
+        ns=(metadata.st_atime_ns, metadata.st_mtime_ns),
+        follow_symlinks=False,
+    )
+
+
+def copy_entry(source, destination):
+    metadata = source.lstat()
+    if stat.S_ISDIR(metadata.st_mode):
+        destination.mkdir(mode=stat.S_IMODE(metadata.st_mode))
+        for entry in children(source):
+            copy_entry(source / entry.name, destination / entry.name)
+    elif stat.S_ISREG(metadata.st_mode):
+        source_fd = open_noatime(source)
+        try:
+            destination_fd = os.open(
+                destination,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                stat.S_IMODE(metadata.st_mode),
+            )
+            try:
+                while chunk := os.read(source_fd, 1024 * 1024):
+                    written = 0
+                    while written < len(chunk):
+                        written += os.write(destination_fd, chunk[written:])
+            finally:
+                os.close(destination_fd)
+        finally:
+            os.close(source_fd)
+    elif stat.S_ISLNK(metadata.st_mode):
+        os.symlink(os.readlink(source), destination)
+    else:
+        raise SystemExit(f"unsupported marker entry: {source}")
+    preserve_metadata(destination, metadata)
+
+
+copy_entry(source_root, destination_root)
+PY
+}
 
 version=$(python3 - extension.toml <<'PY'
 import sys
@@ -147,7 +266,7 @@ snapshot_marker .compozy "$marker_after"
 cmp -s "$marker_snapshot" "$marker_after"
 
 tampered_marker="$PREVIEW_ROOT/tampered-compozy"
-cp -a -- .compozy "$tampered_marker"
+copy_marker_noatime .compozy "$tampered_marker"
 python3 - "$tampered_marker/workspace.toml" <<'PY'
 import os
 import sys
