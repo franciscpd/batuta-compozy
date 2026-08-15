@@ -77,6 +77,8 @@ The workflow uses non-cancelable release concurrency. It fails before any
 GitHub mutation unless all of these conditions hold:
 
 - the resolved checkout HEAD equals `release_ref`;
+- the workflow event SHA equals `release_ref`, binding provenance to the same
+  source commit;
 - the commit is reachable from remote `main`;
 - `release_version` is a prerelease and matches `extension.toml` exactly;
 - the matching tag and GitHub Release do not exist;
@@ -138,8 +140,9 @@ Before the first public preview:
 2. Confirm CI passes on the exact release commit.
 3. Dispatch the preview workflow through `gh workflow run`.
 4. Watch it with `gh run watch --exit-status`.
-5. Verify `gh release view` reports prerelease true, draft false, latest false,
-   the expected tag, and exactly two assets.
+5. Verify `gh release view` reports prerelease true, draft false, the expected
+   tag, and exactly two assets; verify latest false through GitHub's GraphQL
+   release metadata because that field is not exposed by the CLI command.
 6. Download the archive and `SHA256SUMS` with `gh release download` and verify
    the checksum locally.
 7. Verify the GitHub attestation with `gh attestation verify` or the release
