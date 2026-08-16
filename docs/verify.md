@@ -61,8 +61,7 @@ compozy extension remove batuta --global
 
 ## Local development install
 
-From a checkout, `scripts/republish.sh` validates compatibility, stages the
-five package files into a content-addressed, read-only package under
-`~/.local/share/batuta-compozy/packages` (override with `BATUTA_PACKAGE_ROOT`),
-and installs, enables, and checks the live inventory under a per-user lock at
-`~/.compozy/locks/batuta-republish.lock`. See `CONTRIBUTING.md`.
+From a checkout, `scripts/republish.sh` checks the CompozyOS version, stages
+the five package files into a temporary directory, validates them,
+reinstalls and enables the extension, and checks the live inventory. See
+`CONTRIBUTING.md`.

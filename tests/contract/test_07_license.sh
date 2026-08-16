@@ -197,15 +197,6 @@ if ! cmp -s -- LICENSE "$stage/LICENSE"; then
 fi
 assert_inventory "$stage" staged
 
-package_root="$TEST_ROOT/packages"
-mkdir "$package_root"
-package_dir=$(BATUTA_PACKAGE_ROOT="$package_root" scripts/package-extension.sh)
-if ! cmp -s -- LICENSE "$package_dir/LICENSE"; then
-  printf 'content-addressed package LICENSE differs from the repository LICENSE\n' >&2
-  exit 1
-fi
-assert_inventory "$package_dir" content-addressed
-
 if [[ $MARKER_PRESENT == true ]]; then
   marker_after="$TEST_ROOT/compozy-marker-after.manifest"
   snapshot_marker .compozy "$marker_after"
@@ -217,4 +208,4 @@ else
   [[ ! -e .compozy && ! -L .compozy ]]
 fi
 
-printf 'OK: MIT license is exact and preserved in the staged and content-addressed package trees\n'
+printf 'OK: MIT license is exact and preserved in the staged package tree\n'

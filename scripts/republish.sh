@@ -1,47 +1,41 @@
 #!/usr/bin/env bash
-# Republica somente o pacote declarado da extensão batuta.
+# Local dev install: stage the five package files, validate, reinstall, enable, verify.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-lock_fd=${BATUTA_REPUBLISH_LOCK_FD:-}
-lock_path=${BATUTA_REPUBLISH_LOCK_PATH:-}
-if ! python3 "$ROOT/scripts/with-batuta-lock.py" \
-  --check "$lock_fd" "$lock_path"; then
-  exec python3 "$ROOT/scripts/with-batuta-lock.py" republish \
-    "$ROOT/scripts/republish.sh" "$@"
-fi
 cd "$ROOT"
 
 scripts/check-compozy-version.sh >/dev/null
-PACKAGE_DIR=$(scripts/package-extension.sh)
-compozy extension validate "$PACKAGE_DIR" -o json | python3 -c '
+
+STAGE=$(mktemp -d /tmp/batuta-republish.XXXXXX)
+cleanup() {
+  case "$STAGE" in
+    /tmp/batuta-republish.*) rm -rf -- "$STAGE" ;;
+    *)
+      printf 'refusing to clean unexpected staging path: %s\n' "$STAGE" >&2
+      return 1
+      ;;
+  esac
+}
+trap cleanup EXIT
+scripts/stage-extension.sh "$STAGE"
+
+compozy extension validate "$STAGE" -o json | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 errors = [i for i in d.get("issues", []) if i.get("severity") == "error"]
 assert not errors, f"pacote invalido: {errors}"
 '
 
-installed=false
 if compozy extension list -o json | python3 -c '
 import json, sys
 rows = json.load(sys.stdin)
 raise SystemExit(0 if any(row["name"] == "batuta" for row in rows) else 1)
 '; then
-  installed=true
-fi
-
-REVALIDATED_PACKAGE_DIR=$(scripts/package-extension.sh)
-if [[ $REVALIDATED_PACKAGE_DIR != "$PACKAGE_DIR" ]]; then
-  printf 'package digest changed during publication: %s -> %s\n' \
-    "$PACKAGE_DIR" "$REVALIDATED_PACKAGE_DIR" >&2
-  exit 1
-fi
-
-if [[ $installed == true ]]; then
   compozy extension remove batuta --global -o json >/dev/null
 fi
 
-compozy extension install "$PACKAGE_DIR" --allow-unverified --yes -o json >/dev/null
+compozy extension install "$STAGE" --allow-unverified --yes -o json >/dev/null
 compozy extension enable batuta -o json | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
