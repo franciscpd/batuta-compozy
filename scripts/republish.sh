@@ -30,7 +30,7 @@ assert not errors, f"pacote invalido: {errors}"
 if compozy extension list -o json | python3 -c '
 import json, sys
 rows = json.load(sys.stdin)
-raise SystemExit(0 if any(row["name"] == "batuta" for row in rows) else 1)
+raise SystemExit(0 if any(row.get("name") == "batuta" for row in rows) else 1)
 '; then
   compozy extension remove batuta --global -o json >/dev/null
 fi

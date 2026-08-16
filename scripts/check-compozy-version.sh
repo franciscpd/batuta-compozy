@@ -65,13 +65,17 @@ def rank(major, minor, patch, beta):
     return (major, minor, patch, float("inf") if beta is None else beta)
 
 
-compatible = False
-post_tag = False
-if match:
-    major, minor, patch, beta, count, _ = match.groups()
-    beta_number = int(beta) if beta is not None else None
-    post_tag = count is not None
-    compatible = rank(int(major), int(minor), int(patch), beta_number) >= rank(*FLOOR)
+if match is None:
+    raise SystemExit(
+        f"incompatible CompozyOS {version} ({commit}): unrecognized version "
+        f"format; Batuta requires {FLOOR_TEXT} or later "
+        f"(vMAJOR.MINOR.PATCH[-beta.N][-COUNT-gHASH])"
+    )
+
+major, minor, patch, beta, count, _ = match.groups()
+beta_number = int(beta) if beta is not None else None
+post_tag = count is not None
+compatible = rank(int(major), int(minor), int(patch), beta_number) >= rank(*FLOOR)
 
 if not compatible:
     raise SystemExit(

@@ -54,13 +54,21 @@ mapfile -t calls < "$LOG"
   printf 'expected exactly 7 compozy calls, got %d:\n%s\n' "${#calls[@]}" "$(cat "$LOG")" >&2
   exit 1
 }
-[[ ${calls[0]} == "version -o json" ]]
-[[ ${calls[1]} == "extension validate "*" -o json" ]]
-[[ ${calls[2]} == "extension list -o json" ]]
-[[ ${calls[3]} == "extension remove batuta --global -o json" ]]
-[[ ${calls[4]} == "extension install "*" --allow-unverified --yes -o json" ]]
-[[ ${calls[5]} == "extension enable batuta -o json" ]]
-[[ ${calls[6]} == "extension inventory batuta -o json" ]]
+expect_call() {
+  local index=$1 pattern=$2
+  # shellcheck disable=SC2053
+  if [[ ${calls[$index]} != $pattern ]]; then
+    printf 'call %d mismatch: expected %s, got %s\n' "$index" "$pattern" "${calls[$index]}" >&2
+    exit 1
+  fi
+}
+expect_call 0 "version -o json"
+expect_call 1 "extension validate * -o json"
+expect_call 2 "extension list -o json"
+expect_call 3 "extension remove batuta --global -o json"
+expect_call 4 "extension install * --allow-unverified --yes -o json"
+expect_call 5 "extension enable batuta -o json"
+expect_call 6 "extension inventory batuta -o json"
 
 validate_path=${calls[1]#extension validate }
 validate_path=${validate_path% -o json}
@@ -103,6 +111,10 @@ if grep -q '^extension remove' "$LOG"; then
   printf 'republish removed an extension that was not installed\n' >&2
   exit 1
 fi
-[[ $(wc -l < "$LOG") -eq 6 ]]
+second_count=$(wc -l < "$LOG")
+if [[ $second_count -ne 6 ]]; then
+  printf 'expected 6 compozy calls without remove, got %s:\n%s\n' "$second_count" "$(cat "$LOG")" >&2
+  exit 1
+fi
 
 printf 'OK: republish stages to a temp dir, validates, reinstalls, enables, and verifies in order\n'

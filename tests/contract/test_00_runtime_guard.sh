@@ -17,6 +17,27 @@ expect_reject() {
       return 1
       ;;
   esac
+  case "$out" in
+    *"unrecognized version format"*)
+      printf 'below-floor reject must not claim unrecognized format: %s\n' "$out" >&2
+      return 1
+      ;;
+  esac
+}
+
+expect_reject_unparseable() {
+  local version=$1 commit=$2 out
+  if out=$("$GUARD" --version "$version" --commit "$commit" 2>&1); then
+    printf 'expected %s to be rejected\n' "$version" >&2
+    return 1
+  fi
+  case "$out" in
+    *"unrecognized version format"*"v0.3.0-beta.14"*) ;;
+    *)
+      printf 'unparseable reject message must name format and floor: %s\n' "$out" >&2
+      return 1
+      ;;
+  esac
 }
 
 expect_accept() {
@@ -72,8 +93,13 @@ expect_reject "v0.3.0-beta.13-14-g36bd8156" "36bd8156"
 expect_reject "v0.3.0-beta.13-5-g594d9fdf" "594d9fdf"
 expect_reject "v0.2.9" "x"
 expect_reject "v0.2.9-beta.99" "x"
-expect_reject "garbage" "x"
-expect_reject "" "x"
+
+expect_reject_unparseable "garbage" "x"
+expect_reject_unparseable "" "x"
+expect_reject_unparseable "v0.3.0-rc.1" "x"
+expect_reject_unparseable "v0.4.0-rc.1" "x"
+expect_reject_unparseable "V0.3.0" "x"
+expect_reject_unparseable "v0.3.0-beta.14+meta" "x"
 
 expect_accept "v0.3.0-beta.14" "x"
 expect_accept "0.3.0-beta.14" "x"
@@ -97,7 +123,13 @@ repo_had_compozy=false
 if [[ -e .compozy || -L .compozy ]]; then
   repo_had_compozy=true
 fi
-"$GUARD" >/dev/null 2>&1
+guard_err=$(mktemp)
+if ! "$GUARD" >/dev/null 2>"$guard_err"; then
+  printf 'real compozy binary rejected by guard:\n%s\n' "$(cat "$guard_err")" >&2
+  rm -f "$guard_err"
+  exit 1
+fi
+rm -f "$guard_err"
 if [[ $repo_had_compozy == false && ( -e .compozy || -L .compozy ) ]]; then
   printf 'version guard generated .compozy in the repository\n' >&2
   exit 1
