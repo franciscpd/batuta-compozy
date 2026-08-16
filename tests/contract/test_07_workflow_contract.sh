@@ -6,6 +6,9 @@ cd "$(dirname "$0")/../.."
 WORKFLOW=.github/workflows/ci.yml
 RELEASE_WORKFLOW=.github/workflows/preview-release.yml
 RELEASE_NOTES=docs/releases/0.1.0-beta.2.md
+RELEASE_DESIGN=docs/superpowers/specs/2026-08-15-batuta-preview-release-design.md
+PREVIEW_PLAN=docs/superpowers/plans/2026-08-15-batuta-preview-release.md
+PUBLICATION_PLAN=docs/superpowers/plans/2026-08-15-batuta-public-documentation-and-publication.md
 CHECKOUT_SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 SETUP_GO_SHA=924ae3a1cded613372ab5595356fb5720e22ba16
 UPLOAD_SHA=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -40,6 +43,15 @@ require_release_block() {
   local block=$1
   if ! grep -qF -- "$block" "$RELEASE_WORKFLOW"; then
     printf 'missing preview release workflow block:\n%s\n' "$block" >&2
+    exit 1
+  fi
+}
+
+require_document() {
+  local document=$1
+  local value=$2
+  if ! grep -qF -- "$value" "$document"; then
+    printf 'missing release recovery contract in %s: %s\n' "$document" "$value" >&2
     exit 1
   fi
 }
@@ -136,8 +148,17 @@ require 'git diff --exit-code'
 require 'if: failure()'
 require 'path: ${{ runner.temp }}/batuta-compozy-home/logs'
 require 'if: always()'
-require 'compozy daemon stop || true'
-require 'rm -rf -- "$COMPOZY_HOME"'
+cleanup_block=$(workflow_step_block "$WORKFLOW" 'Stop isolated CompozyOS daemon')
+require_step_sequence 'CI daemon cleanup' "$cleanup_block" \
+  '          stop_status=0' \
+  '          compozy daemon stop || stop_status=$?' \
+  '          [[ $COMPOZY_HOME == "$RUNNER_TEMP"/batuta-compozy-home ]]' \
+  '          rm -rf -- "$COMPOZY_HOME"' \
+  '          exit "$stop_status"'
+if grep -qF -- 'compozy daemon stop || true' <<<"$cleanup_block"; then
+  printf 'CI daemon cleanup suppresses stop failure\n' >&2
+  exit 1
+fi
 
 source_identity_line=$(grep -nF -- '- name: Verify pinned CompozyOS source' "$WORKFLOW" | head -n 1 | cut -d: -f1)
 build_line=$(grep -nF -- '- name: Build CompozyOS' "$WORKFLOW" | head -n 1 | cut -d: -f1)
@@ -324,6 +345,20 @@ require_release_order 'gh release edit "$tag" --draft=false --prerelease --lates
 require_release_order 'gh release edit "$tag" --draft=false --prerelease --latest=false' 'published_json=$(gh api graphql \'
 require_release_order 'published_json=$(gh api graphql \' '... on Tag {'
 require_release_order 'gh release edit "$tag" --draft=false --prerelease --latest=false' 'release(tagName: $tagName) { isLatest tagName }'
+
+for recovery_document in "$RELEASE_DESIGN" "$PREVIEW_PLAN" "$PUBLICATION_PLAN"; do
+  require_document "$recovery_document" \
+    'A successful provenance attestation upload is the first preserved remote mutation.'
+  require_document "$recovery_document" \
+    'A failure before the first provenance attestation upload leaves no remote mutation.'
+  require_document "$recovery_document" \
+    'A failure after either attestation upload preserves and reports the uploaded attestation records, even when no tag exists.'
+done
+
+if grep -qF -- 'failure before the annotated tag step leaves no remote mutation' "$RELEASE_DESIGN"; then
+  printf 'preview release design restores the false pre-tag recovery boundary\n' >&2
+  exit 1
+fi
 
 if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release delete|git tag -d|git push origin ['\"]?:refs/tags/|git config .*extraheader|git remote set-url .*token" "$RELEASE_WORKFLOW"; then
   printf 'preview release workflow contains destructive recovery behavior\n' >&2

@@ -5,6 +5,8 @@ cd "$(dirname "$0")/../.."
 
 release_notes=docs/releases/0.1.0-beta.2.md
 documents=(README.md README.pt-BR.md "$release_notes")
+preview_design=docs/superpowers/specs/2026-08-15-batuta-preview-release-design.md
+preview_plan=docs/superpowers/plans/2026-08-15-batuta-preview-release.md
 
 require() {
   local document=$1 text=$2
@@ -55,5 +57,30 @@ for document in README.md "$release_notes"; do
 done
 require_wrapped README.pt-BR.md 'sessões dos executores não são visualmente aninhadas'
 require_wrapped README.pt-BR.md 'permanecem active/idle após a conclusão terminal normal'
+
+for superseded_document in "$preview_design" "$preview_plan"; do
+  require_wrapped "$superseded_document" \
+    'The earlier four-file, no-license package decision is superseded by the approved public documentation and publication plan.'
+  require_wrapped "$superseded_document" \
+    'Copyright (c) 2026 Francisross Soares de Oliveira'
+  for package_file in \
+    './LICENSE' \
+    './agents/batuta/AGENT.md' \
+    './extension.toml' \
+    './loops/batuta-deliver/loop.yaml' \
+    './resources/skills/batuta-routing/SKILL.md'; do
+    require "$superseded_document" "$package_file"
+  done
+done
+
+for obsolete_contract in \
+  'Do not add a license automatically; license selection remains a separate explicit repository decision.' \
+  'the package contains only the four expected files' \
+  'assert the exact four-file package tree'; do
+  if grep -qF -- "$obsolete_contract" "$preview_design" "$preview_plan"; then
+    printf 'obsolete preview package contract remains active: %s\n' "$obsolete_contract" >&2
+    exit 1
+  fi
+done
 
 printf 'OK: preview documentation identifies beta.2 assets, trust boundary, and upstream limitations\n'

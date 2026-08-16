@@ -16,7 +16,21 @@
 - Publish only by `workflow_dispatch`; no tag, push, or schedule publication trigger.
 - Preserve the full `feat/batuta-reliability` history as remote `main`.
 - Never stage, package, upload, or delete the repository `.compozy/` directory.
-- Do not add a license automatically; license selection remains a separate explicit repository decision.
+- The earlier four-file, no-license package decision is superseded by the approved public documentation and publication plan.
+- License the repository software and associated documentation under the exact
+  standard MIT text with `Copyright (c) 2026 Francisross Soares de Oliveira`.
+- Keep `LICENSE` in the repository root and every preview archive; do not add an
+  unsupported license field to `extension.toml`.
+- The deterministic package contains exactly five regular files:
+
+  ```text
+  ./LICENSE
+  ./agents/batuta/AGENT.md
+  ./extension.toml
+  ./loops/batuta-deliver/loop.yaml
+  ./resources/skills/batuta-routing/SKILL.md
+  ```
+
 - Release assets are exactly `batuta-compozy_0.1.0-beta.2.tar.gz` and `SHA256SUMS`.
 - The GitHub Release must be `isDraft=false`, `isPrerelease=true`, and `isLatest=false` after publication.
 - Default workflow permissions are read-only; publication alone receives `contents: write`, `id-token: write`, and `attestations: write`.
@@ -65,6 +79,7 @@ second_sha=$(sha256sum "$second/batuta-compozy_${version}.tar.gz" | cut -d' ' -f
 Extract the first archive and require exactly:
 
 ```text
+./LICENSE
 ./agents/batuta/AGENT.md
 ./extension.toml
 ./loops/batuta-deliver/loop.yaml
@@ -260,6 +275,10 @@ query($owner: String!, $name: String!, $tagRef: String!, $tagName: String!) {
 
 In the single protected `publish` job, build into `${RUNNER_TEMP}/release-assets`, validate `SHA256SUMS`, and attest both paths with the pinned attestation action before creating any tag. Keep all later operations in that same runner workspace; no workflow artifact transfer or additional publication job is needed for this two-file preview.
 
+A successful provenance attestation upload is the first preserved remote mutation.
+A failure before the first provenance attestation upload leaves no remote mutation.
+A failure after either attestation upload preserves and reports the uploaded attestation records, even when no tag exists.
+
 - [ ] **Step 5: Implement annotated tag, draft, download verification, and publish**
 
 Configure the GitHub Actions bot identity, create `git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"`, verify `git cat-file -t` returns `tag`, then push only that full tag ref.
@@ -271,7 +290,7 @@ SHA256SUMS
 batuta-compozy_<version>.tar.gz
 ```
 
-Only after checksum success, publish with `gh release edit "$tag" --draft=false --prerelease --latest=false`. Do not use `--clobber` or automatic deletion. If a post-tag step fails, retain the tag/draft for explicit operator recovery.
+Only after checksum success, publish with `gh release edit "$tag" --draft=false --prerelease --latest=false`. Do not use `--clobber` or automatic deletion. If a post-attestation step fails, retain and report every uploaded attestation plus any tag or draft for explicit operator recovery.
 
 - [ ] **Step 6: Run local GREEN checks**
 
@@ -388,7 +407,7 @@ SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD) \
 (cd "$asset_root" && sha256sum --check SHA256SUMS)
 ```
 
-Extract into a fresh directory, run `compozy extension validate`, and assert the exact four-file package tree.
+Extract into a fresh directory, run `compozy extension validate`, and assert the exact five-file package tree listed in Global Constraints.
 
 - [ ] **Step 4: Run deslop and independent code review**
 
@@ -496,7 +515,7 @@ Resolve the new run ID by workflow, event, branch, and creation time; never watc
 
 Run `gh run watch "$run_id" --repo franciscpd/batuta-compozy --exit-status --compact`.
 
-Expected: success. If it fails after tag creation, inspect the exact tag/draft state and stop for explicit recovery; do not delete or overwrite automatically.
+Expected: success. If it fails after attestation upload, inspect and report the exact attestation, tag, and draft state, then stop for explicit recovery; do not delete or overwrite automatically.
 
 - [ ] **Step 4: Verify release metadata and download integrity**
 

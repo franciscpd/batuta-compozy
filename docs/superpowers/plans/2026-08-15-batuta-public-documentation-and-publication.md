@@ -664,7 +664,7 @@ The value passed to `release_ref` is the exact 40-character SHA returned immedia
 
 - [ ] **Step 2: Monitor the workflow and stop on failure**
 
-Select the run by workflow, dispatch time, and exact head SHA; then run `gh run watch --exit-status`. If verification fails before mutation, correct the candidate through a new reviewed commit and repeat Task 5 CI. If it fails after tag or draft creation, preserve the partial remote state and request operator direction; do not auto-delete or republish.
+Select the run by workflow, dispatch time, and exact head SHA; then run `gh run watch --exit-status`. A successful provenance attestation upload is the first preserved remote mutation. A failure before the first provenance attestation upload leaves no remote mutation. A failure after either attestation upload preserves and reports the uploaded attestation records, even when no tag exists. Correct a pre-attestation verification failure through a new reviewed commit and repeat Task 5 CI; for any later failure, preserve the attestations plus any tag or draft and request operator direction. Do not auto-delete or republish.
 
 - [ ] **Step 3: Verify release metadata and assets through GitHub**
 

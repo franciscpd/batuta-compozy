@@ -116,6 +116,8 @@ jobs:
         env:
           COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
         run: |
-          compozy daemon stop || true
+          stop_status=0
+          compozy daemon stop || stop_status=$?
           [[ $COMPOZY_HOME == "$RUNNER_TEMP"/batuta-compozy-home ]]
           rm -rf -- "$COMPOZY_HOME"
+          exit "$stop_status"

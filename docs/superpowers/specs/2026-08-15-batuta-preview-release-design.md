@@ -20,6 +20,21 @@ This iteration creates `franciscpd/batuta-compozy`, makes the current
 Automatic release pull requests, automatic version selection, stable-channel
 publication, catalog submission, and tag-triggered publication are deferred.
 
+The earlier four-file, no-license package decision is superseded by the
+approved public documentation and publication plan. The current beta.2
+package is licensed under the exact standard MIT text with `Copyright (c) 2026
+Francisross Soares de Oliveira`; `LICENSE` is present in the repository and
+archive, while `extension.toml` has no unsupported license field. Its exact
+five-file inventory is:
+
+```text
+./LICENSE
+./agents/batuta/AGENT.md
+./extension.toml
+./loops/batuta-deliver/loop.yaml
+./resources/skills/batuta-routing/SKILL.md
+```
+
 ## Repository initialization
 
 Create an empty public repository with GitHub CLI, add it as the candidate
@@ -43,8 +58,8 @@ The job performs:
 3. The complete contract runner in its supported CI environment.
 4. Two independent package builds whose content-addressed directories and
    file digests must match.
-5. Exact package inventory validation: the manifest plus one agent, one skill,
-   and one Loop.
+5. Exact package inventory validation: `LICENSE`, the manifest, one agent, one
+   skill, and one Loop.
 6. Manifest and extension validation against the pinned compatible CompozyOS
    runtime.
 7. `git diff --check` and repository cleanliness checks that allow no generated
@@ -84,7 +99,7 @@ GitHub mutation unless all of these conditions hold:
 - the matching tag and GitHub Release do not exist;
 - CI-equivalent verification passes;
 - two package builds are byte-equivalent at the file level;
-- the package contains only the four expected files.
+- the package contains only the five expected files listed above.
 
 After the gates pass, the workflow creates a deterministic archive named
 `batuta-compozy_<version>.tar.gz`, generates `SHA256SUMS`, and generates GitHub
@@ -125,12 +140,18 @@ Third-party actions are pinned to full commit SHAs. Default token permissions
 are read-only. Shell steps use strict mode, validate paths before cleanup, and
 never consume the repository's `.compozy` directory.
 
-The workflow follows a stage-then-publish boundary. A failure before the
-annotated tag step leaves no remote mutation. A failure after the tag is pushed
-may leave the exact tag, or the tag plus a draft, for inspection and explicit
-operator recovery; the workflow does not delete or overwrite either
-automatically. It never publishes a partially verified release. Re-running
-with an existing tag or release fails closed rather than overwriting assets.
+The workflow follows a stage-then-publish boundary.
+
+A successful provenance attestation upload is the first preserved remote mutation.
+A failure before the first provenance attestation upload leaves no remote mutation.
+A failure after either attestation upload preserves and reports the uploaded attestation records, even when no tag exists.
+
+A later failure may additionally leave the exact tag, or the tag plus a draft,
+for inspection and explicit operator recovery; the workflow does not delete or
+overwrite any of that state automatically. It never publishes a partially
+verified release. Re-running with an existing tag or release fails closed
+rather than overwriting assets; when only attestations exist, the operator
+audits those records before deciding whether to rerun.
 
 ## Verification and acceptance
 
