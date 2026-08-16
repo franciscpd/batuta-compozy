@@ -105,9 +105,20 @@ for text in \
   'gh workflow run release.yml' \
   'gh release delete' \
   '--cleanup-tag' \
-  'release.yml'; do
+  'release.yml' \
+  'scripts/republish.sh' \
+  'docs/internal/specs' \
+  'docs/internal/plans'; do
   require_text CONTRIBUTING.md "$text"
 done
+
+if [[ -e docs/superpowers ]]; then
+  printf 'internal planning docs must live under docs/internal, not docs/superpowers\n' >&2
+  exit 1
+fi
+require_file CLAUDE.md
+require_text CLAUDE.md 'docs/internal/specs/'
+require_text CLAUDE.md 'docs/internal/plans/'
 
 for text in \
   'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE' \

@@ -5,8 +5,8 @@ cd "$(dirname "$0")/../.."
 
 release_notes=docs/releases/0.1.0-beta.2.md
 documents=(README.md README.pt-BR.md "$release_notes")
-preview_design=docs/superpowers/specs/2026-08-15-batuta-preview-release-design.md
-preview_plan=docs/superpowers/plans/2026-08-15-batuta-preview-release.md
+preview_design=docs/internal/specs/2026-08-15-batuta-preview-release-design.md
+preview_plan=docs/internal/plans/2026-08-15-batuta-preview-release.md
 
 require() {
   local document=$1 text=$2
@@ -113,7 +113,7 @@ for obsolete_contract in \
   fi
 done
 
-aggregate_plans=("$preview_plan" docs/superpowers/plans/2026-08-15-batuta-public-documentation-and-publication.md)
+aggregate_plans=("$preview_plan" docs/internal/plans/2026-08-15-batuta-public-documentation-and-publication.md)
 for aggregate_plan in "${aggregate_plans[@]}"; do
   require_wrapped "$aggregate_plan" \
     'Run the aggregate only from a disposable detached worktree at the exact candidate commit; never move, hide, or restore the live repository `.compozy/` tree.'

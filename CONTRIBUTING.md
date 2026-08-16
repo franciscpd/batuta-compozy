@@ -24,6 +24,13 @@ foreign state and is preserved. Contract ownership spans the
 `test_00_*` through `test_07_*` families; update the owning contract when
 changing its public behavior.
 
+For a local development install, run `scripts/republish.sh` (see
+`docs/verify.md`).
+
+Design specs and implementation plans live in `docs/internal/specs` and
+`docs/internal/plans`. New ones go there. Nothing under `docs/internal/` is
+part of the extension package or the public guides.
+
 ## Releasing
 
 Releases are published only by `.github/workflows/release.yml`
