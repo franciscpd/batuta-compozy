@@ -190,7 +190,10 @@ expect_failure "$BUILDER" "$version" "$symlink_output"
 if [[ $MARKER_PRESENT == true ]]; then
   marker_after="$PREVIEW_ROOT/compozy-marker-after.manifest"
   snapshot_marker .compozy "$marker_after"
-  cmp -s "$marker_snapshot" "$marker_after"
+  if ! cmp -s "$marker_snapshot" "$marker_after"; then
+    printf '.compozy changed during preview asset contract\n' >&2
+    exit 1
+  fi
 else
   [[ ! -e .compozy && ! -L .compozy ]]
 fi

@@ -171,4 +171,8 @@ The documentation cycle is accepted only when:
 - remote CI, release metadata, checksum, provenance, and isolated install pass;
 - the `~/Documents` brief contains the final release facts and no unresolved
   placeholders;
-- no raw session evidence or operator-specific data is committed or published.
+- no raw session evidence or operator-specific data appears in the public
+  documentation tier: the READMEs, architecture guide, case study, release
+  notes, extension package, or operator blog brief. Under the full-history
+  publication decision, preserved internal planning history may retain
+  non-secret operator paths and opaque local workspace/session/run IDs.

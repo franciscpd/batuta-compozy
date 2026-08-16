@@ -10,13 +10,18 @@ WORKSPACE_ID=
 WORKSPACE_NAME="batuta-contract-$$"
 WORKSPACE_CREATION_ATTEMPTED=false
 WORKSPACE_ADD_OUTPUT=
+WORKSPACE_MARKER_PREEXISTED=false
+if workspace_marker_present "$REPO_ROOT"; then
+  WORKSPACE_MARKER_PREEXISTED=true
+fi
 
 cleanup() {
   local original_status=$?
   local cleanup_failed=false
   trap - EXIT
 
-  if workspace_marker_present "$REPO_ROOT"; then
+  if [[ $WORKSPACE_MARKER_PREEXISTED == false ]] && \
+    workspace_marker_present "$REPO_ROOT"; then
     printf 'contract suite generated repository state: %s\n' \
       "$GENERATED_WORKSPACE" >&2
     if ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
@@ -41,7 +46,8 @@ cleanup() {
     fi
   fi
 
-  if workspace_marker_present "$REPO_ROOT" && \
+  if [[ $WORKSPACE_MARKER_PREEXISTED == false ]] && \
+    workspace_marker_present "$REPO_ROOT" && \
     ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
     cleanup_failed=true
   fi

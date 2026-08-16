@@ -71,8 +71,9 @@ jobs:
 
           notes_file="docs/releases/${RELEASE_VERSION}.md"
           [[ -f $notes_file && ! -L $notes_file ]]
+          grep -qF -- 'exact trusted post-tag builds' "$notes_file"
           grep -qF -- \
-            'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c or a later release that contains it' \
+            'official releases from v0.3.0-beta.14 onward' \
             "$notes_file"
           [[ ! -e .compozy && ! -L .compozy ]]
 

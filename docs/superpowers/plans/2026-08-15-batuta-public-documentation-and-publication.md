@@ -35,6 +35,11 @@
   - `https://www.compozy.com/docs/getting-started/`
   - `https://github.com/compozy/compozy`
   - `https://www.compozy.com/blog/introducing-compozyos/`
+- Sanitization applies to the public documentation tier: the READMEs,
+  architecture guide, case study, release notes, extension package, and
+  operator blog brief. Full Git history remains public and may retain
+  non-secret operator paths and opaque local workspace/session/run IDs inside
+  preserved internal planning artifacts.
 - The case study may describe the verified visual journey, including `todo 1.0.0`, but must not expose raw transcripts, local paths, workspace/session/run IDs, ports, process IDs, operator configuration, provider credentials, model-account state, or cost claims.
 - The observed visual result is bounded to these verified facts: the parent delivery, implementation child, and review child all ended `done`; `auto_commit=false` left three implementation files uncommitted; the independent suite passed 9/9 tests; executor sessions were not visually nested and remained `active/idle`.
 - Model pricing is omitted unless rechecked against a current official source at publication time; this plan does not require pricing.
@@ -237,7 +242,16 @@ CONTRIBUTING.md:
   .compozy/
 ```
 
-Require the release notes to link `../../LICENSE`, `../architecture.md`, and `../case-studies/version-subcommand.md`. Reject wording that calls Batuta `official`, `endorsed`, or a `CompozyOS component` unless the same sentence explicitly denies that status.
+Require the release notes to link these tag-pinned public URLs:
+
+```text
+https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE
+https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/architecture.md
+https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md
+```
+
+Reject wording that calls Batuta `official`, `endorsed`, or a `CompozyOS
+component` unless the same sentence explicitly denies that status.
 
 - [ ] **Step 2: Run the public-documentation contract to verify RED**
 
@@ -286,7 +300,9 @@ Document:
 - isolated feature branches/worktrees;
 - the exact four validation commands owned by Step 1;
 - `empty_output_directory=$(mktemp -d /tmp/batuta-contributor-assets.XXXXXX)` followed by `scripts/build-preview-assets.sh 0.1.0-beta.2 "$empty_output_directory"` as the deterministic package check;
-- that `tests/contract/run.sh` may register a temporary workspace but must leave `.compozy/` absent or byte-identical;
+- that `tests/contract/run.sh` rejects and preserves a pre-existing `.compozy/`
+  marker, and removes the registration and minimal marker it creates when it
+  bootstraps a temporary workspace;
 - contract ownership by `test_01_*`, `test_05_*`, and `test_07_*` families;
 - commit regex `^(build|ci|docs|feat|fix|perf|refactor|test): [a-z].+$`;
 - no direct release mutation outside `.github/workflows/preview-release.yml`;
@@ -307,7 +323,11 @@ English remains canonical; PT-BR must preserve commands, identifiers, hashes, ve
 
 - [ ] **Step 6: Update the beta.2 release notes**
 
-Add short sections for documentation and licensing. State that the archive includes `LICENSE`, the repository is MIT licensed, the release still publishes exactly two assets, and repository-only docs are not in the extension archive. Link architecture, case study, and license using the relative paths from Step 1.
+Add short sections for documentation and licensing. State that the archive
+includes `LICENSE`, the repository is MIT licensed, the release still publishes
+exactly two assets, and repository-only docs are not in the extension archive.
+Link architecture, case study, and license using the tag-pinned absolute URLs
+from Step 1 so they resolve from the GitHub Release body.
 
 - [ ] **Step 7: Run focused documentation GREEN checks**
 
@@ -449,11 +469,14 @@ Run:
 
 ```bash
 git status --short
+git check-ignore -q --no-index -- .compozy/workspace.toml
 git rev-parse HEAD
 git log --oneline --decorate -12
 ```
 
-Require that `.compozy/` is the only untracked path. Reuse the repository's established no-atime marker snapshot helper before aggregate tests; do not remove the marker.
+Require a clean status and confirm that the preserved `.compozy/` marker is
+ignored. Reuse the repository's established no-atime marker snapshot helper
+before aggregate tests; do not remove the marker.
 
 - [ ] **Step 2: Run syntax and focused validators**
 
@@ -519,7 +542,7 @@ For each factual finding, reproduce it with a focused test or exact file compari
 
 - [ ] **Step 8: Run final local verification and commit review fixes if needed**
 
-Repeat Steps 2-4 and run `git diff --check`. If review fixes changed tracked files, create one conventional commit whose type matches the change; do not create an empty review commit. Require a clean tracked worktree and only the preserved untracked `.compozy/` before Task 5.
+Repeat Steps 2-4 and run `git diff --check`. If review fixes changed tracked files, create one conventional commit whose type matches the change; do not create an empty review commit. Require a clean worktree and the preserved `.compozy/` marker to remain ignored before Task 5.
 
 ### Task 5: Create and Verify the Public GitHub Repository
 
@@ -538,11 +561,15 @@ Run:
 gh auth status
 gh repo view franciscpd/batuta-compozy --json nameWithOwner,isPrivate
 git status --short
+git check-ignore -q --no-index -- .compozy/workspace.toml
 git rev-parse HEAD
 git branch --show-current
 ```
 
-Expected: authenticated as `franciscpd`; repository lookup returns not found; branch is `feat/batuta-reliability`; tracked tree is clean; only `.compozy/` is untracked. If the repository already exists, stop and inspect it—do not overwrite it.
+Expected: authenticated as `franciscpd`; repository lookup returns not found;
+branch is `feat/batuta-reliability`; status is clean; and the preserved
+`.compozy/` marker is ignored. If the repository already exists, stop and
+inspect it—do not overwrite it.
 
 - [ ] **Step 2: Create the empty public repository**
 

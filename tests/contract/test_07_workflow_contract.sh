@@ -182,11 +182,15 @@ fi
   printf 'missing regular preview release notes: %s\n' "$RELEASE_NOTES" >&2
   exit 1
 }
-release_compatibility="$COMPOZY_COMMIT or a later release that contains it"
-if ! grep -qF -- "$release_compatibility" "$RELEASE_NOTES"; then
-  printf 'preview release notes do not satisfy the workflow compatibility precondition\n' >&2
-  exit 1
-fi
+for release_compatibility in \
+  'exact trusted post-tag builds' \
+  'official releases from v0.3.0-beta.14 onward'; do
+  if ! grep -qF -- "$release_compatibility" "$RELEASE_NOTES"; then
+    printf 'preview release notes do not satisfy the workflow compatibility precondition: %s\n' \
+      "$release_compatibility" >&2
+    exit 1
+  fi
+done
 
 require_release_block $'on:\n  workflow_dispatch:\n    inputs:\n      release_ref:\n        description: Full commit SHA to release\n        required: true\n        type: string\n      release_version:\n        description: Unprefixed beta SemVer\n        required: true\n        type: string'
 require_release_block $'permissions:\n  contents: read'
@@ -255,7 +259,8 @@ require_release 'git fetch origin main --tags'
 require_release 'git merge-base --is-ancestor "$RELEASE_REF" origin/main'
 require_release 'tomllib.load(manifest_file)["extension"]["version"]'
 require_release '[[ $manifest_version == "$RELEASE_VERSION" ]]'
-require_release 'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c or a later release that contains it'
+require_release "'exact trusted post-tag builds'"
+require_release "'official releases from v0.3.0-beta.14 onward'"
 require_release 'query($owner: String!, $name: String!, $tagRef: String!, $tagName: String!) {'
 require_release 'ref(qualifiedName: $tagRef) { target { oid } }'
 require_release 'release(tagName: $tagName) { isDraft tagName }'

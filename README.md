@@ -60,8 +60,9 @@ scripts/republish.sh
 ```
 
 The workflow validates compatibility before changing the installed extension,
-stages only declared resources, then installs, enables, and checks the exact
-inventory: `batuta`, `batuta-routing`, and `batuta-deliver`.
+stages the manifest, LICENSE, and declared resources, then installs, enables,
+and checks the exact live inventory: `batuta`, `batuta-routing`, and
+`batuta-deliver`.
 
 Publication retains a content-addressed source under
 `${XDG_DATA_HOME}/batuta-compozy/packages` or

@@ -191,13 +191,19 @@ assert_inventory() {
 stage="$TEST_ROOT/stage"
 mkdir "$stage"
 scripts/stage-extension.sh "$stage"
-cmp -s -- LICENSE "$stage/LICENSE"
+if ! cmp -s -- LICENSE "$stage/LICENSE"; then
+  printf 'staged LICENSE differs from the repository LICENSE\n' >&2
+  exit 1
+fi
 assert_inventory "$stage" staged
 
 package_root="$TEST_ROOT/packages"
 mkdir "$package_root"
 package_dir=$(BATUTA_PACKAGE_ROOT="$package_root" scripts/package-extension.sh)
-cmp -s -- LICENSE "$package_dir/LICENSE"
+if ! cmp -s -- LICENSE "$package_dir/LICENSE"; then
+  printf 'content-addressed package LICENSE differs from the repository LICENSE\n' >&2
+  exit 1
+fi
 assert_inventory "$package_dir" content-addressed
 
 version=$(python3 - extension.toml <<'PY'
@@ -213,7 +219,10 @@ extracted="$TEST_ROOT/extracted"
 mkdir "$preview_output" "$extracted"
 archive=$(scripts/build-preview-assets.sh "$version" "$preview_output")
 tar -xzf "$archive" -C "$extracted"
-cmp -s -- LICENSE "$extracted/LICENSE"
+if ! cmp -s -- LICENSE "$extracted/LICENSE"; then
+  printf 'preview archive LICENSE differs from the repository LICENSE\n' >&2
+  exit 1
+fi
 assert_inventory "$extracted" preview
 
 if [[ $MARKER_PRESENT == true ]]; then

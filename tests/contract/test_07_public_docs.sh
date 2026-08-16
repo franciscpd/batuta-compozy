@@ -28,6 +28,7 @@ for text in \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \
   'LICENSE' \
+  'stages the manifest, LICENSE, and declared resources' \
   'https://www.compozy.com/docs/' \
   'https://github.com/compozy/compozy'; do
   require_text README.md "$text"
@@ -39,6 +40,7 @@ for text in \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \
   'LICENSE' \
+  'monta o manifesto, a licença e os recursos declarados' \
   'https://www.compozy.com/docs/' \
   'https://github.com/compozy/compozy'; do
   require_text README.pt-BR.md "$text"
@@ -67,32 +69,63 @@ for text in \
   require_text CONTRIBUTING.md "$text"
 done
 
-for text in ../../LICENSE ../architecture.md ../case-studies/version-subcommand.md; do
+for text in \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/architecture.md' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md'; do
   require_text docs/releases/0.1.0-beta.2.md "$text"
 done
 
 python3 - README.md README.pt-BR.md docs/architecture.md CONTRIBUTING.md \
-  docs/releases/0.1.0-beta.2.md <<'PY'
+  docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md <<'PY'
 import re
 import sys
 
-for name in sys.argv[1:]:
-    contents = open(name, encoding="utf-8").read()
+
+def unsupported_affiliation(contents):
     sentences = re.split(r"(?<=[.!?])\s+", contents)
     for sentence in sentences:
         lowered = sentence.lower()
         prohibited = (
             "batuta" in lowered
-            and ("official" in lowered or "endorsed" in lowered or "compozyos component" in lowered)
+            and any(term in lowered for term in (
+                "official", "endorsed", "compozyos component",
+                "oficial", "endossad", "componente do compozyos",
+                "componente oficial",
+            ))
         )
         denial = any(phrase in lowered for phrase in (
             "not official", "not an official", "not endorsed", "not an endorsed",
             "not a compozyos component", "não oficial", "não é oficial",
             "não endossado", "não é endossado", "não um componente oficial",
-            "não é um componente do compozyos",
+            "não é um componente oficial", "não é um componente do compozyos",
         ))
         if prohibited and not denial:
-            raise SystemExit(f"unsupported affiliation claim in {name}: {sentence}")
+            return sentence
+    return None
+
+
+for statement in (
+    "Batuta é um componente oficial do CompozyOS.",
+    "Batuta é endossado pelo CompozyOS.",
+):
+    if unsupported_affiliation(statement) is None:
+        raise SystemExit(
+            f"affiliation scanner accepted affirmative Portuguese claim: {statement}"
+        )
+
+for statement in (
+    "Batuta is not an official or endorsed CompozyOS component.",
+    "O Batuta não é um componente oficial ou endossado do CompozyOS.",
+):
+    if unsupported_affiliation(statement) is not None:
+        raise SystemExit(f"affiliation scanner rejected explicit denial: {statement}")
+
+for name in sys.argv[1:]:
+    contents = open(name, encoding="utf-8").read()
+    unsupported = unsupported_affiliation(contents)
+    if unsupported is not None:
+        raise SystemExit(f"unsupported affiliation claim in {name}: {unsupported}")
 PY
 
 printf 'OK: public documentation exposes guides, contribution workflow, and independent status\n'

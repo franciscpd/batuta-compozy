@@ -24,11 +24,11 @@ scripts/build-preview-assets.sh 0.1.0-beta.2 "$empty_output_directory"
 ```
 
 Run `tests/contract/run.sh` only from a disposable checkout with no
-`.compozy/`. Its cleanup removes a minimal `.compozy/workspace.toml` marker
-when one is present, including after preflight rejection; never run it in a
-registered operator checkout. Contract ownership spans the `test_00_*` through
-`test_07_*` families; update the owning contract when changing its public
-behavior.
+`.compozy/`. Preflight rejects and preserves any marker that already exists.
+When the suite registers a temporary workspace, cleanup removes the registration
+and minimal marker created by that run. Contract ownership spans the
+`test_00_*` through `test_07_*` families; update the owning contract when
+changing its public behavior.
 
 ## Change and review workflow
 

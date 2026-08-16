@@ -10,6 +10,11 @@ EXIT_42_FIXTURE=$PWD/tests/contract/fixtures/exit-42-with-marker.sh
 CASE_DIR=
 STATE_DIR=
 
+if ! git check-ignore -q --no-index -- .compozy/workspace.toml; then
+  printf '.compozy must be ignored without touching the live marker\n' >&2
+  exit 1
+fi
+
 cleanup() {
   local status=$?
   trap - EXIT
@@ -197,6 +202,42 @@ run_preexisting_registration_case() {
   STATE_DIR=
 }
 
+run_preexisting_marker_case() {
+  local output status
+  prepare_case
+  mkdir "$CASE_DIR/.compozy"
+  printf 'operator-owned marker\n' > "$CASE_DIR/.compozy/workspace.toml"
+  cp -p -- "$CASE_DIR/.compozy/workspace.toml" \
+    "$STATE_DIR/workspace.toml.before"
+  output=$(mktemp)
+  set +e
+  FAKE_COMPOZY_STATE=$STATE_DIR \
+    FAKE_COMPOZY_SCENARIO=preexisting-marker \
+    "$CASE_DIR/tests/contract/run.sh" >"$output" 2>&1
+  status=$?
+  set -e
+  cat "$output"
+  rm -f -- "$output"
+  [[ $status -eq 1 ]] || {
+    printf 'preexisting-marker exited %s, expected preflight rejection\n' \
+      "$status" >&2
+    return 1
+  }
+  if [[ ! -f $CASE_DIR/.compozy/workspace.toml ]] ||
+    ! cmp -s -- "$STATE_DIR/workspace.toml.before" \
+      "$CASE_DIR/.compozy/workspace.toml"; then
+    printf 'preexisting marker changed during preflight rejection\n' >&2
+    return 1
+  fi
+  if grep -Eq '^(add|remove):' "$STATE_DIR/log"; then
+    printf 'preexisting marker triggered workspace mutation\n' >&2
+    return 1
+  fi
+  rm -rf -- "$CASE_DIR" "$STATE_DIR"
+  CASE_DIR=
+  STATE_DIR=
+}
+
 run_nonzero_status_case() {
   local marker_failure=$1 output status expected
   prepare_case
@@ -236,6 +277,7 @@ run_parse_case malformed-add-output
 run_parse_case missing-add-id
 run_marker_cleanup_failure_case
 run_preexisting_registration_case
+run_preexisting_marker_case
 run_nonzero_status_case false
 run_nonzero_status_case true
 printf 'OK: workspace bootstrap cleanup survives add-output and marker-cleanup failures\n'

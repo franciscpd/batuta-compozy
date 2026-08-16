@@ -58,9 +58,10 @@ recursos live: o agente `batuta`, a skill `batuta-routing` e o Loop
 scripts/republish.sh
 ```
 
-O fluxo valida a compatibilidade antes de alterar a extensão instalada, monta
-somente os recursos declarados e então instala, habilita e verifica o
-inventário exato: `batuta`, `batuta-routing` e `batuta-deliver`.
+O fluxo valida a compatibilidade antes de alterar a extensão instalada e
+monta o manifesto, a licença e os recursos declarados. Em seguida, instala,
+habilita e verifica o inventário live exato: `batuta`, `batuta-routing` e
+`batuta-deliver`.
 
 A publicação retém uma fonte endereçada por conteúdo em
 `${XDG_DATA_HOME}/batuta-compozy/packages` ou
