@@ -498,9 +498,9 @@ Expected: every command exits zero.
 
 - [ ] **Step 3: Run the aggregate contract suite safely**
 
-Run `tests/contract/run.sh` with the same hold/restore procedure already used by the preview verification: preserve the exact pre-existing `.compozy/` tree outside the runner-visible path, verify the hold target, run the suite, restore the exact tree in an `EXIT` trap, and compare its byte/metadata snapshot afterward.
+Run the aggregate only from a disposable detached worktree at the exact candidate commit; never move, hide, or restore the live repository `.compozy/` tree. Use separate isolated `HOME` and `COMPOZY_HOME`, an absolute isolated UDS path, and a unique OS-assigned HTTP port. Before and after the suite, require the live daemon PID, process start identity, and socket path/inode to match their read-only snapshots. Teardown must stop only the isolated daemon and remove only the exact guarded isolated home and detached worktree, then prove their PID, UDS, port, home, and worktree state absent.
 
-Expected: every discovered `test_*.sh` passes; the restored `.compozy/` snapshot is byte-identical; no registration or daemon survives the run.
+Expected: every discovered `test_*.sh` passes from a clean detached worktree; no isolated registration, daemon, UDS, port, home, or worktree survives; the live daemon and repository marker identities are unchanged.
 
 - [ ] **Step 4: Rebuild and inspect deterministic beta.2 assets**
 

@@ -191,7 +191,7 @@ Before `tests/contract/run.sh`, ensure the fresh checkout has no `.compozy` mark
 
 - [ ] **Step 4: Prove aggregate-runner discovery without changing the runner**
 
-Run `tests/contract/run.sh` with the existing guarded `.compozy` hold/restore procedure and verify its output contains `=== test_07_workflow_contract.sh ===`. The current `test_*.sh` glob owns discovery, so do not add a duplicate test list.
+Run the aggregate only from a disposable detached worktree at the exact candidate commit; never move, hide, or restore the live repository `.compozy/` tree. Use separate isolated `HOME` and `COMPOZY_HOME`, an absolute isolated UDS path, and a unique OS-assigned HTTP port. Before and after the suite, require the live daemon PID, process start identity, and socket path/inode to match their read-only snapshots. Teardown must stop only the isolated daemon and remove only the exact guarded isolated home and detached worktree, then prove their PID, UDS, port, home, and worktree state absent. Verify the output contains `=== test_07_workflow_contract.sh ===`; the current `test_*.sh` glob owns discovery, so do not add a duplicate test list.
 
 - [ ] **Step 5: Run local GREEN checks**
 
@@ -394,9 +394,9 @@ python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v
 
 Expected: all 12 existing Python tests plus any added tests pass.
 
-- [ ] **Step 2: Run the full contract runner with workspace preservation**
+- [ ] **Step 2: Run the full contract runner in isolation**
 
-Move the pre-existing `.compozy` directory to a guarded `/tmp/batuta-contract-state.*` hold, install a trap that restores it, run `tests/contract/run.sh`, restore it, and verify the workspace marker SHA-256 is unchanged. Never stage the marker.
+Repeat the isolated aggregate procedure from Task 2 Step 4 in a fresh detached worktree at the exact candidate commit. Keep the live repository `.compozy/` tree in place and require its read-only identity to remain unchanged.
 
 - [ ] **Step 3: Build and validate final assets locally**
 

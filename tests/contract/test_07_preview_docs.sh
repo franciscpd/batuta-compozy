@@ -83,4 +83,27 @@ for obsolete_contract in \
   fi
 done
 
+aggregate_plans=("$preview_plan" docs/superpowers/plans/2026-08-15-batuta-public-documentation-and-publication.md)
+for aggregate_plan in "${aggregate_plans[@]}"; do
+  require_wrapped "$aggregate_plan" \
+    'Run the aggregate only from a disposable detached worktree at the exact candidate commit; never move, hide, or restore the live repository `.compozy/` tree.'
+  require_wrapped "$aggregate_plan" \
+    'Use separate isolated `HOME` and `COMPOZY_HOME`, an absolute isolated UDS path, and a unique OS-assigned HTTP port.'
+  require_wrapped "$aggregate_plan" \
+    'Before and after the suite, require the live daemon PID, process start identity, and socket path/inode to match their read-only snapshots.'
+  require_wrapped "$aggregate_plan" \
+    'Teardown must stop only the isolated daemon and remove only the exact guarded isolated home and detached worktree, then prove their PID, UDS, port, home, and worktree state absent.'
+done
+
+for obsolete_aggregate_contract in \
+  'guarded `.compozy` hold/restore procedure' \
+  'Move the pre-existing `.compozy` directory' \
+  'preserve the exact pre-existing `.compozy/` tree outside the runner-visible path'; do
+  if grep -qF -- "$obsolete_aggregate_contract" "${aggregate_plans[@]}"; then
+    printf 'obsolete aggregate isolation contract remains active: %s\n' \
+      "$obsolete_aggregate_contract" >&2
+    exit 1
+  fi
+done
+
 printf 'OK: preview documentation identifies beta.2 assets, trust boundary, and upstream limitations\n'
