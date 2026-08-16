@@ -11,8 +11,8 @@ fi
 cleanup() {
   local original_status=$?
   trap - EXIT
-  if [[ $REPO_WORKSPACE_PREEXISTED == false ]] && \
-    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+  if ! reject_new_repository_marker \
+    "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
     exit 1
   fi
   exit "$original_status"

@@ -18,8 +18,8 @@ cleanup() {
   local cleanup_failed=false
   trap - EXIT
 
-  if [[ $REPO_WORKSPACE_PREEXISTED == false ]] && \
-    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+  if ! reject_new_repository_marker \
+    "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
     cleanup_failed=true
   fi
   if ! rm -f -- "$PROVIDERS" "$MODELS" "$PAIR_FILE" "$TMP_OUT"; then

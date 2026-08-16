@@ -25,8 +25,9 @@ scripts/build-preview-assets.sh 0.1.0-beta.2 "$empty_output_directory"
 
 Run `tests/contract/run.sh` only from a disposable checkout with no
 `.compozy/`. Preflight rejects and preserves any marker that already exists.
-When the suite registers a temporary workspace, cleanup removes the registration
-and minimal marker created by that run. Contract ownership spans the
+The suite registers a guarded external temporary workspace, then removes its
+exact registration and root during cleanup; any repository marker remains
+foreign state and is preserved. Contract ownership spans the
 `test_00_*` through `test_07_*` families; update the owning contract when
 changing its public behavior.
 

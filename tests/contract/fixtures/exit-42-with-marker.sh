@@ -3,8 +3,5 @@ set -euo pipefail
 
 marker=../../.compozy
 mkdir -p "$marker"
-: > "$marker/workspace.toml"
-if [[ ${FIXTURE_MARKER_CLEANUP_FAILURE:-} == 1 ]]; then
-  : > "$marker/unexpected"
-fi
+printf 'foreign repository marker\n' > "$marker/workspace.toml"
 exit 42

@@ -52,15 +52,6 @@ if [[ ! -L $MARKER ]]; then
   exit 1
 fi
 
-if cleanup_generated_workspace_marker "$REPO_ROOT" > "$TMP/out" 2>&1; then
-  printf 'workspace cleanup accepted a dangling .compozy symlink\n' >&2
-  exit 1
-fi
-if [[ ! -L $MARKER ]]; then
-  printf 'workspace cleanup removed the dangling .compozy symlink\n' >&2
-  exit 1
-fi
-
 rm -f -- "$MARKER"
 
 printf 'OK: dangling workspace symlink is rejected and preserved\n'

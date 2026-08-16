@@ -20,8 +20,8 @@ cleanup() {
   if ! rm -f -- "$OUT" "$ERR"; then
     cleanup_failed=true
   fi
-  if [[ $REPO_WORKSPACE_PREEXISTED == false ]] && \
-    ! cleanup_generated_workspace_marker "$REPO_ROOT"; then
+  if ! reject_new_repository_marker \
+    "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
     cleanup_failed=true
   fi
   if [[ $cleanup_failed == true ]]; then
