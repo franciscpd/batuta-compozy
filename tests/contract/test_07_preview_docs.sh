@@ -29,27 +29,52 @@ if text not in contents:
 PY
 }
 
+install_command='compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes'
+update_command='compozy extension update batuta --allow-unverified --yes'
+
 for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
   require "$document" 'franciscpd/batuta-compozy'
   require "$document" 'v0.1.0-beta.2'
-  require "$document" 'batuta-compozy_0.1.0-beta.2.tar.gz'
-  require "$document" 'SHA256SUMS'
-  require "$document" 'gh release download'
-  require "$document" 'sha256sum --check'
-  require "$document" 'tar -xzf "$preview_dir/batuta-compozy_0.1.0-beta.2.tar.gz" -C "$extracted_directory"'
-  require "$document" 'compozy extension validate "$extracted_directory" -o json'
-  require "$document" 'compozy extension install "$extracted_directory" --allow-unverified --yes'
-  require "$document" 'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c'
+  require "$document" "$install_command"
+  require "$document" "$update_command"
   require "$document" 'compozy extension remove batuta --global'
+  require "$document" 'docs/verify.md'
+  for obsolete in \
+    'SHA256SUMS' \
+    'gh release download' \
+    'batuta-compozy_0.1.0-beta.2.tar.gz' \
+    'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c' \
+    'check-compozy-version.sh' \
+    'batuta-republish.lock'; do
+    if grep -qF -- "$obsolete" "$document"; then
+      printf 'obsolete install text in %s: %s\n' "$document" "$obsolete" >&2
+      exit 1
+    fi
+  done
 done
 
-require_wrapped README.md 'This is a preview trust boundary'
-require_wrapped README.md 'unverified preview source'
-require_wrapped README.pt-BR.md 'Este é um limite de confiança do preview'
-require_wrapped README.pt-BR.md 'fonte de preview não verificada'
-require_wrapped "$release_notes" 'explicit trust boundary'
-require_wrapped "$release_notes" 'unverified preview source'
+for readme in README.md README.pt-BR.md; do
+  require "$readme" 'docs/how-it-works.md'
+  require "$readme" 'compozy provider models list'
+  require "$readme" 'v0.3.0-beta.14'
+  first_code_block=$(awk '/^```bash$/{n=1; next} n==1{print; exit}' "$readme")
+  if [[ $first_code_block != "$install_command" ]]; then
+    printf 'first bash code block in %s is not the install command: %s\n' \
+      "$readme" "$first_code_block" >&2
+    exit 1
+  fi
+  usage_line=$(grep -nE '^## (Use|Uso)$' "$readme" | head -n 1 | cut -d: -f1)
+  if [[ -z $usage_line || $usage_line -gt 60 ]]; then
+    printf 'usage section in %s starts after line 60 (line %s)\n' \
+      "$readme" "${usage_line:-none}" >&2
+    exit 1
+  fi
+done
+
+require_wrapped README.md 'independent community project'
+require_wrapped README.pt-BR.md 'projeto independente da comunidade'
+require_wrapped "$release_notes" 'republished'
 
 for document in README.md "$release_notes"; do
   require_wrapped "$document" 'executor sessions are not visually nested'
@@ -106,4 +131,4 @@ for obsolete_aggregate_contract in \
   fi
 done
 
-printf 'OK: preview documentation identifies beta.2 assets, trust boundary, and upstream limitations\n'
+printf 'OK: public documentation carries the one-command install, update, removal, and upstream limitations\n'

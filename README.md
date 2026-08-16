@@ -2,177 +2,82 @@
 
 > 🇧🇷 [Versão em português](README.pt-BR.md)
 
-Batuta is a resource-only CompozyOS extension: a conductor agent that
-orchestrates the spec-cycle (the `cy-*` skills + bundled Loops) with
-cost/complexity runtime routing. The conductor never writes code — it
-classifies, decomposes, dispatches, and reports.
+Batuta is a conductor agent for [CompozyOS](https://www.compozy.com/docs/).
+You describe a change in conversation; Batuta turns it into a spec and tasks
+(via the bundled `spec-cycle`), routes each task to the cheapest capable
+model, dispatches one durable delivery Loop, and reports the exact outcome
+back in the same conversation. It never writes code itself.
 
-CompozyOS provides the session, tool-policy, and durable Loop runtime. Learn
-more in the [official CompozyOS documentation](https://www.compozy.com/docs/)
-and [official repository](https://github.com/compozy/compozy). Batuta is an
-**independent community project**, not an official or endorsed CompozyOS
-component.
+Batuta is an independent community project, not an official or endorsed
+CompozyOS component. CompozyOS itself lives at
+[github.com/compozy/compozy](https://github.com/compozy/compozy).
 
-## How Batuta fits
-
-Read the [architecture guide](docs/architecture.md) for the boundary between
-Batuta, `spec-cycle`, and CompozyOS. The
-[version-subcommand case study](docs/case-studies/version-subcommand.md)
-records a reproducible journey; [contribution guidance](CONTRIBUTING.md),
-[beta.2 release notes](docs/releases/0.1.0-beta.2.md), and the [MIT
-license](LICENSE) cover participation and distribution.
-
-The extension archive contains exactly five package files: `LICENSE`,
-`extension.toml`, `agents/batuta/AGENT.md`,
-`resources/skills/batuta-routing/SKILL.md`, and
-`loops/batuta-deliver/loop.yaml`. Those package files install three live
-resources: the `batuta` agent, `batuta-routing` skill, and `batuta-deliver`
-Loop.
-
-## Prerequisites
-
-1. CompozyOS `v0.3.0-beta.16-9-ga35eda6d` at the verified full commit
-   `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`, or a later release that
-   contains it, with the daemon running. The manifest keeps `0.3.0-beta.13`
-   only as its grammar floor. Verify the runtime with:
-
-   ```bash
-   scripts/check-compozy-version.sh
-   ```
-
-   The guard accepts the exact verified build and supported later releases;
-   arbitrary custom histories are rejected.
-2. Bundled `spec-cycle` 0.4.0 extension active (`compozy extension list`) — it
-   publishes the `cy-*` skills and the `implement-tasks` / `review-and-fix`
-   Loops.
-3. **Provider authentication** (an operator surface, once and global — outside
-   the extension's scope). Derive concrete provider/model IDs from the live
-   catalog; never copy a lane assignment from documentation:
-
-   ```bash
-   compozy provider models list
-   ```
-
-## Installation (local/dev)
-
-```bash
-scripts/republish.sh
+```text
+you  ─▶ batuta session ─▶ cy-create-spec ─▶ cy-create-tasks
+                                                  │
+                                                  ▼
+             terminal report ◀── batuta-deliver ──▶ implement-tasks ─▶ review-and-fix
 ```
 
-The workflow validates compatibility before changing the installed extension,
-stages the manifest, LICENSE, and declared resources, then installs, enables,
-and checks the exact live inventory: `batuta`, `batuta-routing`, and
-`batuta-deliver`.
+## Install
 
-Publication retains a content-addressed source under
-`${XDG_DATA_HOME}/batuta-compozy/packages` or
-`~/.local/share/batuta-compozy/packages`. Set `BATUTA_PACKAGE_ROOT` to override
-that root. Its files are read-only, and its exact tree and bytes are verified
-before reuse. The live extension provenance continues to reference this
-existing minimal package. A stable per-user lock at
-`~/.compozy/locks/batuta-republish.lock`, independent of package location,
-serializes package creation, verification, validation, installation, enabling,
-and final inventory verification. The package is reverified under that lock
-immediately before any installed extension is removed or replaced.
+Prerequisites:
 
-## Preview installation: v0.1.0-beta.2
-
-The reviewed preview is published from `franciscpd/batuta-compozy` as exactly
-`batuta-compozy_0.1.0-beta.2.tar.gz` and `SHA256SUMS`. Download and verify
-both assets before extracting them into a new directory:
+- CompozyOS `v0.3.0-beta.14` or later with the daemon running (verified on
+  `v0.3.0-beta.16`).
+- The bundled `spec-cycle` extension enabled (`compozy extension list`).
+- At least one provider authenticated: `compozy provider models list` shows
+  models.
 
 ```bash
-preview_dir=$(mktemp -d)
-gh release download v0.1.0-beta.2 --repo franciscpd/batuta-compozy --dir "$preview_dir"
-(cd "$preview_dir" && sha256sum --check SHA256SUMS)
-extracted_directory=$(mktemp -d)
-tar -xzf "$preview_dir/batuta-compozy_0.1.0-beta.2.tar.gz" -C "$extracted_directory"
-compozy extension validate "$extracted_directory" -o json
+compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
 ```
 
-This is a preview trust boundary: only after explicitly accepting the
-unverified preview source, install that validated extracted directory:
+`--allow-unverified` is CompozyOS's consent for community (non-catalog)
+sources; the daemon still verifies the release archive against its
+`.sha256` sidecar. Details, the manual path, and provenance checks are in
+[docs/verify.md](docs/verify.md).
 
-```bash
-compozy extension install "$extracted_directory" --allow-unverified --yes
-```
+Update: `compozy extension update batuta --allow-unverified --yes` ·
+Remove: `compozy extension remove batuta --global`
 
-To remove this preview or roll back before installing another validated
-package, run:
+Current release: `v0.1.0-beta.2` —
+[release notes](docs/releases/0.1.0-beta.2.md).
 
-```bash
-compozy extension remove batuta --global
-```
-
-Verified Batuta behavior is resource-only orchestration with one `batuta`
-agent, one `batuta-routing` skill, and one `batuta-deliver` Loop. Two upstream
-CompozyOS limitations remain: executor sessions are not visually nested and
-remain active/idle after normal terminal completion. Neither limitation is
-fixed by this preview. This is a beta preview with known session
-nesting/lifecycle limitations.
-
-## Usage
+## Use
 
 Create a session with the `batuta` agent in your project's workspace and
-talk to it. On first contact, Batuta resolves the operator's commit preference
-at `loops.inputs.batuta-deliver.auto_commit`. After that gate opens, it derives
-a concrete routing table from the live provider-model catalog, confirms it
-with the operator, and stores it as the `implement-tasks` runtime override.
+describe what you want. A first session looks like this:
 
-As the hard initial gate of every new session, Batuta reads only that exact key
-in the current workspace before discovery, routing, PM, preflight, dry-runs, or
-Loop inspection. `config_path_not_found` makes it ask the operator, write the
-boolean at workspace scope, and immediately confirm it with a structured
-reread. Any other config error stops unchanged; global defaults, child Loop
-defaults, definition defaults, and dry-runs never substitute for the stored
-preference. Batuta repeats the read before every dispatch.
-
-Flow: requirements and unified spec via `cy-create-spec` → operator approval
-of `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md`, and `_uiux.md` only
-for Web-bearing work → tasks via `cy-create-tasks` → direct read-only task
-preflight via `ext__spec_cycle__import_tasks` → Loop dry-run (planning only) →
-dispatch of
-`batuta-deliver(slug, origin_session_id, auto_commit)` → bundled
-`implement-tasks` → `review-and-fix` → exact terminal outcome.
-
-A simple request may use a short grill but may not skip `cy-create-spec` or
-task creation.
-
-Executable requirements such as dependency names and versions, commands,
-paths, flags, and constraints remain literal throughout PM artifacts, tasks,
-and execution prompts.
-
-The direct preflight must return a positive task count. Dry-run resolves inputs
-and plans nodes but does not execute `import_tasks`, so it cannot detect a
-missing task set.
-
-Batuta supplies its current CompozyOS session ID as `origin_session_id`. The
-composite Loop passes `auto_commit` explicitly to both children. All seven
-native contract terminal effects queue one idempotent prompt to that same
-conversation. When dispatch is accepted, its tool result returns `run_id` and
-an optional `web_url`, and Batuta ends that turn. CompozyOS's existing
-idempotent terminal effect starts the later reporting turn; in that turn,
-Batuta verifies the exact run before reporting. An explicit progress request
-takes one status snapshot and does not poll. There is no `batuta-watch`
-resource, background watcher, or reporting agent.
-
-## Routing
-
-Lane semantics live in `resources/skills/batuta-routing/SKILL.md`
-(`low`/`medium`/`high`/`critical`). Provider/model selections always come from
-`compozy provider models list`; the catalog is authoritative for installed
-providers, model IDs, and costs. To change the stored workspace override, ask
-Batuta in conversation. Routing stays auditable per generation in
-`resolved_runtime`.
-
-## Tests
-
-Run the aggregate suite only from a disposable checkout with no `.compozy/`;
-it registers and removes its own temporary workspace when needed. Individual
-daemon-backed contract scripts may require a separately registered workspace.
-
-```bash
-tests/contract/run.sh
+```text
+you     Add a --version subcommand that prints literally "todo 1.0.0".
+batuta  Should I enable automatic commits for deliveries in this workspace? (yes/no)
+you     no
+batuta  Routing derived from your provider catalog: low → …, medium → …,
+        high → …, critical → … (costs shown). Store it?
+you     yes
+batuta  [runs cy-create-spec] Please review _spec.md, _user_stories.md, _dx.md, _tests.md.
+you     approved
+batuta  [runs cy-create-tasks] 1 task, complexity low. Preflight OK, dry-run OK.
+        Dispatched batuta-deliver run <id>. I'll report here when it finishes.
+batuta  Delivery <id> reached done: implement-tasks done, review-and-fix done,
+        9/9 tests passing, no commit (auto_commit=false).
 ```
 
-Guided E2E smoke: `tests/e2e/SMOKE.md` (PT-BR).
+Routing comes from your live provider catalog and is stored per workspace;
+ask Batuta in conversation to change it. The full contract — gate, bootstrap,
+preflight, dry-run, event-driven return, escalation — is in
+[docs/how-it-works.md](docs/how-it-works.md).
+
+## Known limitations
+
+Two upstream CompozyOS limitations remain: executor sessions are not
+visually nested, and they remain active/idle after normal terminal
+completion.
+
+## Learn more
+
+- [How it works](docs/how-it-works.md) · [Verify and install](docs/verify.md)
+- [Architecture](docs/architecture.md) ·
+  [Case study: version-subcommand](docs/case-studies/version-subcommand.md)
+- [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)

@@ -28,7 +28,8 @@ for text in \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \
   'LICENSE' \
-  'stages the manifest, LICENSE, and declared resources' \
+  'docs/how-it-works.md' \
+  'docs/verify.md' \
   'https://www.compozy.com/docs/' \
   'https://github.com/compozy/compozy'; do
   require_text README.md "$text"
@@ -40,7 +41,8 @@ for text in \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \
   'LICENSE' \
-  'monta o manifesto, a licença e os recursos declarados' \
+  'docs/how-it-works.md' \
+  'docs/verify.md' \
   'https://www.compozy.com/docs/' \
   'https://github.com/compozy/compozy'; do
   require_text README.pt-BR.md "$text"
