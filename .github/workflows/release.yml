@@ -1,0 +1,224 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Full commit SHA to release
+        required: true
+        type: string
+      release_version:
+        description: Unprefixed beta SemVer
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    with:
+      checkout_ref: ${{ inputs.release_ref }}
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      RELEASE_REF: ${{ inputs.release_ref }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ github.workspace }}/candidate
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_ref }}
+          path: ${{ github.workspace }}/candidate
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Check out pinned CompozyOS
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: compozy/compozy
+          ref: a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+          path: ${{ github.workspace }}/compozy-source
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: 1.26.4
+
+      - name: Build CompozyOS
+        working-directory: ${{ github.workspace }}/compozy-source
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse HEAD) == a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c ]]
+          make build-go
+          echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"
+
+      - name: Verify release preconditions
+        run: |
+          set -euo pipefail
+          [[ $(git rev-parse HEAD) == "$RELEASE_REF" ]]
+          [[ $RELEASE_REF =~ ^[0-9a-f]{40}$ ]]
+          [[ $GITHUB_SHA == "$RELEASE_REF" ]]
+          [[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$ ]]
+
+          git fetch origin main --tags
+          git merge-base --is-ancestor "$RELEASE_REF" origin/main
+
+          manifest_version=$(python3 - extension.toml <<'PY'
+          import sys
+          import tomllib
+
+          with open(sys.argv[1], "rb") as manifest_file:
+              print(tomllib.load(manifest_file)["extension"]["version"])
+          PY
+          )
+          [[ $manifest_version == "$RELEASE_VERSION" ]]
+
+          notes_file="docs/releases/${RELEASE_VERSION}.md"
+          [[ -f $notes_file && ! -L $notes_file ]]
+          [[ ! -e .compozy && ! -L .compozy ]]
+
+      - name: Check remote release preconditions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          [[ -z $(git ls-remote --tags origin "refs/tags/${tag}") ]]
+          ! gh release view "$tag" >/dev/null 2>&1
+
+      - name: Create and push annotated release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"
+          [[ $(git cat-file -t "$tag") == tag ]]
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push origin "refs/tags/${tag}:refs/tags/${tag}"
+          unset auth
+
+      - name: Stage extension package
+        run: |
+          set -euo pipefail
+          package_dir="${RUNNER_TEMP}/package"
+          mkdir "$package_dir"
+          [[ -d $package_dir && ! -L $package_dir ]]
+          [[ -z $(find "$package_dir" -mindepth 1 -print -quit) ]]
+          scripts/stage-extension.sh "$package_dir"
+
+      - name: Publish extension release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          package_dir="${RUNNER_TEMP}/package"
+          publish_json=$(compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json)
+          python3 - "$publish_json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          data = json.loads(sys.argv[1])
+          for key in ("release_url", "asset_url", "digest_sha256"):
+              print(f"- {key}: {data[key]}")
+          PY
+
+      - name: Attach release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          notes_file="docs/releases/${RELEASE_VERSION}.md"
+          gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"
+
+      - name: Verify published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          archive="batuta-${tag}.tar.gz"
+          peeled=$(git ls-remote --tags origin "refs/tags/${tag}^{}" | cut -f1)
+          [[ $peeled == "$RELEASE_REF" ]]
+          release_json=$(gh release view "$tag" --json isDraft,isPrerelease,tagName,assets)
+          jq -e --arg tag "$tag" --arg archive "$archive" '
+            (.isDraft == false) and
+            (.isPrerelease == false) and
+            (.tagName == $tag) and
+            ([.assets[].name] | sort) == ([$archive, ($archive + ".sha256")] | sort)
+          ' <<<"$release_json" >/dev/null
+
+      - name: Start isolated CompozyOS daemon
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: |
+          [[ ! -e .compozy && ! -L .compozy ]]
+          compozy daemon start
+
+      - name: Verify GitHub installation
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          for source in "github:${GITHUB_REPOSITORY}@${tag}" "github:${GITHUB_REPOSITORY}"; do
+            compozy extension install "$source" --allow-unverified --yes -o json >/dev/null
+            inventory_json=$(compozy extension inventory batuta -o json)
+            provenance_json=$(compozy extension provenance batuta -o json)
+            list_json=$(compozy extension list -o json)
+            python3 - "$inventory_json" "$provenance_json" "$list_json" "$RELEASE_VERSION" <<'PY'
+          import json
+          import sys
+
+          inventory = json.loads(sys.argv[1])["items"]
+          provenance = json.loads(sys.argv[2])
+          rows = json.loads(sys.argv[3])
+          expected_version = sys.argv[4]
+          actual = {(item["kind"], item["name"]) for item in inventory}
+          expected={('agent','batuta'), ('loop','batuta-deliver'), ('skill','batuta-routing')}
+          assert actual == expected, f"unexpected inventory: {sorted(actual)}"
+          assert all(item["live"] for item in inventory), f"resources not live: {inventory}"
+          assert provenance["installed_from"] == "github"
+          assert provenance["digest_matched"] is True
+          installed = next(row for row in rows if row["name"] == "batuta")
+          assert installed["version"] == expected_version
+          PY
+            compozy extension remove batuta --global -o json >/dev/null
+          done
+
+      - name: Stop isolated CompozyOS daemon
+        if: always()
+        env:
+          COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+        run: |
+          stop_status=0
+          compozy daemon stop || stop_status=$?
+          [[ $COMPOZY_HOME == "$RUNNER_TEMP"/batuta-compozy-home ]]
+          rm -rf -- "$COMPOZY_HOME"
+          exit "$stop_status"

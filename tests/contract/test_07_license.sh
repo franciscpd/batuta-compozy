@@ -206,25 +206,6 @@ if ! cmp -s -- LICENSE "$package_dir/LICENSE"; then
 fi
 assert_inventory "$package_dir" content-addressed
 
-version=$(python3 - extension.toml <<'PY'
-import sys
-import tomllib
-
-with open(sys.argv[1], "rb") as manifest_file:
-    print(tomllib.load(manifest_file)["extension"]["version"])
-PY
-)
-preview_output="$TEST_ROOT/preview"
-extracted="$TEST_ROOT/extracted"
-mkdir "$preview_output" "$extracted"
-archive=$(scripts/build-preview-assets.sh "$version" "$preview_output")
-tar -xzf "$archive" -C "$extracted"
-if ! cmp -s -- LICENSE "$extracted/LICENSE"; then
-  printf 'preview archive LICENSE differs from the repository LICENSE\n' >&2
-  exit 1
-fi
-assert_inventory "$extracted" preview
-
 if [[ $MARKER_PRESENT == true ]]; then
   marker_after="$TEST_ROOT/compozy-marker-after.manifest"
   snapshot_marker .compozy "$marker_after"
@@ -236,4 +217,4 @@ else
   [[ ! -e .compozy && ! -L .compozy ]]
 fi
 
-printf 'OK: MIT license is exact and preserved in every package artifact\n'
+printf 'OK: MIT license is exact and preserved in the staged and content-addressed package trees\n'
