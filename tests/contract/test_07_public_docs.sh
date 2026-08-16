@@ -19,6 +19,7 @@ require_text() {
 }
 
 require_file docs/architecture.md
+require_file docs/case-studies/version-subcommand.md
 require_file CONTRIBUTING.md
 
 for text in \
