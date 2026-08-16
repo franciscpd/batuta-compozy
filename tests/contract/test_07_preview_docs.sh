@@ -37,6 +37,7 @@ for document in "${documents[@]}"; do
   require "$document" 'franciscpd/batuta-compozy'
   require "$document" 'v0.1.0-beta.2'
   require "$document" "$install_command"
+  require "$document" 'compozy extension enable batuta'
   require "$document" "$update_command"
   require "$document" 'compozy extension remove batuta --global'
   require "$document" 'docs/verify.md'
@@ -52,6 +53,10 @@ for document in "${documents[@]}"; do
       exit 1
     fi
   done
+  if grep -qE '[0-9a-f]{40}' "$document"; then
+    printf 'obsolete 40-hex commit hash in %s\n' "$document" >&2
+    exit 1
+  fi
 done
 
 for readme in README.md README.pt-BR.md; do

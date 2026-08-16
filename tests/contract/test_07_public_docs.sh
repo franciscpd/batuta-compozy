@@ -90,6 +90,7 @@ for text in \
   'sha256sum --check' \
   'compozy extension validate' \
   'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
+  'compozy extension enable batuta' \
   'scripts/republish.sh'; do
   require_text docs/verify.md "$text"
 done

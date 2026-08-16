@@ -31,6 +31,7 @@ Pré-requisitos:
 
 ```bash
 compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension enable batuta
 ```
 
 `--allow-unverified` é o consentimento do CompozyOS para fontes da comunidade

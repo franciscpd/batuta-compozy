@@ -30,7 +30,7 @@ require_block() {
 require_release() {
   local value=$1
   if ! grep -qF -- "$value" "$RELEASE_WORKFLOW"; then
-    printf 'missing preview release workflow contract: %s\n' "$value" >&2
+    printf 'missing release workflow contract: %s\n' "$value" >&2
     exit 1
   fi
 }
@@ -38,7 +38,7 @@ require_release() {
 require_release_block() {
   local block=$1
   if ! grep -qF -- "$block" "$RELEASE_WORKFLOW"; then
-    printf 'missing preview release workflow block:\n%s\n' "$block" >&2
+    printf 'missing release workflow block:\n%s\n' "$block" >&2
     exit 1
   fi
 }
@@ -50,7 +50,7 @@ require_release_order() {
   earlier_line=$(grep -nF -- "$earlier" "$RELEASE_WORKFLOW" | head -n 1 | cut -d: -f1)
   later_line=$(grep -nF -- "$later" "$RELEASE_WORKFLOW" | head -n 1 | cut -d: -f1)
   if [[ -z $earlier_line || -z $later_line || $earlier_line -ge $later_line ]]; then
-    printf 'preview release ordering violation: %s must precede %s\n' \
+    printf 'release ordering violation: %s must precede %s\n' \
       "$earlier" "$later" >&2
     exit 1
   fi
@@ -233,6 +233,7 @@ require_release 'go-version: 1.26.4'
 require_release 'repository: compozy/compozy'
 require_release "ref: $COMPOZY_COMMIT"
 require_release 'make build-go'
+require_release './bin/compozy version -o json'
 require_release 'echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"'
 require_release 'ref: ${{ inputs.release_ref }}'
 require_release 'fetch-depth: 0'
@@ -310,10 +311,13 @@ require_release 'COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home'
 require_release 'compozy daemon start'
 require_release 'for source in "github:${GITHUB_REPOSITORY}@${tag}" "github:${GITHUB_REPOSITORY}"; do'
 require_release 'compozy extension install "$source" --allow-unverified --yes -o json'
+require_release 'compozy extension enable batuta -o json >/dev/null'
 require_release 'compozy extension inventory batuta -o json'
 require_release 'compozy extension provenance batuta -o json'
 require_release 'compozy extension list -o json'
 require_release 'compozy extension remove batuta --global -o json'
+require_release "uses: actions/upload-artifact@$UPLOAD_SHA"
+require_release 'if: failure()'
 require_release "expected={('agent','batuta'), ('loop','batuta-deliver'), ('skill','batuta-routing')}"
 require_release 'assert provenance["installed_from"] == "github"'
 require_release 'assert provenance["digest_matched"] is True'
@@ -334,8 +338,10 @@ require_release_order 'compozy extension publish "$package_dir" --repository "$G
 require_release_order 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"' 'peeled=$(git ls-remote --tags origin "refs/tags/${tag}^{}" | cut -f1)'
 require_release_order 'gh release view "$tag" --json isDraft,isPrerelease,tagName,assets' 'compozy daemon start'
 require_release_order 'compozy daemon start' 'for source in "github:${GITHUB_REPOSITORY}@${tag}" "github:${GITHUB_REPOSITORY}"; do'
+require_release_order 'compozy extension install "$source" --allow-unverified --yes -o json' 'compozy extension enable batuta -o json >/dev/null'
+require_release_order 'compozy extension enable batuta -o json >/dev/null' 'compozy extension inventory batuta -o json'
 
-if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release delete|git tag -d|git push origin ['\"]?:refs/tags/|git remote set-url .*token" "$RELEASE_WORKFLOW"; then
+if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release delete|git tag -d|git push origin ['\"]?:refs/tags/|git config .*extraheader|git remote set-url .*token" "$RELEASE_WORKFLOW"; then
   printf 'release workflow contains destructive recovery behavior\n' >&2
   exit 1
 fi

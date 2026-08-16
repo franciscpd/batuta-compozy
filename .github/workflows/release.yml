@@ -69,6 +69,19 @@ jobs:
           set -euo pipefail
           [[ $(git rev-parse HEAD) == a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c ]]
           make build-go
+          expected_embedded_commit=$(git rev-parse --short HEAD)
+          version_json=$(./bin/compozy version -o json)
+          python3 - "$version_json" "$expected_embedded_commit" <<'PY'
+          import json
+          import sys
+
+          data = json.loads(sys.argv[1])
+          expected_commit = sys.argv[2]
+          if data.get("Commit") != expected_commit:
+              raise SystemExit(
+                  "built CompozyOS commit differs from its canonical source abbreviation"
+              )
+          PY
           echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"
 
       - name: Verify release preconditions
@@ -181,6 +194,7 @@ jobs:
           [[ ! -e .compozy && ! -L .compozy ]]
           compozy daemon start
 
+      # Tokenless on purpose: proves the anonymous public install path (subject to GitHub's anonymous API rate limit).
       - name: Verify GitHub installation
         env:
           COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
@@ -189,6 +203,7 @@ jobs:
           tag="v${RELEASE_VERSION}"
           for source in "github:${GITHUB_REPOSITORY}@${tag}" "github:${GITHUB_REPOSITORY}"; do
             compozy extension install "$source" --allow-unverified --yes -o json >/dev/null
+            compozy extension enable batuta -o json >/dev/null
             inventory_json=$(compozy extension inventory batuta -o json)
             provenance_json=$(compozy extension provenance batuta -o json)
             list_json=$(compozy extension list -o json)
@@ -211,6 +226,14 @@ jobs:
           PY
             compozy extension remove batuta --global -o json >/dev/null
           done
+
+      - name: Upload failed CompozyOS logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: compozy-release-daemon-logs
+          path: ${{ runner.temp }}/batuta-compozy-home/logs
+          if-no-files-found: ignore
 
       - name: Stop isolated CompozyOS daemon
         if: always()

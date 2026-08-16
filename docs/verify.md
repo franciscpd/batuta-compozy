@@ -22,10 +22,11 @@ compozy extension provenance batuta -o json
 Expected for a GitHub install: `installed_from: "github"`,
 `digest_matched: true`, `registry_tier: "unverified"`.
 
-## One-command install (recommended)
+## Install from GitHub (recommended)
 
 ```bash
 compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension enable batuta
 ```
 
 Pin a version with `github:franciscpd/batuta-compozy@v0.1.0-beta.2`.
@@ -43,6 +44,7 @@ extracted=$(mktemp -d)
 tar -xzf "$work/batuta-v$version.tar.gz" -C "$extracted"
 compozy extension validate "$extracted" -o json
 compozy extension install "$extracted" --allow-unverified --yes
+compozy extension enable batuta
 ```
 
 The release assets are exactly `batuta-v0.1.0-beta.2.tar.gz` and
