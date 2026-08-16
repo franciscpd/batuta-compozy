@@ -16,12 +16,21 @@ tests/contract/run.sh
 git diff --check
 ```
 
-Check preview assets deterministically with:
+## Releasing
 
-```bash
-empty_output_directory=$(mktemp -d /tmp/batuta-contributor-assets.XXXXXX)
-scripts/build-preview-assets.sh 0.1.0-beta.2 "$empty_output_directory"
-```
+Releases are published only by `.github/workflows/release.yml`
+(`gh workflow run release.yml -f release_ref=<40-hex SHA on main>
+-f release_version=<X.Y.Z-beta.N>`). It reruns CI on that commit, creates the
+annotated tag at that commit, publishes with `compozy extension publish`,
+attaches `docs/releases/<version>.md` as notes, and proves the result by
+installing from GitHub in an isolated daemon. Before dispatching, bump
+`extension.toml` and add `docs/releases/<version>.md` on `main`.
+
+If a run fails after the tag step, remote state may be partial. Recovery is
+always the same: `gh release delete v<version> --cleanup-tag --yes` (ignore
+"release not found"), then `git push origin :refs/tags/v<version>` if the tag
+survived, then dispatch again. Never edit a release by hand outside this
+procedure.
 
 Run `tests/contract/run.sh` only from a disposable checkout with no
 `.compozy/`. Preflight rejects and preserves any marker that already exists.
@@ -39,7 +48,7 @@ Use conventional commits matching:
 ^(build|ci|docs|feat|fix|perf|refactor|test): [a-z].+$
 ```
 
-Do not mutate a release directly outside
-`.github/workflows/preview-release.yml`. A pull request must include focused
-RED/GREEN evidence, aggregate contract results, a deterministic asset digest,
-and visual evidence only when behavior changes.
+Do not mutate a release directly outside `.github/workflows/release.yml` and
+the recovery procedure above. A pull request must include focused RED/GREEN
+evidence, aggregate contract results, the contract results, and visual
+evidence only when behavior changes.

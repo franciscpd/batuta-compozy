@@ -100,7 +100,11 @@ for text in \
   'tests/contract/run.sh' \
   'git diff --check' \
   '^(build|ci|docs|feat|fix|perf|refactor|test): [a-z].+$' \
-  '.compozy/'; do
+  '.compozy/' \
+  'gh workflow run release.yml' \
+  'gh release delete' \
+  '--cleanup-tag' \
+  'release.yml'; do
   require_text CONTRIBUTING.md "$text"
 done
 
