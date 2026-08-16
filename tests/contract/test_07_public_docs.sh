@@ -59,6 +59,39 @@ for text in \
   require_text docs/architecture.md "$text"
 done
 
+require_file docs/how-it-works.md
+require_file docs/verify.md
+
+for text in \
+  'loops.inputs.batuta-deliver.auto_commit' \
+  'config_path_not_found' \
+  'compozy__provider_models_list' \
+  'compozy__loop_configure' \
+  'cy-create-spec' \
+  'cy-create-tasks' \
+  'ext__spec_cycle__import_tasks' \
+  'batuta-deliver' \
+  'origin_session_id' \
+  'compozy__loop_status' \
+  'agents/batuta/AGENT.md' \
+  'resources/skills/batuta-routing/SKILL.md'; do
+  require_text docs/how-it-works.md "$text"
+done
+
+for text in \
+  '--allow-unverified' \
+  'unverified' \
+  'digest_matched' \
+  'compozy extension provenance batuta' \
+  'batuta-v0.1.0-beta.2.tar.gz' \
+  'batuta-v0.1.0-beta.2.tar.gz.sha256' \
+  'sha256sum --check' \
+  'compozy extension validate' \
+  'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
+  'scripts/republish.sh'; do
+  require_text docs/verify.md "$text"
+done
+
 for text in \
   'bash -n scripts/*.sh tests/contract/*.sh' \
   "python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v" \
