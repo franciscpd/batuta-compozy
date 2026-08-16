@@ -50,5 +50,5 @@ Use conventional commits matching:
 
 Do not mutate a release directly outside `.github/workflows/release.yml` and
 the recovery procedure above. A pull request must include focused RED/GREEN
-evidence, aggregate contract results, the contract results, and visual
-evidence only when behavior changes.
+evidence, aggregate contract results, and visual evidence only when behavior
+changes.
