@@ -11,9 +11,10 @@ and tasks are approved.”
 
 ## Environment
 
-The run used a Batuta beta.2 candidate with a compatible CompozyOS source
-identity, bundled `spec-cycle` 0.4.0, and a clean fixture repository. This
-case study deliberately omits provider, model, and machine identity.
+The run used a Batuta beta.2 candidate with compatible CompozyOS source commit
+`a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`, bundled `spec-cycle` 0.4.0, and
+a clean fixture repository. This case study deliberately omits provider,
+model, and machine identity.
 
 ## Preference gate
 
@@ -51,7 +52,9 @@ return.
 ## What this does not prove
 
 It does not establish general performance, cost, provider superiority, or
-stable compatibility. The existing upstream limitation remains: executor sessions are not visually nested and remain active/idle after normal terminal completion.
+stable compatibility. The existing upstream limitation remains:
+executor sessions are not visually nested and remain active/idle after normal
+terminal completion.
 This journey does not prove automatic session nesting or automatic
 executor-session stop.
 

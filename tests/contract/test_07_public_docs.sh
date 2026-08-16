@@ -23,7 +23,7 @@ require_file docs/case-studies/version-subcommand.md
 require_file CONTRIBUTING.md
 
 for text in \
-  'Independent community project' \
+  'independent community project' \
   'docs/architecture.md' \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \
@@ -34,7 +34,7 @@ for text in \
 done
 
 for text in \
-  'Projeto independente da comunidade' \
+  'projeto independente da comunidade' \
   'docs/architecture.md' \
   'docs/case-studies/version-subcommand.md' \
   'CONTRIBUTING.md' \

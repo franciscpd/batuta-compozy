@@ -10,13 +10,13 @@ classifies, decomposes, dispatches, and reports.
 CompozyOS provides the session, tool-policy, and durable Loop runtime. Learn
 more in the [official CompozyOS documentation](https://www.compozy.com/docs/)
 and [official repository](https://github.com/compozy/compozy). Batuta is an
-**Independent community project**, not an official or endorsed CompozyOS
+**independent community project**, not an official or endorsed CompozyOS
 component.
 
 ## How Batuta fits
 
 Read the [architecture guide](docs/architecture.md) for the boundary between
-Batuta, `spec-cycle`, and CompozyOS. The forthcoming
+Batuta, `spec-cycle`, and CompozyOS. The
 [version-subcommand case study](docs/case-studies/version-subcommand.md)
 records a reproducible journey; [contribution guidance](CONTRIBUTING.md),
 [beta.2 release notes](docs/releases/0.1.0-beta.2.md), and the [MIT
@@ -51,12 +51,6 @@ Loop.
 
    ```bash
    compozy provider models list
-   ```
-
-4. Register this repository once before running daemon-backed contract tests:
-
-   ```bash
-   compozy workspace add "$PWD"
    ```
 
 ## Installation (local/dev)
@@ -172,8 +166,11 @@ Batuta in conversation. Routing stays auditable per generation in
 
 ## Tests
 
+Run the aggregate suite only from a disposable checkout with no `.compozy/`;
+it registers and removes its own temporary workspace when needed. Individual
+daemon-backed contract scripts may require a separately registered workspace.
+
 ```bash
-# Requires the repository registration from Prerequisites.
 tests/contract/run.sh
 ```
 

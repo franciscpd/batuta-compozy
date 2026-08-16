@@ -5,6 +5,7 @@ cd "$(dirname "$0")/../.."
 
 WORKFLOW=.github/workflows/ci.yml
 RELEASE_WORKFLOW=.github/workflows/preview-release.yml
+RELEASE_NOTES=docs/releases/0.1.0-beta.2.md
 CHECKOUT_SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 SETUP_GO_SHA=924ae3a1cded613372ab5595356fb5720e22ba16
 UPLOAD_SHA=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -111,6 +112,7 @@ require 'runs-on: ubuntu-latest'
 require 'timeout-minutes: 45'
 require 'working-directory: ${{ github.workspace }}/candidate'
 require "uses: actions/checkout@$CHECKOUT_SHA"
+[[ $(grep -cF -- 'persist-credentials: false' "$WORKFLOW") -eq 2 ]]
 require "uses: actions/setup-go@$SETUP_GO_SHA"
 require "uses: actions/upload-artifact@$UPLOAD_SHA"
 require 'go-version: 1.26.4'
@@ -176,6 +178,15 @@ fi
   printf 'missing preview release workflow: %s\n' "$RELEASE_WORKFLOW" >&2
   exit 1
 }
+[[ -f $RELEASE_NOTES && ! -L $RELEASE_NOTES ]] || {
+  printf 'missing regular preview release notes: %s\n' "$RELEASE_NOTES" >&2
+  exit 1
+}
+release_compatibility="$COMPOZY_COMMIT or a later release that contains it"
+if ! grep -qF -- "$release_compatibility" "$RELEASE_NOTES"; then
+  printf 'preview release notes do not satisfy the workflow compatibility precondition\n' >&2
+  exit 1
+fi
 
 require_release_block $'on:\n  workflow_dispatch:\n    inputs:\n      release_ref:\n        description: Full commit SHA to release\n        required: true\n        type: string\n      release_version:\n        description: Unprefixed beta SemVer\n        required: true\n        type: string'
 require_release_block $'permissions:\n  contents: read'

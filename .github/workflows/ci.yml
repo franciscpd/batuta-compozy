@@ -34,6 +34,7 @@ jobs:
           ref: ${{ inputs.checkout_ref || github.sha }}
           path: ${{ github.workspace }}/candidate
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check out pinned CompozyOS
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -43,6 +44,7 @@ jobs:
           path: ${{ github.workspace }}/compozy-source
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16

@@ -23,10 +23,12 @@ empty_output_directory=$(mktemp -d /tmp/batuta-contributor-assets.XXXXXX)
 scripts/build-preview-assets.sh 0.1.0-beta.2 "$empty_output_directory"
 ```
 
-`tests/contract/run.sh` may register a temporary workspace, but it must leave
-`.compozy/` absent or byte-identical. Contract ownership is divided among the
-`test_01_*`, `test_05_*`, and `test_07_*` families; update the owning contract
-when changing its public behavior.
+Run `tests/contract/run.sh` only from a disposable checkout with no
+`.compozy/`. Its cleanup removes a minimal `.compozy/workspace.toml` marker
+when one is present, including after preflight rejection; never run it in a
+registered operator checkout. Contract ownership spans the `test_00_*` through
+`test_07_*` families; update the owning contract when changing its public
+behavior.
 
 ## Change and review workflow
 
