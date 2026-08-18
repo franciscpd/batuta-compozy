@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Verifica o contrato revisado de documentação do preview beta.2.
+# Verifica o contrato revisado da documentação da release atual.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-release_notes=docs/releases/0.1.0-beta.2.md
+release_notes=docs/releases/0.1.0-beta.3.md
 documents=(README.md README.pt-BR.md "$release_notes")
 preview_design=docs/internal/specs/2026-08-15-batuta-preview-release-design.md
 preview_plan=docs/internal/plans/2026-08-15-batuta-preview-release.md
@@ -35,7 +35,7 @@ update_command='compozy extension update batuta --allow-unverified --yes'
 for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
   require "$document" 'franciscpd/batuta-compozy'
-  require "$document" 'v0.1.0-beta.2'
+  require "$document" 'v0.1.0-beta.3'
   require "$document" "$install_command"
   require "$document" 'compozy extension enable batuta'
   require "$document" "$update_command"
@@ -44,7 +44,7 @@ for document in "${documents[@]}"; do
   for obsolete in \
     'SHA256SUMS' \
     'gh release download' \
-    'batuta-compozy_0.1.0-beta.2.tar.gz' \
+    'batuta-compozy_0.1.0-beta.3.tar.gz' \
     'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c' \
     'check-compozy-version.sh' \
     'batuta-republish.lock'; do
@@ -79,7 +79,7 @@ done
 
 require_wrapped README.md 'independent community project'
 require_wrapped README.pt-BR.md 'projeto independente da comunidade'
-require_wrapped "$release_notes" 'republished'
+require_wrapped "$release_notes" 'temporary staging directory'
 
 for document in README.md "$release_notes"; do
   require_wrapped "$document" 'executor sessions are not visually nested'

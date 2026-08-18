@@ -42,8 +42,8 @@ sources; the daemon still verifies the release archive against its
 Update: `compozy extension update batuta --allow-unverified --yes` ·
 Remove: `compozy extension remove batuta --global`
 
-Current release: `v0.1.0-beta.2` —
-[release notes](docs/releases/0.1.0-beta.2.md).
+Current release: `v0.1.0-beta.3` —
+[release notes](docs/releases/0.1.0-beta.3.md).
 
 ## Use
 

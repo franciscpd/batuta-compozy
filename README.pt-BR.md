@@ -42,8 +42,8 @@ estão em [docs/verify.md](docs/verify.md).
 Atualizar: `compozy extension update batuta --allow-unverified --yes` ·
 Remover: `compozy extension remove batuta --global`
 
-Release atual: `v0.1.0-beta.2` —
-[notas da release](docs/releases/0.1.0-beta.2.md).
+Release atual: `v0.1.0-beta.3` —
+[notas da release](docs/releases/0.1.0-beta.3.md).
 
 ## Uso
 

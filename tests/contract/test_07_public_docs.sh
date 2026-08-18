@@ -85,8 +85,8 @@ for text in \
   'unverified' \
   'digest_matched' \
   'compozy extension provenance batuta' \
-  'batuta-v0.1.0-beta.2.tar.gz' \
-  'batuta-v0.1.0-beta.2.tar.gz.sha256' \
+  'batuta-v0.1.0-beta.3.tar.gz' \
+  'batuta-v0.1.0-beta.3.tar.gz.sha256' \
   'sha256sum --check' \
   'compozy extension validate' \
   'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
@@ -121,14 +121,15 @@ require_text CLAUDE.md 'docs/internal/specs/'
 require_text CLAUDE.md 'docs/internal/plans/'
 
 for text in \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/architecture.md' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md'; do
-  require_text docs/releases/0.1.0-beta.2.md "$text"
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/LICENSE' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/docs/architecture.md' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/docs/case-studies/version-subcommand.md'; do
+  require_text docs/releases/0.1.0-beta.3.md "$text"
 done
 
 python3 - README.md README.pt-BR.md docs/architecture.md CONTRIBUTING.md \
-  docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md <<'PY'
+  docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md \
+  docs/releases/0.1.0-beta.3.md <<'PY'
 import re
 import sys
 

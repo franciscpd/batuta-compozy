@@ -24,7 +24,7 @@ case "$*" in
     printf '%s\n' '{"issues":[]}'
     ;;
   "extension list -o json")
-    printf '%s\n' '[{"name":"batuta","version":"0.1.0-beta.2","state":"active"}]'
+    printf '%s\n' '[{"name":"batuta","version":"0.1.0-beta.3","state":"active"}]'
     ;;
   "extension remove batuta --global -o json")
     printf '%s\n' '{"status":"removed"}'
@@ -104,7 +104,7 @@ fi
 
 # When batuta is not installed, remove must not be called.
 : > "$LOG"
-sed -i 's/\[{"name":"batuta","version":"0.1.0-beta.2","state":"active"}\]/[]/' "$TMP/compozy"
+sed -i 's/\[{"name":"batuta","version":"0.1.0-beta.3","state":"active"}\]/[]/' "$TMP/compozy"
 BATUTA_FAKE_LOG="$LOG" BATUTA_FAKE_TREE="$TREE" PATH="$TMP:$PATH" \
   scripts/republish.sh >/dev/null
 if grep -q '^extension remove' "$LOG"; then
