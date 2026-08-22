@@ -51,5 +51,10 @@ assert "kind: ext__spec_cycle__import_tasks" in text, (
 assert "ext__dev_cycle__import_tasks" not in text, (
     "retired dev-cycle import action remains"
 )
+assert "worktree_ref:" in text, "worktree_ref input ausente"
+assert 'mode: worktree' in text, "Loop-default worktree environment ausente"
+assert 'worktree_ref: "{{ .inputs.worktree_ref }}"' in text, (
+    "environment nao referencia o input worktree_ref"
+)
 print("OK: encadeamento implement-tasks -> review-and-fix por composição")
 PY

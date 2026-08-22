@@ -20,6 +20,13 @@ inputs:
   auto_commit:
     type: boolean
     default: true
+  worktree_ref:
+    type: string
+    required: true
+
+environment:
+  mode: worktree
+  worktree_ref: "{{ .inputs.worktree_ref }}"
 
 contract:
   goal: >
