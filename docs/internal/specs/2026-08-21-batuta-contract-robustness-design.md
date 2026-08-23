@@ -8,31 +8,78 @@ friction on conversational turns.
 
 ## Budget backstop
 
-`batuta-deliver` gains a declared input `wall_clock_sec` (integer, default
-`14400` — 4 hours) referenced by the contract budget, with
-`on_exceeded: halt`. `tokens` stays `0` (unlimited) — a correct token
-ceiling varies too much per delivery to fix a default.
+`batuta-deliver`'s contract carries `budget.wall_clock_sec: 14400` (4
+hours) with `on_exceeded: halt`. `tokens` stays `0` (unlimited) — a correct
+token ceiling varies too much per delivery to fix a default.
 
-Input resolution is the daemon's per-key layering (`run`, `workspace`,
-`global`, then `definition`), so a legitimately long delivery raises the
-budget per dispatch as a run input. The dry-run reports the effective value
-and its origin; Batuta states that value to the operator at dry-run time and
-submits the real run with identical inputs, per the existing dispatch rule.
+**Grammar verification gated this design as originally written, and it
+failed:** `compozy loop validate` rejects a template in the contract budget
+field, so the input-referenced design (`wall_clock_sec` as a declared
+Loop input, resolved through the daemon's per-key `run`/`workspace`/
+`global`/`definition` layering) was dropped before implementation. The
+fallback taken — a fixed `wall_clock_sec: 14400` literal in the definition
+— is what shipped.
 
-Grammar verification gates this design: if `compozy loop validate` rejects
-an input reference in the contract budget field, the fallback is a fixed
-`wall_clock_sec: 14400` in the definition, and the raised-budget path is
-dropped — recorded in the plan, with the rest of this design unchanged.
+**Daemon limitation proved after the fallback shipped:** the fixed literal
+is not itself an enforcement mechanism. A `compozy loop run --dry-run`
+probe against a disposable workspace (see
+`.superpowers/sdd/2026-08-21-batuta-contract-robustness/
+budget-verification-report.md` for verbatim commands and output) showed:
 
-With `halt`, crossing the budget ends the run on the `exhausted` terminal —
-no synthetic gate, no silent continuation — and the terminal effect returns
-it to the origin session like any other outcome. Recovery is a
-conversation: Batuta reports the exhaustion and, after the partial-progress
-audit below, a legitimately long delivery is redispatched with a raised
-budget. The `escalate` policy (which parks on the daemon's synthetic
-`budget` gate for a one-shot operator continuation) was considered and
-rejected: a 4-hour crossing is more likely a stuck run than a long one, and
-a parked gate keeps it alive silently.
+- With the shipped `wall_clock_sec: 14400` literal and no stored config,
+  the dry-run's `materialized_contract.budget.wall_clock_sec` reports
+  `14400`, but the daemon's actually-enforced
+  `effective_config.budget_wall_sec` reports `0` (unbounded) — the two are
+  independent fields and the daemon does not derive the second from the
+  first.
+- Changing the definition's literal to `999` moved
+  `materialized_contract.budget.wall_clock_sec` to `999` but left
+  `effective_config.budget_wall_sec` at `0` — confirming the literal has no
+  causal effect on enforcement.
+- A per-run override (`compozy loop run --config-file` with
+  `{"budget_wall_sec": N}`, i.e. `compozy__loop_run`'s
+  `config_overrides.budget_wall_sec`) sets `effective_config.budget_wall_sec`
+  to `N`.
+- A stored workspace-scope override (`compozy loop configure --set
+  budget_wall_sec=N`, i.e. `compozy__loop_configure`) also sets
+  `effective_config.budget_wall_sec` to `N`, and persists across dry-runs
+  that carry no per-run override.
+- Precedence confirmed by conflicting values: per-run `config_overrides`
+  (777) beat a stored override (14400) beat the daemon default (0).
+- The dry-run response carries no origin/provenance field alongside
+  `effective_config` — nothing in the structured output names which layer
+  produced the resolved number.
+- `compozy__loop_configure` called with an empty `config: {}` object is a
+  safe, idempotent read: it returns the current stored `config` and
+  `effective_config` without mutating the stored value (verified: a stored
+  `budget_wall_sec: 14400` survived an empty-`config` call unchanged).
+
+Given that, the 4-hour backstop is made real through the layer the daemon
+actually honors: Batuta's Bootstrap phase provisions a stored
+workspace-scope override — `compozy__loop_configure` (`name:
+batuta-deliver`, `config: {budget_wall_sec: 14400, budget_on_exceeded:
+halt}`) — once per workspace, verified with the empty-`config` read
+pattern above. Dispatch re-verifies `effective_config.budget_wall_sec` is
+nonzero on every dry-run before submitting the real run, and stops with the
+exact structured evidence instead of dispatching an unbounded delivery when
+it is `0`. The definition's `contract.budget.wall_clock_sec: 14400` literal
+is kept as declared intent — it documents the same number the Bootstrap
+override applies and remains what `materialized_contract` reports — but
+`agents/batuta/AGENT.md` is explicit that the literal alone enforces
+nothing.
+
+With `halt`, crossing the effective budget ends the run on the `exhausted`
+terminal — no synthetic gate, no silent continuation — and the terminal
+effect returns it to the origin session like any other outcome. Recovery is
+a conversation: Batuta reports the exhaustion and, after the
+partial-progress audit below, a legitimately long delivery is redispatched
+with `config_overrides.budget_wall_sec` raised for that one call (never by
+editing the bundled Loop definition, and never by changing the stored
+workspace override, which stays at the 4-hour default). The `escalate`
+policy (which parks on the daemon's synthetic `budget` gate for a one-shot
+operator continuation) was considered and rejected: a 4-hour crossing is
+more likely a stuck run than a long one, and a parked gate keeps it alive
+silently.
 
 Human-gate residence does not consume this budget: the daemon suspends node
 clocks and the run wall-clock work budget during approval waits, so a
@@ -98,11 +145,16 @@ exactly: the `ext__spec_cycle__import_tasks` preflight, worktree creation,
 
 ## Changes
 
-- `loops/batuta-deliver/loop.yaml`: the `wall_clock_sec` input and the
-  contract budget reference.
+- `loops/batuta-deliver/loop.yaml`: the fixed `contract.budget.wall_clock_sec:
+  14400` literal (the input-referenced form was rejected by grammar
+  verification) plus a comment documenting that the literal is declared
+  intent, not the enforcement mechanism.
 - `agents/batuta/AGENT.md`: gate scoping with the delivery-path list, the
   any-partial-terminal audit procedure, `auto_commit=false` consequences,
-  and the exhausted-budget raised-input redispatch procedure.
+  a Bootstrap step that provisions and verifies the stored
+  `compozy__loop_configure` budget override, a Dispatch check that stops
+  before submitting an unbounded real run, and the exhausted-budget
+  redispatch procedure naming the exact `config: {}` verification read.
 - `docs/how-it-works.md`, both READMEs: the same contracts in reading
   order.
 
@@ -111,12 +163,17 @@ spec-cycle skip-if-committed feature request upstream.
 
 ## Verification
 
-- Loop validation passes with the input-referenced budget (or the recorded
-  fixed-value fallback).
+- Loop validation passes with the fixed-value budget literal.
 - Static contract checks: AGENT.md orders the gate before the enumerated
   delivery-path calls (not before conversation or spec authoring), names
-  the partial-run audit for every non-success terminal, and the
-  `auto_commit=false` consequences.
+  the partial-run audit for every non-success terminal, the
+  `auto_commit=false` consequences, and (proved by dry-run probe against a
+  disposable workspace, recorded in
+  `.superpowers/sdd/2026-08-21-batuta-contract-robustness/
+  budget-verification-report.md`) that `effective_config.budget_wall_sec`
+  — not the contract literal — governs enforcement, with the
+  `compozy__loop_configure`/`compozy__loop_run` precedence order stated
+  exactly.
 - E2E: a conversational turn performs no config read; a dispatch turn shows
   the gate read before `import_tasks`; a forced budget crossing ends the
   run `exhausted`, and the following turn shows the audit read before any
@@ -126,7 +183,7 @@ spec-cycle skip-if-committed feature request upstream.
 
 - No change to spec-cycle Loops (skip-if-committed stays upstream).
 - No token-budget default.
-- No new configuration keys beyond the declared Loop input's standard
-  `loops.inputs.batuta-deliver.wall_clock_sec` surface.
+- No new configuration keys beyond the daemon's existing
+  `compozy__loop_configure` `budget_wall_sec` field on `batuta-deliver`.
 - No weakening of the gate's persist-and-reread protocol.
 - No synthetic-gate (`escalate`) budget continuation.

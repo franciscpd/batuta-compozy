@@ -83,11 +83,19 @@ assert "nothing to publish" in text, "rota nothing-to-publish ausente do contrat
 print("OK: contrato cobre publicação e rota nothing-to-publish")
 PY
 
-# O contrato deve limitar wall-clock a um orçamento de 4h configurável.
+# O contrato declara o orçamento de 4h e documenta que a aplicação real
+# ocorre via override de compozy__loop_configure (Batuta Bootstrap/Dispatch),
+# não pelo literal do contrato sozinho.
 python3 - loops/batuta-deliver/loop.yaml <<'PY'
 import sys
 text = open(sys.argv[1]).read()
 assert "14400" in text, "default de 4h ausente"
 assert "wall_clock_sec: 0" not in text, "budget ilimitado permanece"
-print("OK: budget wall_clock_sec limitado a 4h")
+assert "compozy__loop_configure" in text, (
+    "comentario sobre o override real de compozy__loop_configure ausente"
+)
+assert "effective_config.budget_wall_sec" in text, (
+    "comentario sobre o campo enforced effective_config.budget_wall_sec ausente"
+)
+print("OK: budget wall_clock_sec declarado e mecanismo real documentado")
 PY

@@ -89,6 +89,21 @@ Bootstrap checks are independent; one populated value never proves the others:
      dispatch time; per-run rules freeze into a run and ignore later fixes.
 2. Reconfiguration later is a conversation request: re-apply the override
    with `compozy__loop_configure` and confirm with a structured read.
+3. Verify and, if absent, provision the `batuta-deliver` wall-clock budget
+   backstop as a stored workspace-scope override. The Loop definition's
+   `contract.budget.wall_clock_sec: 14400` is reported in the daemon's
+   `materialized_contract` but is not itself what the daemon enforces — a
+   workspace with no stored override runs `batuta-deliver` with
+   `effective_config.budget_wall_sec: 0` (unbounded) regardless of what the
+   definition says. The structured read is `compozy__loop_configure` with
+   `name: batuta-deliver` and an empty `config: {}` — an empty object is a
+   no-op merge, so this call safely returns the current stored `config` and
+   `effective_config` without mutating anything. When
+   `effective_config.budget_wall_sec` is `0`, apply the backstop with
+   `compozy__loop_configure` (`name: batuta-deliver`, `config:
+   {budget_wall_sec: 14400, budget_on_exceeded: halt}`), then confirm with
+   the same empty-`config` read. Do this once per workspace, like the
+   `implement-tasks` routing override above.
 
 Provider authentication is an operator surface (README prerequisite), never
 something you configure or ask secrets for.
@@ -179,8 +194,15 @@ chain is the daemon's job, not conversation's.
    - Inputs: `slug=<feature-slug>`, `origin_session_id=<this CompozyOS session
      ID>`, `worktree_ref=<the ready worktree>`, and `auto_commit=<the verified
      workspace boolean>`.
-   - Confirm the resolved inputs and planned graph, then submit the real run
-     with the same inputs.
+   - Confirm the resolved inputs and planned graph. Also confirm the
+     response's `effective_config.budget_wall_sec` is nonzero — the
+     Bootstrap-provisioned backstop, or higher when deliberately raised for
+     this dispatch (see Escalation). A `0` means the workspace-scope
+     override from Bootstrap is missing or was overwritten: stop, report the
+     exact structured `effective_config` value, and repair it with
+     `compozy__loop_configure` before retrying — never submit the real run
+     with an unbounded budget. Once the budget checks out, submit the real
+     run with the same inputs.
 5. After the successful real result, retain its `run_id` and `web_url` when
    available. A successful real dispatch is a hard turn boundary. Acknowledge
    durable acceptance, tell the operator the daemon will return here, and
@@ -222,21 +244,27 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
 - `exhausted` means the wall-clock budget halted the run — likelier a stuck
   run than a long one. After the audit above: `contract.budget.wall_clock_sec`
   is a fixed literal in the Loop definition (the daemon rejects a template
-  there), and no run input raises it. The real override surface is the
-  Loop's runtime config — `compozy__loop_run` accepts
-  `config_overrides.budget_wall_sec` as a per-run integer, which wins over
-  any stored `compozy__loop_configure` override on the workspace, which
-  wins over the daemon default. A legitimately long delivery is redispatched
-  with `config_overrides.budget_wall_sec` raised on that one call — never by
-  editing the bundled Loop definition. The dry-run reports the resolved
-  number at `effective_config.budget_wall_sec`; state it to the operator
-  before submitting the real run with identical inputs and the same
-  override. Unlike inputs, the dry-run does not report which layer produced
-  that number, so if a stored override might also be in play, check it
-  explicitly before trusting the value. If no legitimate long-running case
-  applies, split the task set into smaller deliveries instead. Human-gate
-  residence never consumes this budget — the daemon suspends the wall clock
-  during approval waits.
+  there), and it is not itself what the daemon enforces — it is reported in
+  `materialized_contract` but never becomes `effective_config.budget_wall_sec`
+  on its own, and no run input raises it. The real, enforced value comes from
+  the Loop's runtime config layers, in precedence order: `compozy__loop_run`'s
+  per-run `config_overrides.budget_wall_sec` (an integer, set for a single
+  dispatch) wins over the stored `compozy__loop_configure` override on the
+  workspace (the Bootstrap-provisioned backstop), which wins over the daemon
+  default of `0` (unbounded) when neither layer is set. A legitimately long
+  delivery is redispatched with `config_overrides.budget_wall_sec` raised on
+  that one call — never by editing the bundled Loop definition. The dry-run
+  reports the resolved number at `effective_config.budget_wall_sec`; state it
+  to the operator before submitting the real run with identical inputs and
+  the same override. Unlike inputs, the dry-run does not report which layer
+  produced that number, so always check the stored override explicitly
+  before trusting it: call `compozy__loop_configure` with `name:
+  batuta-deliver` and an empty `config: {}` — an empty object is a no-op
+  merge, so the call safely returns the current stored `config` and
+  `effective_config` without mutating anything. If no legitimate
+  long-running case applies, split the task set into smaller deliveries
+  instead. Human-gate residence never consumes this budget — the daemon
+  suspends the wall clock during approval waits.
 - `needs-approval` is a live pause on a human gate. You must not approve a
   run you started (the daemon denies it: `approval_self_denied`) — surface
   the gate to the operator with run ID and gate ID, and wait.
