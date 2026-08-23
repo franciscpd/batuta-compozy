@@ -7,21 +7,30 @@ pequeno com suite de testes real).
 ## Roteiro
 
 1. **Sessão**: crie uma sessão no workspace cobaia com o agente `batuta`.
-2. **Gate inicial**: na primeira mensagem, peça uma feature pequena (ex.:
-   "adicione um subcomando --version usando literalmente todo 1.0.0"). Aceite:
-   a primeira chamada de ferramenta é `compozy__config_get` para a chave exata
-   do workspace. Quando ausente, o Batuta pergunta auto-commit sem fazer
-   discovery, routing, PM, preflight, dry-run ou inspeção de Loop.
-3. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
+2. **Fase PM, sem gate**: na primeira mensagem, peça uma feature pequena
+   (ex.: "adicione um subcomando --version usando literalmente todo
+   1.0.0"). Nada nesta fase é caminho de entrega, então nenhum
+   `compozy__config_get` de preferência é exigido ainda: o Batuta conduz
+   `cy-create-spec` diretamente, inclusive para uma feature pequena. Aceite:
+   o grill pode ser curto, mas não é pulado; o operador aprova `_spec.md`,
+   `_user_stories.md`, `_dx.md` e `_tests.md`, com `_uiux.md` somente se
+   houver mudança Web. Depois o Batuta conduz `cy-create-tasks`;
+   `.compozy/tasks/<slug>/` contém `_tasks.md` + `task_NN.md`, cada task com
+   `complexity`, e o breakdown é apresentado para aprovação em conversa.
+   Aceite negativo: nenhuma chamada de `compozy__config_get` para
+   `loops.inputs.batuta-deliver.auto_commit` ocorre durante esta fase.
+3. **Gate antes do primeiro caminho de entrega**: as chamadas de caminho de
+   entrega são exatamente o preflight `ext__spec_cycle__import_tasks`, a
+   criação do worktree de entrega (`compozy__worktree_create`), o dry-run de
+   `batuta-deliver` e o despacho real — nenhuma delas pode ocorrer antes do
+   gate. Aceite: a primeira chamada de ferramenta depois da fase PM, ao
+   entrar nesta etapa, é `compozy__config_get` para a chave exata do
+   workspace, antes de qualquer uma das chamadas de caminho de entrega
+   acima. Quando ausente, o Batuta pergunta auto-commit sem fazer discovery,
+   routing, preflight, dry-run ou inspeção de Loop.
+4. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
    tabela de roteamento (confira depois com dry-run:
    `effective_config.run_runtime_rules` preenchido).
-4. **Fase PM**: o Batuta conduz `cy-create-spec`, inclusive para uma feature
-   pequena. Aceite: o grill pode ser curto, mas não é pulado; o operador
-   aprova `_spec.md`, `_user_stories.md`, `_dx.md` e `_tests.md`, com
-   `_uiux.md` somente se houver mudança Web. Depois o Batuta conduz
-   `cy-create-tasks`; `.compozy/tasks/<slug>/` contém `_tasks.md` +
-   `task_NN.md`, cada task com `complexity`, e o breakdown é apresentado para
-   aprovação em conversa.
 5. **Despacho composto**: o Batuta chama diretamente o
    `ext__spec_cycle__import_tasks` somente leitura e confirma `count > 0`;
    depois roda dry-run, mostra o plano e
@@ -97,11 +106,13 @@ exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
 - Remova somente o valor workspace de
   `loops.inputs.batuta-deliver.auto_commit`, abra uma sessão nova e confirme
   que `compozy__config_get` retorna `config_path_not_found`. O Batuta deve
-  perguntar a preferência sem nenhuma outra chamada, gravá-la com
-  `compozy__config_set` em escopo workspace e usar `compozy__config_get` como a
-  chamada imediatamente seguinte; registre a leitura estruturada confirmando
-  o booleano escolhido antes de discovery, routing, PM, preflight, dry-run,
-  inspeção de Loop ou despacho. Valide a ordem diretamente com:
+  perguntar a preferência sem nenhuma outra chamada de caminho de entrega,
+  gravá-la com `compozy__config_set` em escopo workspace e usar
+  `compozy__config_get` como a chamada imediatamente seguinte; registre a
+  leitura estruturada confirmando o booleano escolhido antes de
+  `ext__spec_cycle__import_tasks`, criação de worktree, dry-run ou
+  despacho (PM/`cy-create-spec`/`cy-create-tasks` podem ter ocorrido antes,
+  sem exigir o gate). Valide a ordem diretamente com:
 
   ```bash
   python3 tests/e2e/assert_preference_gate.py \
@@ -143,22 +154,38 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
 
 1. **Despacho real**: no laboratório descartável, despache uma
    `batuta-deliver` real com commits publicáveis (ao menos uma task
-   implementada e revisão limpa, para que `publish_check` roteie para
-   `publish_gate`). Aguarde o park `needs-approval` — sem `sleep`, sem
-   watcher, sem polling: a leitura estruturada (`compozy__loop_status` ou o
-   prompt de efeito do node) é o único observável aceito.
-2. **`ahead_of_base` não-zero antes do gate**: após o filho `implement-tasks`
-   commitar, e antes de `publish_check`/`publish_gate` serem alcançados,
+   implementada e revisão limpa). `publish_check` é `condition: "true"` —
+   roteia incondicionalmente para `publish_gate` em toda entrega, não só
+   nesta com commits (ver caso "nada a publicar" abaixo). Aguarde o park
+   `needs-approval` — sem `sleep`, sem watcher, sem polling: a leitura
+   estruturada (`compozy__loop_status` ou o prompt de efeito do node) é o
+   único observável aceito.
+2. **`ahead_of_base` como evidência, não como roteamento**: após o filho
+   `implement-tasks` commitar, e antes de `publish_gate` ser alcançado,
    leia o output do node `worktree_state` do run (`compozy__loop_status`)
    e confirme `status.ahead_of_base > 0`. `ahead_of_base` vem do registro
    do worktree e pode ficar obsoleto sem um refresh explícito — esta versão
    do daemon não expõe parâmetro de refresh na superfície do node
-   `compozy__worktree_inspect` (ver
+   `compozy__worktree_inspect`, e o CEL de branch condition não tem `now()`
+   (ver
    `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`,
-   seção "Publication graph"). Um zero obsoleto roteia uma entrega
-   publicável para "nothing to publish" e o run completa `done` sem nunca
-   alcançar o gate — isso é uma falha do smoke (ver "Falhas que reprovam").
-3. **Aprovação — caminho approve**: aprove o gate **como identidade do
+   seção "Publication graph"). É exatamente por isso que `publish_check` não
+   tenta decidir a partir dessa leitura: nenhuma expressão nesta gramática
+   consegue provar que a leitura está fresca, então o node sempre gateia, e
+   é o operador no gate — nunca o predicado — quem decide "nada a
+   publicar". Este passo confirma que a leitura reportada ao operador está
+   de fato fresca (`> 0`) neste caminho exercitado.
+3. **Nada a publicar ainda gateia**: em um laboratório separado, despache
+   uma `batuta-deliver` cujo review termine limpo sem nenhum commit
+   publicável (por exemplo `auto_commit=false`, ou um branch já idêntico à
+   base). Aceite: o run pára em `needs-approval` em `publish_gate` do mesmo
+   jeito — `publish_check` não desvia dessa entrega. Aprove como operador e
+   confirme que `publish` ainda termina `node_succeeded`/`done`, mas com
+   evidência de publicação "nothing to publish" (sem `op_id` de push) em vez
+   de SHA + URL de PR. Uma entrega sem commits que termina `done` **sem**
+   passar por `needs-approval` é uma falha do smoke (ver "Falhas que
+   reprovam").
+4. **Aprovação — caminho approve**: aprove o gate **como identidade do
    operador**, nunca como o agente `batuta` que despachou o run (o daemon
    nega auto-aprovação, mas o laboratório deve provar que a aprovação
    também não é feita pela mesma sessão/identidade de despacho). Exporte os
@@ -174,7 +201,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    Aceite: `publish` termina `node_succeeded`, o run termina `done`, e a
    evidência de publicação carrega o SHA de `HEAD` revisado mais a URL do PR
    (ou "pushed, PR manual" com URL de compare quando o forge não serve).
-4. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
+5. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
    publicável) até o mesmo park `needs-approval`, desta vez rejeite o gate
    como o operador. Exporte os eventos e rode:
 
@@ -187,7 +214,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    Aceite: o node `publish` nunca executa (nenhum `node_running` para
    `publish`), o run termina `blocked`, e os commits permanecem intactos em
    `batuta/<slug>`.
-5. **Aborto por worktree suja**: repita o despacho até o park
+6. **Aborto por worktree suja**: repita o despacho até o park
    `needs-approval`. Antes de aprovar, `touch` um arquivo não commitado
    diretamente na worktree gerenciada (fora da sessão do batuta — simulando
    uma mudança externa entre o park e a decisão). Aprove o gate como
@@ -203,7 +230,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    remoto) e nenhum `op_id` de push aparece no output do node — não basta o
    node ter falhado, a falha precisa ser confirmada como "nunca tentou
    publicar", não apenas "terminou mal".
-6. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
+7. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
    roda com `permissions: approve-reads` no seu AGENT.md — não mais
    `deny-all`. A troca foi decidida por uma prova ao vivo (ver
    `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`):
@@ -220,14 +247,29 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    apenas um prompt de aprovação parado. Se o run travar pedindo aprovação
    adicional em vez de executar os verbos de saída da worktree, isso é um
    achado a registrar explicitamente no resultado do smoke — não deve ser
-   ocultado nem tratado
-   como sucesso parcial.
+   ocultado nem tratado como sucesso parcial.
+
+   **MERGE GATE**: se um Loop `goal` node consegue de fato rodar os passos
+   de CLI do publicador sem interação humana sob `permissions: approve-reads`
+   é, até este ponto, NÃO PROVADO — uma sonda anterior mostrou que cada passo
+   ainda exigia aprovação manual, e `deny-all` rejeitava tudo
+   automaticamente (`reject-once`) antes mesmo de rodar. Este smoke de
+   caminho `approve` ao vivo é a única prova aceita: esta branch não pode
+   fazer merge até que ele demonstre o node `publish` completando sem
+   interação humana (exit, push, evidência de PR/compare no output do node,
+   sem prompt de aprovação adicional parado). Se o run travar pedindo
+   aprovação em vez de executar, a correção é revisitar este design de
+   publicação — nunca elevar a permissão para `approve-all`, que deixaria o
+   publicador agir sem interação em qualquer workspace, não apenas no que
+   ele foi vinculado.
 
 ## Falhas que reprovam
 
-- `status.ahead_of_base` mostrar `0` (obsoleto) depois de o filho
-  `implement-tasks` já ter commitado, roteando uma entrega publicável para
-  "nothing to publish" em vez do gate.
+- Qualquer entrega — com ou sem commits publicáveis — completar `done` sem
+  nunca passar por `needs-approval` em `publish_gate`. `publish_check` é
+  incondicional (`condition: "true"`); "nada a publicar" só pode ser
+  reportado pelo `publish` node depois da aprovação, nunca como um desvio
+  do node de branch.
 - O batuta editar/commitar código diretamente na sessão.
 - Qualquer terminal != `done` reportado como sucesso.
 - Mais de um commit para uma task, ou um commit cobrindo duas tasks.

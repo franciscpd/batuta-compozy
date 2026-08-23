@@ -45,8 +45,8 @@ sources; the daemon still verifies the release archive against its
 Update: `compozy extension update batuta --allow-unverified --yes` ·
 Remove: `compozy extension remove batuta --global`
 
-Current release: `v0.1.0-beta.3` —
-[release notes](docs/releases/0.1.0-beta.3.md).
+Current release: `v0.1.0-beta.4` —
+[release notes](docs/releases/0.1.0-beta.4.md).
 
 ## Use
 
@@ -64,15 +64,23 @@ batuta  [runs cy-create-spec] Please review _spec.md, _user_stories.md, _dx.md, 
 you     approved
 batuta  [runs cy-create-tasks] 1 task, complexity low. Preflight OK, dry-run OK.
         Dispatched batuta-deliver run <id>. I'll report here when it finishes.
-batuta  Delivery <id> reached done: implement-tasks done, review-and-fix done,
-        9/9 tests passing, no commit (auto_commit=false).
+batuta  Delivery <id>: implement-tasks done, review-and-fix done, 9/9 tests
+        passing, no commit (auto_commit=false). Parked on the publication
+        gate — every delivery does, since nothing can prove the branch has
+        nothing to publish without asking you. Approve or reject at <url>.
+you     approve
+batuta  Delivery <id> reached done: gate approved, publisher reports nothing
+        to publish (no commit was made).
 ```
 
 Routing comes from your live provider catalog and is stored per workspace;
-ask Batuta in conversation to change it. Deliveries carry a 4-hour
-wall-clock budget, raised per dispatch when a delivery is legitimately
-long. The full contract — gate, bootstrap, preflight, dry-run, event-driven
-return, escalation — is in [docs/how-it-works.md](docs/how-it-works.md).
+ask Batuta in conversation to change it. Batuta provisions a 4-hour
+wall-clock budget per workspace for deliveries it dispatches, raised per
+dispatch when a delivery is legitimately long; a direct `batuta-deliver`
+submission outside Batuta's own dispatch path is unbounded until that
+workspace override exists. The full contract — gate, bootstrap, preflight,
+dry-run, event-driven return, escalation — is in
+[docs/how-it-works.md](docs/how-it-works.md).
 
 ## Known limitations
 

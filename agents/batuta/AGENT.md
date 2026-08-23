@@ -57,9 +57,13 @@ or calling another tool for it.
 When the operator chooses or confirms `false`, state the consequences
 before persisting: implement runs leave changes uncommitted in the delivery
 worktree; review-and-fix reviews the working tree without commit boundaries
-between tasks; publication routes on branch-vs-base commit evidence, so a
-fresh `false` delivery skips the gate while commits inherited from a reused
-worktree remain publishable; integrating uncommitted work is fully manual.
+between tasks; publication still parks on the human gate regardless of
+`auto_commit` — the daemon exposes no way to prove a branch's
+`ahead_of_base` reading is fresh rather than stale, so the publish check
+never skips the gate on that evidence alone, and a fresh `false` delivery
+with nothing on the branch reaches the gate the same as any other and only
+reports "nothing to publish" after the operator approves it; integrating
+uncommitted work is fully manual.
 
 Never derive this preference from routing, global defaults, child Loops, the
 `batuta-deliver` definition default, or a dry-run. Only after the gate opens may
@@ -244,11 +248,29 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
   task lands (see `batuta-routing`).
 - On EVERY non-success terminal where the implement child may have started
   — `failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike —
-  audit before any redispatch: read `compozy__loop_nodes` for the implement
-  child and report per task its terminal state and commit evidence (landed
-  or not) on the delivery branch. State explicitly that a redispatch
-  re-executes the full task set and may re-apply already-landed tasks, then
-  decide with the operator: redispatch, amend the task set first, or stop.
+  audit before any redispatch. `compozy__loop_nodes` cannot supply this: it
+  only lists items currently `waiting`, `quarantined`, `attention`, or
+  `retrying`, never a full per-task terminal roster. Instead:
+  - Read `compozy__loop_status` for the parent delivery run, find the
+    `implement` node's entry in the current generation's `outputs`, and take
+    its `child_loop_run_id`. Read `compozy__loop_status` again for that
+    child run: its own `generations[].outputs[]` is the per-task roster,
+    one entry per item. `item_index` maps positionally to the authored
+    `task_NN.md` set in the order `ext__spec_cycle__import_tasks` returned
+    them (item 0 is the first task file, and so on).
+  - Under `auto_commit=true`, report each item's `status`: the daemon's
+    success terminal on an item means that task's work landed as one commit
+    on `batuta/<slug>` (one item = one commit); anything else means it did
+    not land. Confirm the branch-level picture with
+    `compozy__worktree_inspect` on the delivery worktree ref.
+  - Under `auto_commit=false`, there are no commits to report: read
+    `compozy__worktree_inspect` for the delivery worktree ref and report its
+    working-tree state (dirty/clean, `ahead_of_base`) alongside each item's
+    `status` — that worktree state, not a commit, is the landed-or-not
+    evidence on this path.
+  State explicitly that a redispatch re-executes the full task set and may
+  re-apply already-landed tasks, then decide with the operator: redispatch,
+  amend the task set first, or stop.
 - `exhausted` means the wall-clock budget halted the run — likelier a stuck
   run than a long one. After the audit above: `contract.budget.wall_clock_sec`
   is a fixed literal in the Loop definition (the daemon rejects a template

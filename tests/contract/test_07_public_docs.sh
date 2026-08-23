@@ -62,6 +62,19 @@ for text in \
   require_text docs/architecture.md "$text"
 done
 
+require_file agents/batuta/AGENT.md
+
+for text in \
+  'The delivery-path calls are exactly:' \
+  'the `ext__spec_cycle__import_tasks` preflight, delivery worktree creation,' \
+  'a `batuta-deliver` dry-run, and a real dispatch.' \
+  'effective_config.budget_wall_sec' \
+  'config_overrides.budget_wall_sec' \
+  'budget_wall_sec: 14400, budget_on_exceeded: halt' \
+  '`failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike'; do
+  require_text agents/batuta/AGENT.md "$text"
+done
+
 require_file docs/how-it-works.md
 require_file docs/verify.md
 
@@ -90,8 +103,8 @@ for text in \
   'unverified' \
   'digest_matched' \
   'compozy extension provenance batuta' \
-  'batuta-v0.1.0-beta.3.tar.gz' \
-  'batuta-v0.1.0-beta.3.tar.gz.sha256' \
+  'batuta-v0.1.0-beta.4.tar.gz' \
+  'batuta-v0.1.0-beta.4.tar.gz.sha256' \
   'sha256sum --check' \
   'compozy extension validate' \
   'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
@@ -126,15 +139,15 @@ require_text CLAUDE.md 'docs/internal/specs/'
 require_text CLAUDE.md 'docs/internal/plans/'
 
 for text in \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/LICENSE' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/docs/architecture.md' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.3/docs/case-studies/version-subcommand.md'; do
-  require_text docs/releases/0.1.0-beta.3.md "$text"
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/LICENSE' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/docs/architecture.md' \
+  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/docs/case-studies/version-subcommand.md'; do
+  require_text docs/releases/0.1.0-beta.4.md "$text"
 done
 
 python3 - README.md README.pt-BR.md docs/architecture.md CONTRIBUTING.md \
   docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md \
-  docs/releases/0.1.0-beta.3.md <<'PY'
+  docs/releases/0.1.0-beta.3.md docs/releases/0.1.0-beta.4.md <<'PY'
 import re
 import sys
 

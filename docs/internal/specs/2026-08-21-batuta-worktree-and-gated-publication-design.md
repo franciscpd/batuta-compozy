@@ -94,36 +94,35 @@ The branch is always preserved by the system.
 The `batuta-deliver` graph changes after `review`. Complete post-review
 topology:
 
-- `publish_check` — control `branch`. Predicate: publication proceeds only
-  when the delivery has publishable evidence — commits exist on
-  `batuta/<slug>` ahead of the base branch (branch-vs-base evidence, not
-  the `auto_commit` boolean alone, so commits inherited from a reused
-  worktree are never silently dropped). No publishable commits → route
-  directly to the run's success sink; the run completes `done` with
-  publication evidence "nothing to publish".
-- `publish_gate` — control `gate` with a `human` criterion, entered only on
-  the publishable route. Reaching it parks the run `needs-approval`. The
+- `publish_check` — control `branch`, `condition: "true"`: **unconditional**.
+  Every delivery routes to `publish_gate` after review ends clean,
+  regardless of `auto_commit` or how many commits landed. This is the
+  mandated fail-closed fallback, not a simplification: the only freshness
+  signal `compozy__worktree_inspect`'s output exposes is a `refreshed_at`
+  timestamp, and this daemon's branch-condition CEL has no `now()`
+  (verified live — `compozy loop validate` rejects it as an "undeclared
+  reference to 'now'"), so no expression in this grammar can prove a given
+  `ahead_of_base` reading is fresh rather than cached-stale. A conditional
+  predicate here could silently route a publishable delivery straight to
+  `done` on a stale zero; the unconditional route cannot, at the cost of
+  always asking the operator, including on branches that turn out to have
+  nothing to publish. This node remains the seam where an evidence-based
+  route returns if a future daemon version exposes a freshness signal the
+  branch condition can act on.
+- `publish_gate` — control `gate` with a `human` criterion, entered on
+  every delivery. Reaching it parks the run `needs-approval`. The
   daemon denies self-approval (`approval_self_denied`); only the operator
   decides. `reject` ends the run `blocked` with all commits preserved on
   `batuta/<slug>`.
 - `publish` — a `goal` node bound to the new bundled executor agent
   `batuta-publisher`, running in the delivery worktree environment,
-  entered only on gate approval.
+  entered only on gate approval. "Nothing to publish" is decided here, not
+  at `publish_check`: the publisher reads the exit plan after approval and,
+  when the branch carries nothing to publish, reports that as a successful
+  outcome instead of pushing.
 
 Edges: `review → publish_check`; `publish_check → publish_gate`
-(publishable) or `→ done` (nothing to publish); `publish_gate → publish`;
-`publish → done`.
-
-**Known limitation — `ahead_of_base` staleness.** `publish_check`'s
-predicate reads `status.ahead_of_base` from the `compozy__worktree_inspect`
-node output, which is populated from the worktree record and can go stale
-without an explicit refresh; this daemon version exposes no refresh
-parameter on that node surface. Consequently a stale zero routes an
-otherwise-publishable delivery to "nothing to publish" and the run
-completes `done` without ever reaching the gate. No code-level mitigation
-exists for this yet; the live smoke must observe a non-zero
-`ahead_of_base` after the implement child commits and before the gate is
-reached, to confirm the value is fresh in practice for the exercised path.
+(unconditional); `publish_gate → publish`; `publish → done`.
 
 ### Surfacing the gate to the operator
 
@@ -199,6 +198,21 @@ publisher ever runs, and the daemon's own exit-action safety (durable,
 idempotent `op_id`s; clean-HEAD/dirty-tree checks; re-read-then-reconcile
 recovery) described below.
 
+**MERGE GATE — unattended `approve-reads` execution is UNPROVEN.** Whether
+a Loop `goal` node can actually run `batuta-publisher`'s CLI steps
+unattended under `permissions: approve-reads` has not been demonstrated. A
+probe showed each step still needed a manual approval under
+`approve-reads`, and `deny-all` auto-rejected (`reject-once`) every step
+outright before it ran (see above). `tests/e2e/SMOKE.md`'s live
+approve-path case ("Verificação em runtime do `approve-reads`") is the
+proof this design still needs. This branch must not merge until that
+live smoke proves the publish node completes unattended end to end (exit,
+push, PR/compare evidence in the node output, no additional approval
+prompt). If the smoke stalls on approval prompts instead, the fix is to
+revisit this publication design — not to bump the permission to
+`approve-all`, which would let the publisher act unattended across
+workspaces, not just the one it was bound to.
+
 Fixed objective, in order:
 
 1. `compozy worktree exit <ref> -o json` — the daemon-computed exit plan is
@@ -235,10 +249,13 @@ reconcile", never blind retry:
 
 `batuta-deliver`'s `goal` and `definition_of_done` change to cover
 publication. Definition of done: the implement child ended `done`, the
-review child ended `done` or `no-op`, and either the `publish_check` route
-was "nothing to publish", or the gate was approved and `publish` ended
-`done` with push evidence plus a PR URL or an explicit push-only compare
-URL. A rejected gate is `blocked`; a publish-node failure is `failed`.
+review child ended `done` or `no-op`, the gate was approved, and `publish`
+ended `done` — either with push evidence plus a PR URL or an explicit
+push-only compare URL, or with the publisher's "nothing to publish" report
+when the exit plan showed nothing on the branch. `publish_check` always
+routes to the gate, so "nothing to publish" is a `publish`-node outcome,
+never a route that bypasses the gate. A rejected gate is `blocked`; a
+publish-node failure is `failed`.
 
 ## Conductor contract changes
 
@@ -277,7 +294,9 @@ The extension grows from three resources to four: the `batuta` agent, the
   `needs-approval` park on `publish_gate`, an operator approval, a push,
   and PR-or-compare-URL evidence bound to the recorded HEAD SHA; a
   `reject` path ends `blocked` with the branch still present; a delivery
-  with no publishable commits never reaches the gate; a dirty-worktree
+  with no publishable commits still parks `needs-approval` on `publish_gate`
+  (the branch node is unconditional) and, on approval, the publisher
+  reports "nothing to publish" instead of pushing; a dirty-worktree
   publish aborts without pushing.
 - Redispatch smoke: a second dispatch for the same slug passes the
   inspect-and-confirm reuse path and creates no duplicate worktree; a

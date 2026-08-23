@@ -68,6 +68,12 @@ override applies and remains what `materialized_contract` reports — but
 `agents/batuta/AGENT.md` is explicit that the literal alone enforces
 nothing.
 
+The backstop is therefore Batuta's, not the Loop's: a `batuta-deliver`
+submission that bypasses Batuta's own dispatch (cli/http/uds/native_tool/
+schedule starts) begins at `effective_config.budget_wall_sec: 0` —
+unbounded — in any workspace where Bootstrap has not yet provisioned the
+override, and stays unbounded until it has.
+
 With `halt`, crossing the effective budget ends the run on the `exhausted`
 terminal — no synthetic gate, no silent continuation — and the terminal
 effect returns it to the origin session like any other outcome. Recovery is
@@ -96,9 +102,18 @@ On EVERY non-success terminal where the `implement` node may have started —
 `failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike — before
 any redispatch:
 
-1. Batuta reads `compozy__loop_nodes` for the implement child and reports
-   per task: terminal state and commit evidence (landed / not landed) on
-   the delivery branch.
+1. Batuta reads `compozy__loop_status` for the parent delivery run to get
+   the implement child's `child_loop_run_id`, then reads
+   `compozy__loop_status` for that child run: its per-generation `outputs`
+   is the per-task roster, with `item_index` mapping positionally to the
+   authored `task_NN.md` set. `compozy__loop_nodes` cannot supply this — its
+   `state` filter only returns items currently `waiting`, `quarantined`,
+   `attention`, or `retrying`, never a full per-task terminal listing.
+   Under `auto_commit=true`, an item's success status means that task
+   landed as one commit on the delivery branch, confirmed with
+   `compozy__worktree_inspect`; under `auto_commit=false`, there is no
+   commit boundary, so Batuta reports `compozy__worktree_inspect`'s
+   working-tree state instead.
 2. Batuta states explicitly that a redispatch re-executes the full task set
    and may re-apply already-landed tasks, and decides with the operator
    whether to redispatch, amend the task set first, or stop.
@@ -114,10 +129,14 @@ Documented, not restricted:
 - implement runs leave changes uncommitted in the delivery worktree;
 - `review-and-fix` reviews the working tree without commit boundaries
   between tasks;
-- publication (companion design) routes on branch-vs-base commit evidence,
-  so a fresh `false` delivery has nothing to publish and skips the gate —
-  but commits inherited from a reused worktree remain publishable and are
-  never silently dropped by the boolean;
+- publication (companion design) still parks on the human gate regardless
+  of `auto_commit` — the branch check that would otherwise skip the gate on
+  "nothing to publish" is unconditionally routed to the gate instead (the
+  daemon cannot prove an `ahead_of_base` reading is fresh), so a fresh
+  `false` delivery with nothing on the branch reaches the gate the same as
+  any other and only reports "nothing to publish" after the operator
+  approves it; commits inherited from a reused worktree remain publishable
+  and are never silently dropped by the boolean;
 - integration of uncommitted work is fully manual: the operator commits
   from the worktree.
 
@@ -164,16 +183,22 @@ spec-cycle skip-if-committed feature request upstream.
 ## Verification
 
 - Loop validation passes with the fixed-value budget literal.
-- Static contract checks: AGENT.md orders the gate before the enumerated
-  delivery-path calls (not before conversation or spec authoring), names
-  the partial-run audit for every non-success terminal, the
-  `auto_commit=false` consequences, and (proved by dry-run probe against a
-  disposable workspace, recorded in
+- Static contract checks: `tests/contract/test_07_public_docs.sh` pins the
+  literal AGENT.md strings that carry the budget-enforcement mechanism so
+  the whole Bootstrap-provisioning-plus-dispatch-verification chain cannot
+  be silently deleted with a green suite — it asserts the exact
+  delivery-path call list (`The delivery-path calls are exactly: the
+  ext__spec_cycle__import_tasks preflight, delivery worktree creation, a
+  batuta-deliver dry-run, and a real dispatch.`), both
+  `effective_config.budget_wall_sec` and `config_overrides.budget_wall_sec`
+  appearing in AGENT.md, the Bootstrap provisioning value
+  (`budget_wall_sec: 14400, budget_on_exceeded: halt`), and the audit's
+  non-success terminal list (`` `failed`, `exhausted`, `stalled`,
+  `canceled`, and `blocked` alike``). It does not re-run the dry-run probe
+  itself — that evidence is recorded once in
   `.superpowers/sdd/2026-08-21-batuta-contract-robustness/
-  budget-verification-report.md`) that `effective_config.budget_wall_sec`
-  — not the contract literal — governs enforcement, with the
-  `compozy__loop_configure`/`compozy__loop_run` precedence order stated
-  exactly.
+  budget-verification-report.md` — but it does pin that the AGENT.md text
+  describing the mechanism the probe validated stays present.
 - E2E: a conversational turn performs no config read; a dispatch turn shows
   the gate read before `import_tasks`; a forced budget crossing ends the
   run `exhausted`, and the following turn shows the audit read before any

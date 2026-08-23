@@ -29,14 +29,14 @@ compozy extension install github:franciscpd/batuta-compozy --allow-unverified --
 compozy extension enable batuta
 ```
 
-Pin a version with `github:franciscpd/batuta-compozy@v0.1.0-beta.3`.
+Pin a version with `github:franciscpd/batuta-compozy@v0.1.0-beta.4`.
 
 ## Manual path
 
 If you prefer to inspect the archive before the daemon does:
 
 ```bash
-version=0.1.0-beta.3
+version=0.1.0-beta.4
 work=$(mktemp -d)
 gh release download "v$version" --repo franciscpd/batuta-compozy --dir "$work"
 (cd "$work" && sha256sum --check "batuta-v$version.tar.gz.sha256")
@@ -47,8 +47,8 @@ compozy extension install "$extracted" --allow-unverified --yes
 compozy extension enable batuta
 ```
 
-The release assets are exactly `batuta-v0.1.0-beta.3.tar.gz` and
-`batuta-v0.1.0-beta.3.tar.gz.sha256`. The archive contains six files:
+The release assets are exactly `batuta-v0.1.0-beta.4.tar.gz` and
+`batuta-v0.1.0-beta.4.tar.gz.sha256`. The archive contains six files:
 `LICENSE`, `extension.toml`, `agents/batuta/AGENT.md`,
 `agents/batuta-publisher/AGENT.md`, `resources/skills/batuta-routing/SKILL.md`,
 `loops/batuta-deliver/loop.yaml`.

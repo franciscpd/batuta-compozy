@@ -46,8 +46,8 @@ estão em [docs/verify.md](docs/verify.md).
 Atualizar: `compozy extension update batuta --allow-unverified --yes` ·
 Remover: `compozy extension remove batuta --global`
 
-Release atual: `v0.1.0-beta.3` —
-[notas da release](docs/releases/0.1.0-beta.3.md).
+Release atual: `v0.1.0-beta.4` —
+[notas da release](docs/releases/0.1.0-beta.4.md).
 
 ## Uso
 
@@ -65,16 +65,25 @@ batuta  [roda cy-create-spec] Revise _spec.md, _user_stories.md, _dx.md, _tests.
 você    aprovado
 batuta  [roda cy-create-tasks] 1 task, complexity low. Preflight OK, dry-run OK.
         Despachei o run <id> de batuta-deliver. Reporto aqui quando terminar.
-batuta  Entrega <id> chegou a done: implement-tasks done, review-and-fix done,
-        9/9 testes passando, sem commit (auto_commit=false).
+batuta  Entrega <id>: implement-tasks done, review-and-fix done, 9/9 testes
+        passando, sem commit (auto_commit=false). Parada no gate de
+        publicação — toda entrega passa por ele, já que nada consegue
+        provar que a branch não tem nada a publicar sem perguntar a você.
+        Aprove ou rejeite em <url>.
+você    aprovar
+batuta  Entrega <id> chegou a done: gate aprovado, o publicador reporta
+        nada a publicar (nenhum commit foi feito).
 ```
 
 O roteamento vem do seu catálogo vivo de providers e fica armazenado por
-workspace; peça ao Batuta em conversa para mudá-lo. As entregas carregam um
-orçamento de tempo de parede (wall-clock) de 4 horas, elevado por despacho
-quando uma entrega é legitimamente longa. O contrato completo — gate,
-bootstrap, preflight, dry-run, retorno orientado a eventos, escalada — está
-em [docs/how-it-works.md](docs/how-it-works.md) (em inglês).
+workspace; peça ao Batuta em conversa para mudá-lo. O Batuta provisiona um
+orçamento de tempo de parede (wall-clock) de 4 horas por workspace para as
+entregas que ele despacha, elevado por despacho quando uma entrega é
+legitimamente longa; uma submissão direta de `batuta-deliver` fora do
+caminho de despacho do Batuta fica sem limite até que esse override de
+workspace exista. O contrato completo — gate, bootstrap, preflight,
+dry-run, retorno orientado a eventos, escalada — está em
+[docs/how-it-works.md](docs/how-it-works.md) (em inglês).
 
 ## Limitações conhecidas
 
