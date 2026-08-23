@@ -37,7 +37,7 @@ case "$*" in
     printf '%s\n' '{"extension":{"state":"active"}}'
     ;;
   "extension inventory batuta -o json")
-    printf '%s\n' '{"items":[{"kind":"agent","name":"batuta","live":true},{"kind":"loop","name":"batuta-deliver","live":true},{"kind":"skill","name":"batuta-routing","live":true}]}'
+    printf '%s\n' '{"items":[{"kind":"agent","name":"batuta","live":true},{"kind":"loop","name":"batuta-deliver","live":true},{"kind":"skill","name":"batuta-routing","live":true},{"kind":"agent","name":"batuta-publisher","live":true}]}'
     ;;
   *)
     exit 99

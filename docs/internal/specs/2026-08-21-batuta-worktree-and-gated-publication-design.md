@@ -114,6 +114,17 @@ Edges: `review → publish_check`; `publish_check → publish_gate`
 (publishable) or `→ done` (nothing to publish); `publish_gate → publish`;
 `publish → done`.
 
+**Known limitation — `ahead_of_base` staleness.** `publish_check`'s
+predicate reads `status.ahead_of_base` from the `compozy__worktree_inspect`
+node output, which is populated from the worktree record and can go stale
+without an explicit refresh; this daemon version exposes no refresh
+parameter on that node surface. Consequently a stale zero routes an
+otherwise-publishable delivery to "nothing to publish" and the run
+completes `done` without ever reaching the gate. No code-level mitigation
+exists for this yet; the live smoke must observe a non-zero
+`ahead_of_base` after the implement child commits and before the gate is
+reached, to confirm the value is fresh in practice for the exercised path.
+
 ### Surfacing the gate to the operator
 
 `needs-approval` is a live pause, not a terminal, so the terminal effect
@@ -134,7 +145,7 @@ cannot announce it. The gate is surfaced without a watcher:
 Gate residence does not burn the delivery budget: the daemon suspends node
 clocks and the run wall-clock work budget during approval waits.
 
-### Approval is bound to the reviewed state
+### Approval is bound to a clean worktree
 
 The implemented property is narrower than "approval is bound to the exact
 state the reviewer saw": `batuta-publisher` verifies a clean working tree

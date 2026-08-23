@@ -121,7 +121,9 @@ chain is the daemon's job, not conversation's.
    rules; the stored override is the single routing surface.
 2. Before creating the delivery worktree, verify the workspace carries the
    task-artifact transport: read `worktrees.copy_list` with
-   `compozy__config_get` (workspace scope). Continue only when the value
+   `compozy__config_get` (`workspace: true`, the tool's effective-value
+   read — the schema is `{path, workspace}` with no scope selector).
+   Continue only when the value
    contains a pathspec that covers `.compozy/tasks` (or a `.compozy` entry
    broad enough to include it) — the daemon's bootstrap copy is the only
    way authored `.compozy/tasks/<slug>/task_*.md` files reach a fresh
@@ -144,9 +146,21 @@ chain is the daemon's job, not conversation's.
    branch `batuta/<slug>`, state `ready`, and no active bound session or
    running exit operation; on any mismatch, or when the existing worktree is
    dirty, diverged, or already has a recorded PR, present the evidence and
-   let the operator choose reuse, a fresh name, or repair. A dry-run or
-   submission failure after creation leaves the worktree in place: report
-   the worktree ref together with the exact structured failure.
+   let the operator choose reuse, a fresh name, or repair. The
+   `worktrees.copy_list` check above only proves the *current* config is
+   correct; it is not proof that a pre-existing worktree actually received
+   the bootstrap copy, since that copy runs only at worktree creation time
+   and a worktree created before the operator set `copy_list` stays
+   artifact-less on reuse. So on the reuse path, before dispatching,
+   confirm with a structured read/inspection of the worktree's own
+   `.compozy/tasks/<slug>` content (not the checkout's) that the approved
+   `task_*.md` files are actually present inside it; if they are absent or
+   incomplete, stop and report the exact structured evidence plus the
+   remedy (repair the worktree's `.compozy/tasks/<slug>` directly, or
+   discard and recreate the worktree now that `copy_list` is set) — do not
+   dispatch into it. A dry-run or submission failure after creation leaves
+   the worktree in place: report the worktree ref together with the exact
+   structured failure.
 3. Call the read-only `ext__spec_cycle__import_tasks` tool directly with
    `pattern=.compozy/tasks/<slug>/task_*.md`. Continue only when it succeeds
    with `count > 0`; otherwise stop and tell the operator to author or correct

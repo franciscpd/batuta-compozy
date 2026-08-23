@@ -65,12 +65,13 @@ items = d["items"]
 actual = {(item["kind"], item["name"]) for item in items}
 expected = {
     ("agent", "batuta"),
+    ("agent", "batuta-publisher"),
     ("loop", "batuta-deliver"),
     ("skill", "batuta-routing"),
 }
 assert actual == expected, f"inventory inesperado: {sorted(actual)}"
 assert all(item["live"] for item in items), f"recursos nao-live: {items}"
-print("OK: inventory publica exatamente os tres recursos live")
+print("OK: inventory publica exatamente os quatro recursos live")
 PY
 rm -f "$INV_OUT"
 

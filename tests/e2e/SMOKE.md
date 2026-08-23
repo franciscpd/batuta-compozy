@@ -141,7 +141,18 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    `publish_gate`). Aguarde o park `needs-approval` — sem `sleep`, sem
    watcher, sem polling: a leitura estruturada (`compozy__loop_status` ou o
    prompt de efeito do node) é o único observável aceito.
-2. **Aprovação — caminho approve**: aprove o gate **como identidade do
+2. **`ahead_of_base` não-zero antes do gate**: após o filho `implement-tasks`
+   commitar, e antes de `publish_check`/`publish_gate` serem alcançados,
+   leia o output do node `worktree_state` do run (`compozy__loop_status`)
+   e confirme `status.ahead_of_base > 0`. `ahead_of_base` vem do registro
+   do worktree e pode ficar obsoleto sem um refresh explícito — esta versão
+   do daemon não expõe parâmetro de refresh na superfície do node
+   `compozy__worktree_inspect` (ver
+   `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`,
+   seção "Publication graph"). Um zero obsoleto roteia uma entrega
+   publicável para "nothing to publish" e o run completa `done` sem nunca
+   alcançar o gate — isso é uma falha do smoke (ver "Falhas que reprovam").
+3. **Aprovação — caminho approve**: aprove o gate **como identidade do
    operador**, nunca como o agente `batuta` que despachou o run (o daemon
    nega auto-aprovação, mas o laboratório deve provar que a aprovação
    também não é feita pela mesma sessão/identidade de despacho). Exporte os
@@ -157,7 +168,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    Aceite: `publish` termina `node_succeeded`, o run termina `done`, e a
    evidência de publicação carrega o SHA de `HEAD` revisado mais a URL do PR
    (ou "pushed, PR manual" com URL de compare quando o forge não serve).
-3. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
+4. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
    publicável) até o mesmo park `needs-approval`, desta vez rejeite o gate
    como o operador. Exporte os eventos e rode:
 
@@ -170,7 +181,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    Aceite: o node `publish` nunca executa (nenhum `node_running` para
    `publish`), o run termina `blocked`, e os commits permanecem intactos em
    `batuta/<slug>`.
-4. **Aborto por worktree suja**: repita o despacho até o park
+5. **Aborto por worktree suja**: repita o despacho até o park
    `needs-approval`. Antes de aprovar, `touch` um arquivo não commitado
    diretamente na worktree gerenciada (fora da sessão do batuta — simulando
    uma mudança externa entre o park e a decisão). Aprove o gate como
@@ -186,7 +197,7 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    remoto) e nenhum `op_id` de push aparece no output do node — não basta o
    node ter falhado, a falha precisa ser confirmada como "nunca tentou
    publicar", não apenas "terminou mal".
-5. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
+6. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
    roda com `permissions: approve-reads` no seu AGENT.md — não mais
    `deny-all`. A troca foi decidida por uma prova ao vivo (ver
    `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`):
@@ -208,14 +219,17 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
 
 ## Falhas que reprovam
 
+- `status.ahead_of_base` mostrar `0` (obsoleto) depois de o filho
+  `implement-tasks` já ter commitado, roteando uma entrega publicável para
+  "nothing to publish" em vez do gate.
 - O batuta editar/commitar código diretamente na sessão.
 - Qualquer terminal != `done` reportado como sucesso.
 - Mais de um commit para uma task, ou um commit cobrindo duas tasks.
 - Push automático.
 - O batuta aprovar o próprio gate (`needs-approval`).
 - O `publish` ficar parado pedindo aprovação adicional em vez de executar
-  os verbos `compozy worktree exit`/`push`/`pr` sob `deny-all` no caminho
-  `approve`, ou o push ocorrer no caminho `reject`/worktree suja.
+  os verbos `compozy worktree exit`/`push`/`pr` sob `approve-reads` no
+  caminho `approve`, ou o push ocorrer no caminho `reject`/worktree suja.
 
 ---
 

@@ -48,9 +48,10 @@ compozy extension enable batuta
 ```
 
 The release assets are exactly `batuta-v0.1.0-beta.3.tar.gz` and
-`batuta-v0.1.0-beta.3.tar.gz.sha256`. The archive contains five files:
+`batuta-v0.1.0-beta.3.tar.gz.sha256`. The archive contains six files:
 `LICENSE`, `extension.toml`, `agents/batuta/AGENT.md`,
-`resources/skills/batuta-routing/SKILL.md`, `loops/batuta-deliver/loop.yaml`.
+`agents/batuta-publisher/AGENT.md`, `resources/skills/batuta-routing/SKILL.md`,
+`loops/batuta-deliver/loop.yaml`.
 
 ## Update and remove
 
