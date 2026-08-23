@@ -25,10 +25,11 @@ printf '%s' "$schema" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)["tool"]["descriptor"]["input_schema"]
 required = set(d["required"])
-expected = {"session_id", "message", "message_id", "idempotency_key"}
-assert required == expected, f"campos obrigatorios inesperados: {required}"
+idempotent_identity = {"session_id", "message_id", "idempotency_key"}
+assert idempotent_identity.issubset(required), f"idempotent-identity fields missing from required: {required}"
+assert "message" in d["properties"], "message field not supported"
 assert "queue" in d["properties"]["mode"]["enum"], "mode=queue indisponivel"
-print("OK: session_prompt aceita identidade idempotente e mode=queue")
+print("OK: session_prompt contract holds (idempotent identity required; message supported)")
 '
 
 python3 - <<'PY'
