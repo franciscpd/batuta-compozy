@@ -119,6 +119,72 @@ exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
   tokens e confirme que o retorno terminal não consumiu tokens de modelo de
   agente de reporte.
 
+## Gate de publicação — laboratório ao vivo
+
+Pré-condição adicional: workspace cobaia com repo remoto configurado (push
+autorizado) e, se aplicável, provider de forge autenticado para PR. Execute
+sempre em worktree descartável, nunca no checkout principal do batuta.
+
+1. **Despacho real**: no laboratório descartável, despache uma
+   `batuta-deliver` real com commits publicáveis (ao menos uma task
+   implementada e revisão limpa, para que `publish_check` roteie para
+   `publish_gate`). Aguarde o park `needs-approval` — sem `sleep`, sem
+   watcher, sem polling: a leitura estruturada (`compozy__loop_status` ou o
+   prompt de efeito do node) é o único observável aceito.
+2. **Aprovação — caminho approve**: aprove o gate **como identidade do
+   operador**, nunca como o agente `batuta` que despachou o run (o daemon
+   nega auto-aprovação, mas o laboratório deve provar que a aprovação
+   também não é feita pela mesma sessão/identidade de despacho). Exporte os
+   eventos públicos do run (`compozy loop events`/`compozy session events`
+   -o json, conforme disponível no daemon) para um arquivo JSON. Rode:
+
+   ```bash
+   python3 tests/e2e/assert_publication_gate.py \
+     --events /caminho/para/publish-gate-approve-events.json \
+     --decision approve
+   ```
+
+   Aceite: `publish` termina `node_succeeded`, o run termina `done`, e a
+   evidência de publicação carrega o SHA de `HEAD` revisado mais a URL do PR
+   (ou "pushed, PR manual" com URL de compare quando o forge não serve).
+3. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
+   publicável) até o mesmo park `needs-approval`, desta vez rejeite o gate
+   como o operador. Exporte os eventos e rode:
+
+   ```bash
+   python3 tests/e2e/assert_publication_gate.py \
+     --events /caminho/para/publish-gate-reject-events.json \
+     --decision reject
+   ```
+
+   Aceite: o node `publish` nunca executa (nenhum `node_running` para
+   `publish`), o run termina `blocked`, e os commits permanecem intactos em
+   `batuta/<slug>`.
+4. **Aborto por worktree suja**: repita o despacho até o park
+   `needs-approval`. Antes de aprovar, `touch` um arquivo não commitado
+   diretamente na worktree gerenciada (fora da sessão do batuta — simulando
+   uma mudança externa entre o park e a decisão). Aprove o gate como
+   operador e confirme que `publish` falha no seu próprio judge de HEAD
+   limpo (`git status --porcelain` não vazio) sem nenhum push. Exporte os
+   eventos e confirme manualmente (o validador acima assume o caminho
+   `approve` bem-sucedido, então este caso é conferido por inspeção do
+   `loop_status`/eventos): `needs_approval` para `publish_gate`,
+   `gate_verdict` com `verdict=approve`, e em seguida `node_failed` — nunca
+   `node_succeeded` — para `publish`, sem evidência de push no node output.
+5. **Verificação em runtime do `deny-all`**: o agente `batuta-publisher`
+   roda com `permissions: deny-all` no seu AGENT.md. Isso é uma trava
+   estrutural (nunca aprova o próprio gate, nunca edita fora do escopo do
+   worktree), não uma allowlist granular — o daemon não expõe permissão por
+   comando de shell nesta versão. O laboratório deve confirmar que, apesar
+   de `deny-all`, o node de publicação **executa de fato** os passos de
+   shell/CLI (`compozy worktree exit`, `push`, `pr`) no caminho `approve`
+   acima: a evidência de push (op_id, SHA, URL de PR ou compare) precisa
+   aparecer no output do node `publish`, não apenas um prompt de aprovação
+   parado. Se o run travar pedindo aprovação adicional em vez de executar
+   os verbos de saída da worktree, isso é um achado a registrar
+   explicitamente no resultado do smoke — não deve ser ocultado nem tratado
+   como sucesso parcial.
+
 ## Falhas que reprovam
 
 - O batuta editar/commitar código diretamente na sessão.
@@ -126,6 +192,9 @@ exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
 - Mais de um commit para uma task, ou um commit cobrindo duas tasks.
 - Push automático.
 - O batuta aprovar o próprio gate (`needs-approval`).
+- O `publish` ficar parado pedindo aprovação adicional em vez de executar
+  os verbos `compozy worktree exit`/`push`/`pr` sob `deny-all` no caminho
+  `approve`, ou o push ocorrer no caminho `reject`/worktree suja.
 
 ---
 
