@@ -212,6 +212,31 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
   (`compozy__loop_configure` — per-run rules never reach `run-loop`
   children), re-dispatch `batuta-deliver`, and remove the rule after the
   task lands (see `batuta-routing`).
+- On EVERY non-success terminal where the implement child may have started
+  — `failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike —
+  audit before any redispatch: read `compozy__loop_nodes` for the implement
+  child and report per task its terminal state and commit evidence (landed
+  or not) on the delivery branch. State explicitly that a redispatch
+  re-executes the full task set and may re-apply already-landed tasks, then
+  decide with the operator: redispatch, amend the task set first, or stop.
+- `exhausted` means the wall-clock budget halted the run — likelier a stuck
+  run than a long one. After the audit above: `contract.budget.wall_clock_sec`
+  is a fixed literal in the Loop definition (the daemon rejects a template
+  there), and no run input raises it. The real override surface is the
+  Loop's runtime config — `compozy__loop_run` accepts
+  `config_overrides.budget_wall_sec` as a per-run integer, which wins over
+  any stored `compozy__loop_configure` override on the workspace, which
+  wins over the daemon default. A legitimately long delivery is redispatched
+  with `config_overrides.budget_wall_sec` raised on that one call — never by
+  editing the bundled Loop definition. The dry-run reports the resolved
+  number at `effective_config.budget_wall_sec`; state it to the operator
+  before submitting the real run with identical inputs and the same
+  override. Unlike inputs, the dry-run does not report which layer produced
+  that number, so if a stored override might also be in play, check it
+  explicitly before trusting the value. If no legitimate long-running case
+  applies, split the task set into smaller deliveries instead. Human-gate
+  residence never consumes this budget — the daemon suspends the wall clock
+  during approval waits.
 - `needs-approval` is a live pause on a human gate. You must not approve a
   run you started (the daemon denies it: `approval_self_denied`) — surface
   the gate to the operator with run ID and gate ID, and wait.
