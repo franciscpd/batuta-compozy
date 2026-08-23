@@ -44,6 +44,25 @@ default environment `{mode: worktree, worktree_ref: {{ .inputs.worktree_ref }}}`
 and `review-and-fix` children execute inside the worktree without any change
 to the spec-cycle extension.
 
+### Task artifact transport
+
+The conductor's `ext__spec_cycle__import_tasks` preflight runs in the main
+workspace, not the delivery worktree; a fresh managed worktree does not
+inherit `.compozy/tasks/<slug>/task_*.md` on its own, so a preflight
+`count > 0` does not prove the Loop's `load_check` node — which runs inside
+the worktree — will find anything. The daemon already owns the transport
+primitive: the workspace's `[worktrees]` bootstrap-copy configuration
+(`worktrees.copy_list`) carries ignored/untracked paths into every new
+managed worktree. Before creating the delivery worktree, Batuta reads
+`worktrees.copy_list` with `compozy__config_get` and continues only when it
+covers `.compozy/tasks`; otherwise it stops and reports the structured
+evidence plus the one-time operator remedy (`compozy config set
+worktrees.copy_list '[".compozy/tasks"]' --scope workspace`) instead of
+dispatching into an artifact-less worktree. A live probe against a
+throwaway workspace confirmed the fix: with `worktrees.copy_list` set to
+`[".compozy/tasks"]` at workspace scope, a freshly created managed worktree
+contained the seeded `.compozy/tasks/<slug>/task_*.md` file at its root.
+
 ### Reuse on redispatch
 
 A redispatch for the same slug reuses the existing worktree only when a

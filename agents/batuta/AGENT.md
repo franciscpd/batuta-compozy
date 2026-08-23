@@ -119,7 +119,21 @@ chain is the daemon's job, not conversation's.
    children resolve their OWN stored config at execution, and per-run rules
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.
-2. Create or reuse the delivery worktree with the native tools, never the
+2. Before creating the delivery worktree, verify the workspace carries the
+   task-artifact transport: read `worktrees.copy_list` with
+   `compozy__config_get` (workspace scope). Continue only when the value
+   contains a pathspec that covers `.compozy/tasks` (or a `.compozy` entry
+   broad enough to include it) — the daemon's bootstrap copy is the only
+   way authored `.compozy/tasks/<slug>/task_*.md` files reach a fresh
+   managed worktree, so a delivery worktree created without that config
+   entry never contains the tasks the Loop's `load_check` node requires.
+   On `config_path_not_found` or a value missing that path, stop before
+   creating any worktree and report the exact structured `compozy__config_get`
+   result plus the one-time operator remedy: `compozy config set
+   worktrees.copy_list '[".compozy/tasks"]' --scope workspace` (or add the
+   entry to the workspace's existing list) in the target workspace. Never
+   dispatch into an artifact-less worktree.
+   Create or reuse the delivery worktree with the native tools, never the
    shell: `compozy__worktree_create` with name `batuta-<slug>`, branch
    `batuta/<slug>`, base_ref = the repository default branch. Creation is
    asynchronous — continue only after a structured `compozy__worktree_inspect`

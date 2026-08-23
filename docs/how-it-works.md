@@ -77,7 +77,11 @@ watcher, poller, or reporting agent. An explicit progress request takes one
 `batuta-<slug>`, on branch `batuta/<slug>`, created or reused by Batuta at
 dispatch with the native worktree tools; the chained child Loops inherit
 that worktree environment, so `implement-tasks` and `review-and-fix` commit
-inside it, never on the base branch.
+inside it, never on the base branch. The authored `.compozy/tasks/<slug>`
+files reach that fresh worktree only through the workspace's `[worktrees]`
+bootstrap-copy configuration (`worktrees.copy_list`); Batuta checks that
+configuration before dispatch and refuses to create the worktree — with the
+one-time operator remedy — when it does not cover `.compozy/tasks`.
 
 After `review-and-fix` ends clean, the Loop inspects the worktree and
 branches on the evidence: when `ahead_of_base` is `0`, there is nothing to

@@ -30,13 +30,23 @@ pequeno com suite de testes real).
    executa o import. Aceite: o run composto fica visível em `compozy loop
    runs`; o daemon executa `implement-tasks` e depois `review-and-fix` como
    filhos desse run.
-6. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
+6. **Transporte dos artefatos de task**: antes de o filho `implement-tasks`
+   começar a rodar (assim que o worktree gerenciado `batuta-<slug>` estiver
+   `ready`), leia diretamente no caminho do worktree — nunca no checkout
+   principal — e confirme que `.compozy/tasks/<slug>/` existe com os mesmos
+   `task_NN.md` aprovados na fase PM. Aceite: o conteúdo está presente no
+   worktree antes do primeiro node do filho terminar; se estiver ausente, o
+   Batuta deve ter recusado o despacho antes de criar o worktree (ver
+   `worktrees.copy_list` em `compozy config get`), nunca deixar o
+   `load_check` do Loop falhar sozinho. Um smoke que pula esta checagem não
+   prova que a feature funciona.
+7. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
    commit por task implementada (auto_commit=true). Nenhum push.
-7. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
+8. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
    terminais dos filhos, seus `resolved_runtime` e as rodadas em
    `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada
    limpa) ou reporta `exhausted` literalmente.
-8. **Retorno e reporte final**: registre a sequência de resultados de
+9. **Retorno e reporte final**: registre a sequência de resultados de
    ferramentas do despacho real e o ID daquele turno. O resultado aceito de
    `batuta-deliver` retorna `run_id` e, quando disponível, `web_url`; não pode
    haver outra chamada de ferramenta nesse turno. O efeito terminal inicia um
