@@ -67,7 +67,36 @@ literal parent and child outcomes, commits, and blockers. There is no
 watcher, poller, or reporting agent. An explicit progress request takes one
 `compozy__loop_status` snapshot and ends the turn.
 
-## 6. Escalation
+## 6. Publication gate
+
+`batuta-deliver` runs the whole cycle in a delivery worktree named
+`batuta-<slug>`, on branch `batuta/<slug>`, created or reused by Batuta at
+dispatch with the native worktree tools; the chained child Loops inherit
+that worktree environment, so `implement-tasks` and `review-and-fix` commit
+inside it, never on the base branch.
+
+After `review-and-fix` ends clean, the Loop inspects the worktree and
+branches on the evidence: when `ahead_of_base` is `0`, there is nothing to
+publish and the run completes `done` without ever reaching the gate. When
+there are commits ahead of base, the run parks on a human `publish_gate` —
+reported to you as `needs-approval` with the run and gate IDs, exactly like
+any other human gate (see Escalation below). Rejecting the gate ends the run
+`blocked` with the branch and its commits preserved, untouched, for you to
+inspect or resume.
+
+Approving the gate hands off to the `batuta-publisher` agent, and only to
+it: Batuta itself never pushes or publishes. The publisher checks the
+worktree is clean and records `HEAD`, reads the exit plan, pushes the
+branch, and opens a PR against the repository default branch. When no forge
+provider serves the repository, it reports "pushed, PR manual" together
+with the exit plan's compare URL instead of a PR URL — that is a successful
+outcome, not a failure.
+
+Time spent parked on the publication gate does not consume the delivery
+budget: the daemon suspends the run's wall-clock work budget while it waits
+on the operator's decision.
+
+## 7. Escalation
 
 Retry, quarantine, and failure classes belong to the daemon. A task that
 fails repeatedly in its lane gets a surgical `id` rule one lane up in the

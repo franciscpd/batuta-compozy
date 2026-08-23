@@ -8,10 +8,11 @@ or endorsed CompozyOS component.
 
 ## Components
 
-Batuta packages one `batuta` agent, one `batuta-routing` skill, and one
-`batuta-deliver` Loop. The bundled `spec-cycle` extension supplies the `cy-*`
-skills plus `implement-tasks` and `review-and-fix`. CompozyOS owns sessions,
-tool policy, durable Loop execution, and terminal effects.
+Batuta packages one `batuta` agent, one `batuta-publisher` agent, one
+`batuta-routing` skill, and one `batuta-deliver` Loop. The bundled
+`spec-cycle` extension supplies the `cy-*` skills plus `implement-tasks` and
+`review-and-fix`. CompozyOS owns sessions, tool policy, durable Loop
+execution, terminal effects, and the delivery worktree.
 
 ## Data flow
 
@@ -24,6 +25,8 @@ Operator
   -> batuta-deliver
      -> implement-tasks
      -> review-and-fix
+     -> publish gate (human)
+     -> publish (push + PR)
   -> compozy__session_prompt terminal return
   -> original Batuta conversation
 ```
@@ -40,6 +43,9 @@ resolve their own runtime rules.
 Batuta never writes implementation code, approves its own gates, polls live
 runs, pushes, or silently selects a commit preference. The operator approves
 the relevant choices; executor Loops perform the implementation and review.
+The conductor never pushes or publishes: `batuta-deliver` runs in a delivery
+worktree and only the `batuta-publisher` agent pushes and opens the PR, and
+only after the operator approves the human publication gate.
 
 ## Session lifecycle
 

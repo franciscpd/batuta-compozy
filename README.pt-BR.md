@@ -6,7 +6,10 @@ O Batuta é um agente maestro para o [CompozyOS](https://www.compozy.com/docs/).
 Você descreve uma mudança em conversa; o Batuta a transforma em spec e tasks
 (via o `spec-cycle` bundled), roteia cada task para o modelo mais barato
 capaz de resolvê-la, despacha um único Loop de entrega durável e reporta o
-resultado exato na mesma conversa. Ele nunca escreve código.
+resultado exato na mesma conversa. Ele nunca escreve código. A entrega
+acontece em um worktree isolado e, depois que a revisão fica limpa, a
+publicação espera um gate humano de publicação que você aprova antes de
+qualquer push.
 
 O Batuta é um projeto independente da comunidade, não um componente oficial
 ou endossado do CompozyOS. O CompozyOS vive em

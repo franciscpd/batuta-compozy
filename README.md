@@ -6,7 +6,9 @@ Batuta is a conductor agent for [CompozyOS](https://www.compozy.com/docs/).
 You describe a change in conversation; Batuta turns it into a spec and tasks
 (via the bundled `spec-cycle`), routes each task to the cheapest capable
 model, dispatches one durable delivery Loop, and reports the exact outcome
-back in the same conversation. It never writes code itself.
+back in the same conversation. It never writes code itself. Delivery runs in
+an isolated worktree and, once review is clean, publishing waits behind a
+human publication gate you approve before anything is pushed.
 
 Batuta is an independent community project, not an official or endorsed
 CompozyOS component. CompozyOS itself lives at

@@ -57,7 +57,8 @@ for text in \
   'implement-tasks' \
   'review-and-fix' \
   'compozy__session_prompt' \
-  'Resource and authority boundaries'; do
+  'Resource and authority boundaries' \
+  'batuta-publisher'; do
   require_text docs/architecture.md "$text"
 done
 
@@ -76,7 +77,9 @@ for text in \
   'origin_session_id' \
   'compozy__loop_status' \
   'agents/batuta/AGENT.md' \
-  'resources/skills/batuta-routing/SKILL.md'; do
+  'resources/skills/batuta-routing/SKILL.md' \
+  'publication gate' \
+  'batuta/<slug>'; do
   require_text docs/how-it-works.md "$text"
 done
 
