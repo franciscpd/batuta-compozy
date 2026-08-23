@@ -2,9 +2,9 @@ apiVersion: compozy.loop/v1
 kind: Loop
 meta:
   name: batuta-deliver
-  description: Batuta's full delivery cycle - implement every task for a slug, then review and fix until a round comes back clean.
+  description: Batuta's full delivery cycle in a worktree - implement every task for a slug in the delivery worktree, then review and fix until clean, then publish behind a human gate.
   catalog:
-    use_when: "You have authored tasks under .compozy/tasks/<slug> and want the full batuta cycle: implementation with atomic commits, then review rounds until clean."
+    use_when: "You have authored tasks under .compozy/tasks/<slug> and want the full batuta cycle in an isolated worktree: implementation with atomic commits, review rounds until clean, and gated publication to the base branch."
     keywords: [batuta, deliver, implement, review]
     category: Engineering
 
@@ -30,10 +30,15 @@ environment:
 
 contract:
   goal: >
-    Deliver the feature for .compozy/tasks/{{ .inputs.slug }} end to end: implement every
-    authored task in dependency order, then review and remediate until a review round is clean.
+    Deliver the feature for .compozy/tasks/{{ .inputs.slug }} end to end in the
+    delivery worktree: implement every authored task in dependency order,
+    review and remediate until a round is clean, then — behind the human
+    publication gate — publish the delivery branch.
   definition_of_done: >
-    The implement-tasks child run ended done and the review-and-fix child run ended done or no-op.
+    The implement-tasks child ended done, the review-and-fix child ended done
+    or no-op, and either the publish check found nothing to publish, or the
+    human gate was approved and the publish node ended done with push evidence
+    plus a PR URL or an explicit push-only compare URL.
   iteration_cap: 1
   budget:
     tokens: 0

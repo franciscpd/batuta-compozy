@@ -73,3 +73,12 @@ assert "id: publish" in text and "kind: goal" in text, "publish goal ausente"
 assert "agent: batuta-publisher" in text, "publisher agent nao referenciado"
 print("OK: grafo pos-review inspeciona, decide, aprova e publica")
 PY
+
+# O contrato deve mencionar publicação e a rota nothing-to-publish.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+assert "publication" in text.lower(), "contract nao menciona publicacao"
+assert "nothing to publish" in text, "rota nothing-to-publish ausente do contrato"
+print("OK: contrato cobre publicação e rota nothing-to-publish")
+PY
