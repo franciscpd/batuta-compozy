@@ -57,8 +57,8 @@ contract:
           Batuta delivery run {{ .effect.identity.loop_run_id }} reached terminal
           trigger {{ .effect.identity.trigger }}. Inspect the run with
           `compozy__loop_status`, then report its exact terminal outcome, child run
-          IDs, commits, and blocker, and publication evidence (HEAD SHA, PR or
-          compare URL) when the publish node ran in this conversation. Decide any
+          IDs, commits, blocker, and publication evidence (HEAD SHA, PR or
+          compare URL) when the publish node ran, in this conversation. Decide any
           redispatch or escalation with the operator. Never approve a gate, edit
           code, push, publish, or mutate routing from this return prompt.
   on_noop:
@@ -166,8 +166,8 @@ graph:
         judge:
           - id: worktree_clean
             type: command
-            check: "git status --porcelain | grep -q . && exit 1 || exit 0"
-        max_turns: 6
+            check: "test -z \"$(git -C . status --porcelain)\""
+        max_turns: 10
         output_schema:
           type: object
           required: [status, summary]

@@ -121,7 +121,7 @@ chain is the daemon's job, not conversation's.
    rules; the stored override is the single routing surface.
 2. Create or reuse the delivery worktree with the native tools, never the
    shell: `compozy__worktree_create` with name `batuta-<slug>`, branch
-   `batuta/<slug>`, base = the repository default branch. Creation is
+   `batuta/<slug>`, base_ref = the repository default branch. Creation is
    asynchronous — continue only after a structured `compozy__worktree_inspect`
    read shows `ready` with healthy setup; report any other outcome (typed
    error, `pending` past the setup timeout, `setup_state=failed`) literally

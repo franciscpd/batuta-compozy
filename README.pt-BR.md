@@ -20,6 +20,7 @@ você ─▶ sessão batuta ─▶ cy-create-spec ─▶ cy-create-tasks
                                                   │
                                                   ▼
              relatório terminal ◀── batuta-deliver ──▶ implement-tasks ─▶ review-and-fix
+                                                            ─▶ gate de publicação (humano) ─▶ publicar (push + PR)
 ```
 
 ## Instalar

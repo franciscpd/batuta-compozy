@@ -57,6 +57,10 @@ separately and never sends per-run runtime rules.
 A successful dispatch ends the turn: Batuta reports `run_id` (and `web_url`
 when available) and stops.
 
+Breaking change: direct submissions of `batuta-deliver` (cli/http/uds/
+native_tool starts, bypassing Batuta's own dispatch) now require the
+`worktree_ref` input introduced by this change.
+
 ## 5. Event-driven return
 
 Every terminal effect of `batuta-deliver` (`done`, `no-op`, `blocked`,

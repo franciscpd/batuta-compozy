@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local dev install: stage the five package files, validate, reinstall, enable, verify.
+# Local dev install: stage the six package files, validate, reinstall, enable, verify.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -47,7 +47,7 @@ compozy extension inventory batuta -o json | python3 -c "
 import json,sys
 items=json.load(sys.stdin)['items']
 actual={(it['kind'], it['name']) for it in items}
-expected={('agent','batuta'), ('loop','batuta-deliver'), ('skill','batuta-routing')}
+expected={('agent','batuta'), ('agent','batuta-publisher'), ('loop','batuta-deliver'), ('skill','batuta-routing')}
 assert actual==expected, f'inventario inesperado: {sorted(actual)}'
 assert all(it['live'] for it in items), f'recursos nao-live: {items}'
 print('recursos live:', ', '.join(it['name'] for it in items))"

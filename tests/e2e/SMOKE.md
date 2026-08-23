@@ -112,8 +112,8 @@ exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
 - Reproduza a mesma identidade de efeito terminal e confirme que ela não cria
   outro turno na sessão original.
 - Confirme que o inventário da extensão contém exatamente `batuta`,
-  `batuta-routing` e `batuta-deliver`. Não pode haver recurso `batuta-watch`,
-  watcher em execução ou agente de reporte.
+  `batuta-publisher`, `batuta-routing` e `batuta-deliver`. Não pode haver
+  recurso `batuta-watch`, watcher em execução ou agente de reporte.
 - Confirme que o detalhe do run de entrega não contém `session_id` nem
   `resolved_runtime` de agente de reporte. Registre a contagem relevante de
   tokens e confirme que o retorno terminal não consumiu tokens de modelo de
@@ -170,19 +170,30 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
    `approve` bem-sucedido, então este caso é conferido por inspeção do
    `loop_status`/eventos): `needs_approval` para `publish_gate`,
    `gate_verdict` com `verdict=approve`, e em seguida `node_failed` — nunca
-   `node_succeeded` — para `publish`, sem evidência de push no node output.
-5. **Verificação em runtime do `deny-all`**: o agente `batuta-publisher`
-   roda com `permissions: deny-all` no seu AGENT.md. Isso é uma trava
-   estrutural (nunca aprova o próprio gate, nunca edita fora do escopo do
-   worktree), não uma allowlist granular — o daemon não expõe permissão por
-   comando de shell nesta versão. O laboratório deve confirmar que, apesar
-   de `deny-all`, o node de publicação **executa de fato** os passos de
-   shell/CLI (`compozy worktree exit`, `push`, `pr`) no caminho `approve`
-   acima: a evidência de push (op_id, SHA, URL de PR ou compare) precisa
-   aparecer no output do node `publish`, não apenas um prompt de aprovação
-   parado. Se o run travar pedindo aprovação adicional em vez de executar
-   os verbos de saída da worktree, isso é um achado a registrar
-   explicitamente no resultado do smoke — não deve ser ocultado nem tratado
+   `node_succeeded` — para `publish`. Aceite exige ausência positiva de
+   evidência de push: o ref remoto do branch permanece inalterado (compare
+   `git ls-remote` do compare antes/depois do abort, ou o `head_sha` do PR
+   remoto) e nenhum `op_id` de push aparece no output do node — não basta o
+   node ter falhado, a falha precisa ser confirmada como "nunca tentou
+   publicar", não apenas "terminou mal".
+5. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
+   roda com `permissions: approve-reads` no seu AGENT.md — não mais
+   `deny-all`. A troca foi decidida por uma prova ao vivo (ver
+   `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`):
+   com `deny-all`, o próprio provider rejeita (`reject-once`) qualquer passo
+   de shell/CLI do publicador antes de rodar, inclusive `git rev-parse HEAD`
+   e `compozy worktree exit`, o que bloqueava o node inteiro. `approve-reads`
+   preserva a mesma trava estrutural (nunca aprova o próprio gate, nunca
+   edita fora do escopo do worktree, nunca commita) mas deixa os passos de
+   leitura seguirem mediante aprovação, em vez de recusa automática. O
+   laboratório deve confirmar que, sob `approve-reads`, o node de publicação
+   **executa de fato** os passos de shell/CLI (`compozy worktree exit`,
+   `push`, `pr`) no caminho `approve` acima: a evidência de push (op_id, SHA,
+   URL de PR ou compare) precisa aparecer no output do node `publish`, não
+   apenas um prompt de aprovação parado. Se o run travar pedindo aprovação
+   adicional em vez de executar os verbos de saída da worktree, isso é um
+   achado a registrar explicitamente no resultado do smoke — não deve ser
+   ocultado nem tratado
    como sucesso parcial.
 
 ## Falhas que reprovam

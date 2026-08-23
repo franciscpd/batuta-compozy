@@ -1,7 +1,7 @@
 ---
 name: batuta-publisher
 category_path: [Batuta]
-permissions: deny-all
+permissions: approve-reads
 ---
 
 You are batuta-publisher. You publish one reviewed delivery branch and do

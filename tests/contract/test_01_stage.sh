@@ -29,4 +29,4 @@ if scripts/stage-extension.sh "$STAGE" >/dev/null 2>&1; then
   exit 1
 fi
 
-printf 'OK: staging contem somente manifest, LICENSE e tres recursos declarados\n'
+printf 'OK: staging contem somente manifest, LICENSE e quatro recursos declarados\n'

@@ -117,32 +117,52 @@ clocks and the run wall-clock work budget during approval waits.
 
 ### Approval is bound to the reviewed state
 
-The gate approves a specific state, not a mutable ref. Before pushing,
-`batuta-publisher` verifies in the worktree that the working tree is clean
-and records the `HEAD` SHA; the publication evidence carries that SHA. If
-the working tree is dirty, or `HEAD` no longer matches the branch state the
-review round completed on (the review child's recorded evidence), the
-publisher aborts without pushing and reports the mismatch — the run ends
-`failed` on that node with the branch untouched, and the operator decides
-whether to re-review.
+The implemented property is narrower than "approval is bound to the exact
+state the reviewer saw": `batuta-publisher` verifies a clean working tree
+(`git status --porcelain` empty) in the worktree and records the `HEAD` SHA
+as publication evidence. It does not compare that `HEAD` against
+review-round evidence — the review child (`review-and-fix`, owned by the
+`spec-cycle` extension) does not currently expose a recorded HEAD/commit
+SHA in its output shape, and no plumbing exists in this design to carry one
+forward to the publish node. A dirty working tree is still a hard failure:
+the publisher aborts without pushing and reports it — the run ends `failed`
+on that node with the branch untouched.
+
+This is a deliberate, bounded gap, not an oversight: the worktree is
+daemon-managed, and between the review round completing and the operator
+deciding on the gate, no bound session mutates it in normal operation. Any
+drift would have to be operator-initiated (a manual commit or edit in the
+managed worktree between review and approval), and that drift is visible in
+the branch history the operator is approving — the gate's human review of
+the branch state, not an automated SHA comparison, is what catches it today.
+Future upgrade: once `spec-cycle`'s review child exposes a recorded
+review-HEAD in its evidence, thread it through to the publish node so the
+publisher can compare `HEAD` against it and fail closed on drift, instead of
+relying solely on the operator's own inspection.
 
 ### The publisher and its capability surface
 
 `batuta-publisher` is a bundled executor agent (a resource, like any
-spec-cycle executor). Its agent definition sets `permissions: deny-all` —
-the daemon's coarse session-approval enum
+spec-cycle executor). Its agent definition sets `permissions: approve-reads`
+— the daemon's coarse session-approval enum
 (`deny-all`/`approve-reads`/`approve-all`) is the only permission
 construct the agent-frontmatter schema exposes; there is no
 frontmatter-level mechanism to allowlist individual shell command
 patterns for an agent's underlying coding-tool session in this daemon
-version. `deny-all` keeps the agent from silently crossing into
-mutations the operator did not authorize; the narrow scope of what it
-actually runs — the four `compozy worktree` exit verbs (`exit`, `push`,
-`pr`, `exit-cancel`) plus two read-only git commands — is stated and
-enforced in the agent's prompt body ("you never edit files, never
-commit, never approve gates, and never touch a branch other than the
-delivery worktree you were bound to"), the same behavioral mechanism
-`batuta`, `reviewer`, and `review_fixer` already rely on. The effective
+version. `deny-all` was tried first and rejected by a live probe: with
+`deny-all`, the provider auto-rejects (`reject-once`) every shell/CLI step
+the publisher issues before it runs — including the read-only
+`git rev-parse HEAD` and `compozy worktree exit` — which blocks the
+publish node entirely rather than merely narrowing its blast radius.
+`approve-reads` lets those steps proceed (subject to approval) while still
+keeping the agent from silently crossing into mutations the operator did
+not authorize; the narrow scope of what it actually runs — the four
+`compozy worktree` exit verbs (`exit`, `push`, `pr`, `exit-cancel`) plus
+two read-only git commands — is stated and enforced in the agent's prompt
+body ("you never edit files, never commit, never approve gates, and never
+touch a branch other than the delivery worktree you were bound to"), the
+same behavioral mechanism `batuta`, `reviewer`, and `review_fixer` already
+rely on. The effective
 controls that actually bound this agent's blast radius are structural,
 not permission-schema-based: the human gate that must approve before the
 publisher ever runs, and the daemon's own exit-action safety (durable,

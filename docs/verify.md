@@ -62,7 +62,7 @@ compozy extension remove batuta --global
 ## Local development install
 
 From a checkout, `scripts/republish.sh` checks the CompozyOS version, stages
-the five package files into a temporary directory, validates them,
+the six package files into a temporary directory, validates them,
 reinstalls and enables the extension, and checks the live inventory. See
 `CONTRIBUTING.md`. A local install records the temporary staging path as its
 source, so `compozy extension update` does not apply to it — run
