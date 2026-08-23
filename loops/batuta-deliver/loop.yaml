@@ -57,9 +57,10 @@ contract:
           Batuta delivery run {{ .effect.identity.loop_run_id }} reached terminal
           trigger {{ .effect.identity.trigger }}. Inspect the run with
           `compozy__loop_status`, then report its exact terminal outcome, child run
-          IDs, commits, and blocker in this conversation. Decide any redispatch or
-          escalation with the operator. Never approve a gate, edit code, push, or
-          mutate routing from this return prompt.
+          IDs, commits, and blocker, and publication evidence (HEAD SHA, PR or
+          compare URL) when the publish node ran in this conversation. Decide any
+          redispatch or escalation with the operator. Never approve a gate, edit
+          code, push, publish, or mutate routing from this return prompt.
   on_noop:
     - *return_to_origin
   on_blocked:
