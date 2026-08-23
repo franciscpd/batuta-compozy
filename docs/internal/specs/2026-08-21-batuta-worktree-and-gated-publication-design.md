@@ -129,13 +129,25 @@ whether to re-review.
 ### The publisher and its capability surface
 
 `batuta-publisher` is a bundled executor agent (a resource, like any
-spec-cycle executor). Its agent definition grants shell permission
-restricted to the `compozy worktree` exit verbs (`exit`, `push`, `pr`,
-`exit-cancel`) — the supported public CLI surface for exit actions, which
-are CLI/HTTP/UDS-only and not native tools. Executor agents running CLIs
-under definition-scoped permissions is the same mechanism the spec-cycle
-implement executors already use to run git; no CompozyOS change is
-involved.
+spec-cycle executor). Its agent definition sets `permissions: deny-all` —
+the daemon's coarse session-approval enum
+(`deny-all`/`approve-reads`/`approve-all`) is the only permission
+construct the agent-frontmatter schema exposes; there is no
+frontmatter-level mechanism to allowlist individual shell command
+patterns for an agent's underlying coding-tool session in this daemon
+version. `deny-all` keeps the agent from silently crossing into
+mutations the operator did not authorize; the narrow scope of what it
+actually runs — the four `compozy worktree` exit verbs (`exit`, `push`,
+`pr`, `exit-cancel`) plus two read-only git commands — is stated and
+enforced in the agent's prompt body ("you never edit files, never
+commit, never approve gates, and never touch a branch other than the
+delivery worktree you were bound to"), the same behavioral mechanism
+`batuta`, `reviewer`, and `review_fixer` already rely on. The effective
+controls that actually bound this agent's blast radius are structural,
+not permission-schema-based: the human gate that must approve before the
+publisher ever runs, and the daemon's own exit-action safety (durable,
+idempotent `op_id`s; clean-HEAD/dirty-tree checks; re-read-then-reconcile
+recovery) described below.
 
 Fixed objective, in order:
 

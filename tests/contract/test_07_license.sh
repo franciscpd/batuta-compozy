@@ -178,6 +178,7 @@ assert_inventory() {
   actual=$(cd "$tree" && find . -type f -print | LC_ALL=C sort)
   expected=$(printf '%s\n' \
     './LICENSE' \
+    './agents/batuta-publisher/AGENT.md' \
     './agents/batuta/AGENT.md' \
     './extension.toml' \
     './loops/batuta-deliver/loop.yaml' \

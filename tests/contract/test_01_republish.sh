@@ -93,6 +93,7 @@ fi
 
 expected_tree=$(printf '%s\n' \
   './LICENSE' \
+  './agents/batuta-publisher/AGENT.md' \
   './agents/batuta/AGENT.md' \
   './extension.toml' \
   './loops/batuta-deliver/loop.yaml' \
