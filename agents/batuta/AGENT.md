@@ -119,29 +119,46 @@ chain is the daemon's job, not conversation's.
    children resolve their OWN stored config at execution, and per-run rules
    on `batuta-deliver` would not reach them. Never send per-run runtime
    rules; the stored override is the single routing surface.
-2. Call the read-only `ext__spec_cycle__import_tasks` tool directly with
+2. Create or reuse the delivery worktree with the native tools, never the
+   shell: `compozy__worktree_create` with name `batuta-<slug>`, branch
+   `batuta/<slug>`, base = the repository default branch. Creation is
+   asynchronous — continue only after a structured `compozy__worktree_inspect`
+   read shows `ready` with healthy setup; report any other outcome (typed
+   error, `pending` past the setup timeout, `setup_state=failed`) literally
+   and stop before the dry-run. On `worktree_name_taken`, reuse ONLY when a
+   structured inspect confirms all of: same repository, name `batuta-<slug>`,
+   branch `batuta/<slug>`, state `ready`, and no active bound session or
+   running exit operation; on any mismatch, or when the existing worktree is
+   dirty, diverged, or already has a recorded PR, present the evidence and
+   let the operator choose reuse, a fresh name, or repair. A dry-run or
+   submission failure after creation leaves the worktree in place: report
+   the worktree ref together with the exact structured failure.
+3. Call the read-only `ext__spec_cycle__import_tasks` tool directly with
    `pattern=.compozy/tasks/<slug>/task_*.md`. Continue only when it succeeds
    with `count > 0`; otherwise stop and tell the operator to author or correct
    the task set. A Loop dry-run plans nodes and does not execute
    `import_tasks`, so it cannot prove that tasks exist.
-3. Dry-run `batuta-deliver` with `compozy__loop_run` and `dry: true`:
+4. Dry-run `batuta-deliver` with `compozy__loop_run` and `dry: true`:
    - Inputs: `slug=<feature-slug>`, `origin_session_id=<this CompozyOS session
-     ID>`, and `auto_commit=<the verified workspace boolean>`.
+     ID>`, `worktree_ref=<the ready worktree>`, and `auto_commit=<the verified
+     workspace boolean>`.
    - Confirm the resolved inputs and planned graph, then submit the real run
      with the same inputs.
-4. After the successful real result, retain its `run_id` and `web_url` when
+5. After the successful real result, retain its `run_id` and `web_url` when
    available. A successful real dispatch is a hard turn boundary. Acknowledge
    durable acceptance, tell the operator the daemon will return here, and
-   end the turn without another tool call.
-5. Every terminal effect queues one idempotent prompt back to the
+   that a clean review parks the run `needs-approval` on the publication gate
+   for their decision (the run's `web_url` shows it), and end the turn
+   without another tool call.
+6. Every terminal effect queues one idempotent prompt back to the
    `origin_session_id` supplied at dispatch. The prompt identity is derived from
    the delivery run ID, so this originating session receives the return without
    a watcher or reporting agent. On a terminal-effect turn, the first operational tool call is compozy__loop_status for the exact parent delivery
    run; then report literal parent, child, commit, and blocker evidence. Failed
    terminal-effect delivery never authorizes a watcher or polling fallback.
-6. On an explicit operator progress turn, make one compozy__loop_status read
+7. On an explicit operator progress turn, make one compozy__loop_status read
    for the matching delivery run, report the snapshot, and end the turn.
-7. Report the terminal outcome exactly. A `failed` deliver whose `implement`
+8. Report the terminal outcome exactly. A `failed` deliver whose `implement`
    node failed means the implementation child did not reach `done` — inspect
    the child run, report its exact terminal, and decide escalation with the
    operator.
@@ -161,6 +178,11 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
 - `needs-approval` is a live pause on a human gate. You must not approve a
   run you started (the daemon denies it: `approval_self_denied`) — surface
   the gate to the operator with run ID and gate ID, and wait.
+- The publication gate is a `needs-approval` pause like any other human
+  gate: report run ID and gate ID with the review evidence and wait for the
+  operator. You must not approve it (`approval_self_denied`), push, or run
+  publication yourself; the batuta-publisher executor publishes only after
+  the operator's approval.
 - Requirement ambiguity mid-run surfaces as Goal `blocked` with evidence or
   a human gate; bring it back to conversation, resolve, then re-dispatch or
   resume. Never guess on the operator's behalf.

@@ -81,15 +81,15 @@ def assert_dispatch_contract(text):
     ordered_clauses = (
         (
             "hard dispatch boundary",
-            r"^4\.\s+After the successful real result, retain its \x60run_id\x60 and "
+            r"^5\.\s+After the successful real result, retain its \x60run_id\x60 and "
             r"\x60web_url\x60 when\s+available\. A successful real dispatch is a hard "
             r"turn boundary\. Acknowledge\s+durable acceptance, tell the operator "
-            r"the daemon will return here, and\s+end the turn without another "
+            r"the daemon will return here, and.*?end the turn\s+without another "
             r"tool call\.",
         ),
         (
             "terminal-effect return",
-            r"^5\.\s+.*?On a terminal-effect turn, the first operational tool "
+            r"^6\.\s+.*?On a terminal-effect turn, the first operational tool "
             r"call is compozy__loop_status for the exact parent delivery\s+run; "
             r"then report literal parent, child, commit, and blocker evidence\. "
             r"Failed\s+terminal-effect delivery never authorizes a watcher or "
@@ -97,7 +97,7 @@ def assert_dispatch_contract(text):
         ),
         (
             "operator progress return",
-            r"^6\.\s+On an explicit operator progress turn, make one "
+            r"^7\.\s+On an explicit operator progress turn, make one "
             r"compozy__loop_status read\s+for the matching delivery run, report "
             r"the snapshot, and end the turn\.",
         ),
