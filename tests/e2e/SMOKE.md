@@ -29,7 +29,13 @@ pequeno com suite de testes real).
    sessão atual e `auto_commit` resolvido. O dry-run apenas planeja nós e não
    executa o import. Aceite: o run composto fica visível em `compozy loop
    runs`; o daemon executa `implement-tasks` e depois `review-and-fix` como
-   filhos desse run.
+   filhos desse run. Aceite também: no mesmo dry-run, `effective_config.
+   budget_wall_sec` está presente e diferente de zero antes da submissão
+   real — esse campo, não o `contract.budget.wall_clock_sec` do
+   `materialized_contract`, é o que o daemon efetivamente aplica; um zero
+   significa que o override de workspace do backstop do Bootstrap está
+   ausente ou foi sobrescrito, e o Batuta deve parar e repará-lo antes de
+   submeter o run real.
 6. **Transporte dos artefatos de task**: antes de o filho `implement-tasks`
    começar a rodar (assim que o worktree gerenciado `batuta-<slug>` estiver
    `ready`), leia diretamente no caminho do worktree — nunca no checkout
@@ -230,6 +236,9 @@ sempre em worktree descartável, nunca no checkout principal do batuta.
 - O `publish` ficar parado pedindo aprovação adicional em vez de executar
   os verbos `compozy worktree exit`/`push`/`pr` sob `approve-reads` no
   caminho `approve`, ou o push ocorrer no caminho `reject`/worktree suja.
+- `effective_config.budget_wall_sec` mostrar `0` no dry-run imediatamente
+  antes da submissão real, e o Batuta submeter o run real mesmo assim
+  (delivery sem backstop de orçamento efetivo).
 
 ---
 

@@ -70,9 +70,11 @@ batuta  Entrega <id> chegou a done: implement-tasks done, review-and-fix done,
 ```
 
 O roteamento vem do seu catálogo vivo de providers e fica armazenado por
-workspace; peça ao Batuta em conversa para mudá-lo. O contrato completo —
-gate, bootstrap, preflight, dry-run, retorno orientado a eventos, escalada —
-está em [docs/how-it-works.md](docs/how-it-works.md) (em inglês).
+workspace; peça ao Batuta em conversa para mudá-lo. As entregas carregam um
+orçamento de tempo de parede (wall-clock) de 4 horas, elevado por despacho
+quando uma entrega é legitimamente longa. O contrato completo — gate,
+bootstrap, preflight, dry-run, retorno orientado a eventos, escalada — está
+em [docs/how-it-works.md](docs/how-it-works.md) (em inglês).
 
 ## Limitações conhecidas
 

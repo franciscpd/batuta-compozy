@@ -44,7 +44,7 @@ contract:
   # this field, so it is a fixed literal, not a mechanism). It is reported in
   # the daemon's materialized_contract but the daemon does NOT derive
   # effective_config.budget_wall_sec from it: a workspace with no stored
-  # config_wall_sec override runs this Loop unbounded (effective_config.
+  # budget_wall_sec override runs this Loop unbounded (effective_config.
   # budget_wall_sec: 0) even though this literal says 14400. The real
   # backstop is a workspace-scope compozy__loop_configure override
   # (budget_wall_sec: 14400, budget_on_exceeded: halt) that agents/batuta/

@@ -79,7 +79,9 @@ for text in \
   'agents/batuta/AGENT.md' \
   'resources/skills/batuta-routing/SKILL.md' \
   'publication gate' \
-  'batuta/<slug>'; do
+  'batuta/<slug>' \
+  'wall-clock budget' \
+  'auto_commit=false'; do
   require_text docs/how-it-works.md "$text"
 done
 

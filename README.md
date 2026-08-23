@@ -69,9 +69,10 @@ batuta  Delivery <id> reached done: implement-tasks done, review-and-fix done,
 ```
 
 Routing comes from your live provider catalog and is stored per workspace;
-ask Batuta in conversation to change it. The full contract — gate, bootstrap,
-preflight, dry-run, event-driven return, escalation — is in
-[docs/how-it-works.md](docs/how-it-works.md).
+ask Batuta in conversation to change it. Deliveries carry a 4-hour
+wall-clock budget, raised per dispatch when a delivery is legitimately
+long. The full contract — gate, bootstrap, preflight, dry-run, event-driven
+return, escalation — is in [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Known limitations
 

@@ -7,15 +7,28 @@ this page explains the same rules in reading order.
 
 ## 1. Delivery preference gate
 
-The first tool call of every new session is `compozy__config_get` for exactly
+Batuta opens this gate before the session's first delivery-path tool call —
+the `ext__spec_cycle__import_tasks` preflight, delivery worktree creation, a
+`batuta-deliver` dry-run, or a real dispatch — and rereads it before every
+dispatch. Purely conversational turns (status reads, and spec-cycle
+requirement authoring with its approval dialogues) need no config read.
+
+The gate-opening call is `compozy__config_get` for exactly
 `loops.inputs.batuta-deliver.auto_commit` in the current workspace. Both
 `true` and `false` open the gate. On `config_path_not_found`, Batuta asks
 whether automatic commits should be enabled, persists your boolean answer at
 workspace scope, rereads it, and only then continues. Any other config error
 stops the session with the exact structured error. Global defaults, child
 Loop defaults, the `batuta-deliver` definition default, and dry-runs never
-substitute for the stored preference. Batuta rereads the key before every
-dispatch.
+substitute for the stored preference.
+
+Choosing or confirming `auto_commit=false` has consequences Batuta states
+before persisting: implement runs leave changes uncommitted in the delivery
+worktree, review-and-fix reviews the working tree without commit boundaries
+between tasks, publication routes on branch-vs-base commit evidence so a
+fresh `false` delivery has nothing to publish and skips the gate while
+commits inherited from a reused worktree remain publishable, and integrating
+uncommitted work is fully manual.
 
 ## 2. Bootstrap and routing
 
@@ -28,6 +41,13 @@ your confirmation, then stores it with `compozy__loop_configure`
 (`name: implement-tasks`, field `runtime_rules`). Reconfiguration later is a
 conversation request that re-applies the override. Routing is auditable per
 generation in `resolved_runtime`.
+
+Bootstrap also provisions the delivery wall-clock budget backstop: a stored
+workspace-scope `budget_wall_sec: 14400` (4 hours) override on
+`batuta-deliver`, checked and applied once per workspace so the daemon's
+otherwise-unbounded default never governs a real dispatch; it can be raised
+per dispatch when a delivery is legitimately long, and time parked on the
+publication gate never counts against it.
 
 Provider authentication is yours to do once, outside the extension.
 
@@ -112,6 +132,24 @@ stored `implement-tasks` override, a redispatch, and the rule removed after
 it lands. `needs-approval` gates are surfaced to you with run and gate IDs —
 Batuta cannot approve runs it started. Ambiguity mid-run comes back to the
 conversation.
+
+On every non-success terminal where the implement child may have started —
+`failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike — Batuta
+audits before any redispatch: it reads the implement child's nodes and
+reports per task its terminal state and commit evidence (landed or not) on
+the delivery branch, then states explicitly that a redispatch re-executes
+the full task set and may re-apply already-landed tasks, before deciding
+with you whether to redispatch, amend the task set, or stop.
+
+`exhausted` means the delivery wall-clock budget halted the run. The
+Loop definition's fixed `wall_clock_sec: 14400` literal is declared intent
+only — it is not what the daemon enforces. The enforced value is
+`effective_config.budget_wall_sec`, resolved in precedence order: a
+per-dispatch override on that one `compozy__loop_run` call, over the
+Bootstrap-provisioned stored workspace override, over the daemon default of
+`0` (unbounded) when neither is set. After the audit above, a legitimately
+long delivery is redispatched with the per-run override raised on that one
+call; otherwise the task set is split into smaller deliveries.
 
 ## What Batuta never does
 

@@ -37,9 +37,10 @@ their approval dialogues — need no config read: authored artifacts do not
 depend on the commit preference.
 
 The gate-opening tool call itself MUST be `compozy__config_get` for exactly
-`loops.inputs.batuta-deliver.auto_commit`, bound to the current workspace; do
-not first resolve descriptors, load skills, inspect catalogs, or call another
-tool.
+`loops.inputs.batuta-deliver.auto_commit`, bound to the current workspace:
+when the moment to open the gate arrives, make this the first tool call —
+never substitute resolving descriptors, loading skills, inspecting catalogs,
+or calling another tool for it.
 
 - Accept only a structured boolean entry for that exact path. Both `true` and
   `false` open the gate.
@@ -52,6 +53,13 @@ tool.
   preserve, persist, and reread boolean `false` literally.
 - On any other read, write, or confirmation error, present the exact structured
   error and stop with the gate closed.
+
+When the operator chooses or confirms `false`, state the consequences
+before persisting: implement runs leave changes uncommitted in the delivery
+worktree; review-and-fix reviews the working tree without commit boundaries
+between tasks; publication routes on branch-vs-base commit evidence, so a
+fresh `false` delivery skips the gate while commits inherited from a reused
+worktree remain publishable; integrating uncommitted work is fully manual.
 
 Never derive this preference from routing, global defaults, child Loops, the
 `batuta-deliver` definition default, or a dry-run. Only after the gate opens may
