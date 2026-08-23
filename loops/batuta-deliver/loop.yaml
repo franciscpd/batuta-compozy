@@ -112,6 +112,77 @@ graph:
           task_name: "{{ .inputs.slug }}"
           auto_commit: "{{ .inputs.auto_commit }}"
 
+    - id: worktree_state
+      class: action
+      kind: compozy__worktree_inspect
+      params:
+        ref: "{{ .inputs.worktree_ref }}"
+      produces:
+        status:
+          type: object
+          properties:
+            ahead_of_base:
+              type: integer
+
+    - id: publish_check
+      class: control
+      kind: branch
+      condition: "nodes.worktree_state.output.status.ahead_of_base > 0"
+
+    - id: publish_gate
+      class: control
+      kind: gate
+      criteria:
+        - kind: human
+      effects:
+        on_pause:
+          - tool: compozy__session_prompt
+            with:
+              session_id: "{{ .inputs.origin_session_id }}"
+              message_id: "batuta-gate-{{ .effect.identity.loop_run_id }}-publish"
+              idempotency_key: "batuta-gate-{{ .effect.identity.loop_run_id }}-publish"
+              mode: queue
+              message: |
+                Batuta delivery run {{ .effect.identity.loop_run_id }} is parked
+                needs-approval on the publication gate. Read compozy__loop_status,
+                report run ID and gate ID with the review evidence, and wait for
+                the operator's decision. Never approve this gate yourself; never
+                edit code, push, or poll.
+
+    - id: publish
+      class: action
+      kind: goal
+      params:
+        agent: batuta-publisher
+        environment:
+          mode: worktree
+          worktree_ref: "{{ .inputs.worktree_ref }}"
+        judge:
+          - id: worktree_clean
+            type: command
+            check: "git status --porcelain | grep -q . && exit 1 || exit 0"
+        max_turns: 6
+        output_schema:
+          type: object
+          required: [status, summary]
+          properties:
+            status:
+              enum: [completed, blocked]
+            summary:
+              type: string
+            head_sha:
+              type: string
+            pr_url:
+              type: string
+        objective: |
+          Publish the reviewed delivery branch of worktree
+          {{ .inputs.worktree_ref }}. Follow your agent contract exactly:
+          verify clean HEAD, read the exit plan, push, open the PR against the
+          repository default branch with title and body derived from
+          .compozy/tasks/{{ .inputs.slug }} artifacts, and report the PR URL —
+          or the exit plan's compare URL with "pushed, PR manual" when no forge
+          provider serves.
+
   edges:
     - from: slug_input
       to: load_check
@@ -119,3 +190,11 @@ graph:
       to: implement
     - from: implement
       to: review
+    - from: review
+      to: worktree_state
+    - from: worktree_state
+      to: publish_check
+    - from: publish_check
+      to: publish_gate
+    - from: publish_gate
+      to: publish

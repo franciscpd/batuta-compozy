@@ -58,3 +58,18 @@ assert 'worktree_ref: "{{ .inputs.worktree_ref }}"' in text, (
 )
 print("OK: encadeamento implement-tasks -> review-and-fix por composição")
 PY
+
+# O grafo pos-review deve inspecionar o worktree, decidir por branch, abrir o
+# gate humano e disparar a publicação via agente batuta-publisher.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+assert "id: worktree_state" in text, "no worktree_state inspect node"
+assert "kind: compozy__worktree_inspect" in text, "inspect action ausente"
+assert "id: publish_check" in text and "kind: branch" in text, "branch node ausente"
+assert "id: publish_gate" in text and "kind: gate" in text, "human gate ausente"
+assert "kind: human" in text, "criterio human ausente"
+assert "id: publish" in text and "kind: goal" in text, "publish goal ausente"
+assert "agent: batuta-publisher" in text, "publisher agent nao referenciado"
+print("OK: grafo pos-review inspeciona, decide, aprova e publica")
+PY
