@@ -6,11 +6,32 @@
 # 1. a needs_approval event for node publish_gate exists;
 # 2. no node_running event for node publish precedes it;
 # 3. with --decision approve: a gate_verdict event for publish_gate with
-#    verdict approve, then node_succeeded for publish, and the final
-#    status_changed carries done;
+#    verdict approve, then node_succeeded for publish, the final
+#    status_changed carries done, and the publish node_succeeded carries
+#    publication evidence (see NOTE below);
 # 4. with --decision reject: a gate_verdict with verdict reject and the
 #    final status_changed carries blocked, with NO node_running for publish;
 # 5. exit non-zero with a one-line reason on the first violated assert.
+#
+# NOTE on publication evidence: the daemon's public loop-run event stream
+# does NOT carry node output for a successfully completed goal node. Checked
+# against the compozy daemon source: LoopNodeTerminalPayload.Details (the
+# only free-form field on a node_succeeded/node_failed event) is populated
+# by internal/daemon/loop_hook_observer.go only for the blocked/exhausted
+# Goal dispositions (dispatchSettledGoalNodeTerminal); the normal
+# OnTaskRunTerminal path used for a *completed* Goal node never sets
+# Details, so head_sha/op_ids/pr_url/compare_url are not present on today's
+# default success payload. This validator therefore checks the one place the
+# schema allows evidence to travel — the node_succeeded event's own
+# `content.details` object — and fails closed: an event stream that (like
+# today's default daemon payload) carries no `details` on that event is
+# treated as evidence-free and REJECTED, exactly as an events file that
+# omits the evidence deliberately would be. Passing this check requires an
+# events export that was enriched with publication evidence in `details`
+# (e.g. by an operator-side capture step that merges compozy__loop_status's
+# node output into the corresponding node_succeeded event) — this is a
+# forward-looking contract check, not a claim that today's unmodified daemon
+# export already satisfies it.
 
 import argparse
 from dataclasses import dataclass
@@ -106,6 +127,36 @@ def final_status_changed(events: list[dict]) -> dict:
     return changes[-1]
 
 
+def publish_evidence(publish_success_event: dict) -> dict:
+    value = content(publish_success_event).get("details")
+    return value if isinstance(value, dict) else {}
+
+
+def assert_publish_evidence(publish_success_event: dict) -> None:
+    """Assert node_succeeded for publish carries non-empty push evidence.
+
+    See the module NOTE above: `details` is the only free-form field the
+    daemon's node_succeeded event carries, and today's default success
+    payload leaves it empty. A missing/empty `details`, a missing
+    `head_sha`, or a missing `pr_url`/`compare_url` are all treated as
+    evidence-free and rejected — an evidence-free "success" must never pass.
+    """
+    evidence = publish_evidence(publish_success_event)
+    head_sha = evidence.get("head_sha")
+    assert isinstance(head_sha, str) and head_sha, (
+        f"missing head_sha in node_succeeded 'details' for node {PUBLISH_NODE_ID!r}: "
+        f"{evidence!r}"
+    )
+    pr_url = evidence.get("pr_url")
+    compare_url = evidence.get("compare_url")
+    has_pr_url = isinstance(pr_url, str) and bool(pr_url)
+    has_compare_url = isinstance(compare_url, str) and bool(compare_url)
+    assert has_pr_url or has_compare_url, (
+        "missing publication URL (pr_url or compare_url) in node_succeeded "
+        f"'details' for node {PUBLISH_NODE_ID!r}: {evidence!r}"
+    )
+
+
 def validate_gate(events: list[dict], decision: str) -> ValidationResult:
     assert decision in ("approve", "reject"), f"unknown decision: {decision!r}"
     events = ordered_events(events)
@@ -135,6 +186,8 @@ def validate_gate(events: list[dict], decision: str) -> ValidationResult:
             f"final status_changed at sequence {final_sequence} carries {final_value!r}, "
             "expected done"
         )
+
+        assert_publish_evidence(successes[-1])
     else:
         verdict_event = find_gate_verdict(events, "reject")
         verdict_sequence = sequence(verdict_event)

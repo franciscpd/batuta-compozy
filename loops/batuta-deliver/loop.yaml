@@ -130,6 +130,14 @@ graph:
           task_name: "{{ .inputs.slug }}"
           auto_commit: "{{ .inputs.auto_commit }}"
 
+    # compozy__worktree_inspect's input_schema (confirmed via
+    # `compozy tool info compozy__worktree_inspect`) exposes only `ref` and
+    # `workspace` — there is no `refresh` flag or equivalent freshness knob on
+    # this native tool, so this node cannot force a fresh read; its
+    # output.status is documented by the daemon as "cached status" and can
+    # legitimately be stale (proven: it needs an explicit refresh — e.g. the
+    # CLI-only `compozy worktree status --refresh` — that this node surface
+    # does not expose).
     - id: worktree_state
       class: action
       kind: compozy__worktree_inspect
@@ -142,10 +150,25 @@ graph:
             ahead_of_base:
               type: integer
 
+    # Fail-closed by design: publish_check must never let a stale
+    # ahead_of_base reading route silently past the human gate. The only
+    # freshness signal worktree_state.output.status exposes is a
+    # `refreshed_at` timestamp, but this daemon's branch-condition CEL has no
+    # `now()` (confirmed: `compozy loop validate` rejects it as an
+    # "undeclared reference to 'now'"), so there is no expression in this
+    # grammar that can prove a given ahead_of_base reading is fresh rather
+    # than cached-stale. Per the mandated fallback for that case, this
+    # condition is unconditionally true: publish_check always routes to
+    # publish_gate, and the human at the gate — not this predicate — is the
+    # one who gets to decide "nothing to publish" is really true. A zero,
+    # null, missing, or stale ahead_of_base can therefore never short-circuit
+    # straight to a silent `done`; the cheap, safe outcome (an operator
+    # looking at an empty branch) replaces the worst failure mode (a
+    # publishable commit that never reaches anyone).
     - id: publish_check
       class: control
       kind: branch
-      condition: "nodes.worktree_state.output.status.ahead_of_base > 0"
+      condition: "true"
 
     - id: publish_gate
       class: control
@@ -180,9 +203,15 @@ graph:
             type: command
             check: "test -z \"$(git -C . status --porcelain)\""
         max_turns: 10
+        # head_sha and op_ids are required so a "success" report can never be
+        # evidence-free; anyOf(pr_url, compare_url) requires at least one
+        # publication URL, matching the definition_of_done's "PR URL or an
+        # explicit push-only compare URL" — compare_url is the field the
+        # push-only path (no forge provider) reports. `compozy loop validate`
+        # accepts anyOf at the output_schema root for a goal node.
         output_schema:
           type: object
-          required: [status, summary]
+          required: [status, summary, head_sha, op_ids]
           properties:
             status:
               enum: [completed, blocked]
@@ -196,6 +225,11 @@ graph:
                 type: string
             pr_url:
               type: string
+            compare_url:
+              type: string
+          anyOf:
+            - required: [pr_url]
+            - required: [compare_url]
         objective: |
           Publish the reviewed delivery branch of worktree
           {{ .inputs.worktree_ref }}. Follow your agent contract exactly:

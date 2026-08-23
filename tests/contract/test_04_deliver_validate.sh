@@ -99,3 +99,71 @@ assert "effective_config.budget_wall_sec" in text, (
 )
 print("OK: budget wall_clock_sec declarado e mecanismo real documentado")
 PY
+
+# A cadeia de edges pos-review deve encadear exatamente
+# review -> worktree_state -> publish_check e publish_gate -> publish, sem
+# atalhos que pulem o gate humano.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import re
+import sys
+text = open(sys.argv[1]).read()
+edges_block = text.split("\n  edges:\n", 1)[1]
+pairs = re.findall(
+    r"- from:\s*(\S+)\s*\n\s*to:\s*(\S+)", edges_block
+)
+assert pairs, "nenhuma edge encontrada"
+edge_set = set(pairs)
+required_edges = {
+    ("review", "worktree_state"),
+    ("worktree_state", "publish_check"),
+    ("publish_gate", "publish"),
+}
+missing = required_edges - edge_set
+assert not missing, f"edges obrigatorias ausentes: {missing}"
+# publish_check so pode levar a publish via publish_gate - nunca direto.
+assert ("publish_check", "publish") not in edge_set, (
+    "publish_check pula o gate humano e vai direto para publish"
+)
+print("OK: cadeia de edges review -> worktree_state -> publish_check e publish_gate -> publish presente")
+PY
+
+# O predicado de publish_check deve ser fail-closed: como o daemon nao expoe
+# refresh no node compozy__worktree_inspect nem now() no CEL de branch (ambos
+# confirmados via `compozy tool info` / `compozy loop validate` durante o
+# fix), a unica rota honesta e sempre encaminhar ao gate humano - nunca
+# decidir "nothing to publish" a partir de uma leitura potencialmente
+# obsoleta de ahead_of_base.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+assert 'condition: "true"' in text, (
+    "publish_check nao esta fail-closed (esperado condition: \"true\", sempre rotea ao gate)"
+)
+assert "ahead_of_base > 0" not in text, (
+    "predicado antigo (ahead_of_base > 0) ainda presente - reintroduz o skip silencioso"
+)
+assert "no `refresh` flag" in text, (
+    "comentario sobre ausencia de refresh no worktree_inspect ausente"
+)
+assert "undeclared reference to 'now'" in text, (
+    "comentario sobre ausencia de now() no CEL de branch ausente"
+)
+print("OK: publish_check fail-closed (sempre rotea ao publish_gate) e documentado")
+PY
+
+# O output_schema do node publish deve exigir head_sha e op_ids, mais pelo
+# menos uma URL de publicacao (pr_url ou compare_url) via anyOf - uma
+# "success" sem evidencia de push nao pode satisfazer o contrato.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+assert "required: [status, summary, head_sha, op_ids]" in text, (
+    "output_schema do publish nao exige head_sha/op_ids"
+)
+assert "compare_url:" in text, "propriedade compare_url ausente do output_schema"
+assert "anyOf:" in text, "anyOf (pr_url ou compare_url) ausente do output_schema"
+assert "required: [pr_url]" in text and "required: [compare_url]" in text, (
+    "anyOf nao cobre pr_url e compare_url"
+)
+print("OK: output_schema do publish exige head_sha, op_ids e ao menos uma URL de publicacao")
+PY
