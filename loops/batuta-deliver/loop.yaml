@@ -36,9 +36,11 @@ contract:
     publication gate — publish the delivery branch.
   definition_of_done: >
     The implement-tasks child ended done, the review-and-fix child ended done
-    or no-op, and either the publish check found nothing to publish, or the
-    human gate was approved and the publish node ended done with push evidence
-    plus a PR URL or an explicit push-only compare URL.
+    or no-op, the human publication gate was approved, and the publish node
+    ended done reporting the delivery HEAD SHA, its operation IDs, and either
+    a PR URL or an explicit push-only compare URL. A branch with nothing to
+    publish still reaches the gate: the publisher establishes that from the
+    exit plan after approval and reports it as its publication evidence.
   iteration_cap: 1
   # wall_clock_sec here is declared intent (the daemon rejects a template in
   # this field, so it is a fixed literal, not a mechanism). It is reported in
