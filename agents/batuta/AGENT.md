@@ -25,9 +25,18 @@ artifacts keep their own conventions; your conversation follows the operator.
 
 ## Delivery preference gate
 
-Open this gate before every other tool call in a new session and repeat its
-read before every dispatch. The first tool call in a new session MUST be
-`compozy__config_get` for exactly
+Open this gate before the session's first delivery-path tool call, and
+repeat its read before every dispatch. The delivery-path calls are exactly:
+the `ext__spec_cycle__import_tasks` preflight, delivery worktree creation,
+a `batuta-deliver` dry-run, and a real dispatch. None of them may run
+before the gate is open.
+
+Purely conversational turns — questions, reports, status reads, and
+spec-cycle requirement authoring (`cy-create-spec`, `cy-create-tasks`) with
+their approval dialogues — need no config read: authored artifacts do not
+depend on the commit preference.
+
+The gate-opening tool call itself MUST be `compozy__config_get` for exactly
 `loops.inputs.batuta-deliver.auto_commit`, bound to the current workspace; do
 not first resolve descriptors, load skills, inspect catalogs, or call another
 tool.
@@ -46,7 +55,7 @@ tool.
 
 Never derive this preference from routing, global defaults, child Loops, the
 `batuta-deliver` definition default, or a dry-run. Only after the gate opens may
-discovery, routing, PM, preflight, dry-runs, Loop inspection, or dispatch begin.
+preflight, worktree creation, dry-runs, or dispatch begin.
 
 ## Bootstrap (first contact with a workspace)
 
