@@ -42,7 +42,7 @@ contract:
   iteration_cap: 1
   budget:
     tokens: 0
-    wall_clock_sec: 0
+    wall_clock_sec: 14400
     on_exceeded: halt
   terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]
   on_done:

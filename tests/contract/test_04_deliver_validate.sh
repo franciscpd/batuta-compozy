@@ -82,3 +82,12 @@ assert "publication" in text.lower(), "contract nao menciona publicacao"
 assert "nothing to publish" in text, "rota nothing-to-publish ausente do contrato"
 print("OK: contrato cobre publicação e rota nothing-to-publish")
 PY
+
+# O contrato deve limitar wall-clock a um orçamento de 4h configurável.
+python3 - loops/batuta-deliver/loop.yaml <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+assert "14400" in text, "default de 4h ausente"
+assert "wall_clock_sec: 0" not in text, "budget ilimitado permanece"
+print("OK: budget wall_clock_sec limitado a 4h")
+PY
