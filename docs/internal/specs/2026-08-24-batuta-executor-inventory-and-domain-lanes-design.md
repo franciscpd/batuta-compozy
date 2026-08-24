@@ -273,6 +273,38 @@ routing. Matrix selection is then enabled in an isolated QA workspace, followed
 by fallback/recovery and the complete delivery smoke. No global user config is
 rewritten, and Batuta never publishes raw local configuration as PR evidence.
 
+## Deferred follow-up: graph engineering and parallel delivery
+
+Evaluate this only after the current publication and executor-routing work is
+implemented and verified. The existing architecture can already execute
+independent imported tasks concurrently through Compozy's task fan-out, and
+the `domain x complexity` matrix can select a distinct runtime for every node.
+That is useful parallel execution, but it is not yet a complete graph-planning
+contract: the current decomposition model does not explicitly own conflict
+sets, shared resources, join policies, or graph-level critical-path choices.
+
+The follow-up should assess the new Compozy Loop graph capabilities and decide
+whether Batuta should add a bounded graph-planner stage that emits:
+
+- typed work nodes with domain, complexity, acceptance evidence, and expected
+  file or resource ownership;
+- explicit dependency and join edges rather than relying on list order;
+- conflict groups that serialize tasks touching the same files, migrations,
+  generated artifacts, or mutable external resources;
+- per-lane and global concurrency budgets, cancellation, retry, and backpressure
+  policies;
+- deterministic commit integration order and a merge/reconciliation node for
+  independently completed branches or worktrees;
+- critical-path, cost, and runtime-provenance evidence for graph-level audit.
+
+Prefer extending Batuta's existing inventory, classification, decomposition,
+execution, review, and publication stages over replacing them. A large Batuta
+restructure is justified only if the released Compozy graph contract cannot
+represent the required dependency, isolation, and join semantics. The design
+must prove that parallel execution cannot create overlapping unreviewed writes,
+non-deterministic commit order, or a publication result assembled from an
+unverified task head.
+
 ## Rejected alternatives
 
 - **Domain-only lanes:** loses the risk and quality floor carried by
