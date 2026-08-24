@@ -286,8 +286,10 @@ publisher matcher or fail-closed availability contract in this design.
 Implementation therefore has a platform prerequisite: Compozy must expose a
 code-first synchronous hook declaration with matcher and `required: true`, and
 must prove that a required hook execution failure denies the intercepted tool
-call. Batuta's operational floor must be the first released prerelease that
-contains that contract; it must not claim `0.3.0-beta.19` is sufficient.
+call. The complete platform contract is recorded in
+`docs/internal/specs/2026-08-24-compozy-batuta-platform-prerequisites-design.md`.
+Batuta's operational floor must be the first released prerelease that contains
+that contract; it must not claim `0.3.0-beta.19` is sufficient.
 Installation and republish documentation must also state the Go
 build-toolchain requirement.
 
