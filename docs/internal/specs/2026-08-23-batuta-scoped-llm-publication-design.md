@@ -1,6 +1,6 @@
 # Batuta scoped LLM publication — design
 
-Status: proposed
+Status: approved; implementation requires the Compozy hook prerequisite
 
 ## Context
 
@@ -20,9 +20,12 @@ shell access.
 
 The product requirement remains:
 
+- implementation and review fixes are committed by Batuta before publication;
 - the operator makes one publication decision at `publish_gate`;
-- after `approve`, Batuta performs all planning, push, PR creation,
+- after `approve`, Batuta performs all remaining planning, push, PR creation,
   reconciliation, and reporting without further operator action;
+- a publishable delivery ends with an actual pull request, never a compare URL
+  that leaves PR creation to the operator;
 - the publisher remains an LLM agent, but receives no general-purpose
   mutation capability;
 - publication cannot target a workspace or worktree other than the one bound
@@ -51,6 +54,11 @@ This separates judgment from authority. The LLM decides to invoke the one
 publication capability and explains its result. Deterministic code owns every
 state-changing operation and every acceptance proof.
 
+`batuta-deliver` no longer exposes `auto_commit` as a delivery choice. It
+passes the literal `true` to both `implement-tasks` and `review-and-fix`,
+so implementation and remediation commits are part of the Batuta-owned
+contract. Direct submissions cannot select an uncommitted delivery path.
+
 ## Architecture
 
 ### Executable Batuta extension
@@ -58,7 +66,10 @@ state-changing operation and every acceptance proof.
 Batuta becomes a Go SDK executable extension while retaining its existing
 agents, skills, Loops, and documentation resources. Installation builds one
 extension subprocess. The subprocess registers the three tools and one
-required synchronous `tool.pre_call` hook.
+required synchronous `tool.pre_call` hook. This requires a Compozy code-first
+hook declaration that preserves `required: true` and the
+`agent_name=batuta-publisher` matcher in the generated manifest; the
+compatibility section records the missing runtime prerequisite.
 
 The extension receives the resolved Compozy executable through a manifest
 environment value based on `{{compozy_executable}}`; it never searches `PATH`
@@ -87,13 +98,14 @@ It resolves the worktree through the trusted workspace and returns:
   caller;
 - `clean` and exact `head_sha` from Git;
 - the current daemon exit plan, including blocked reasons, forge capability,
-  PR prefill, and compare/browser URL;
+  and PR prefill;
 - a disposition of `publishable`, `nothing_to_publish`, or `blocked`.
 
-A dirty tree, detached branch, divergent/behind state, missing remote, or any
-other unsafe plan is `blocked`; the node fails before the gate. A clean branch
-with no outgoing commit is `nothing_to_publish` and still reaches the gate,
-preserving the existing fail-closed policy.
+A dirty tree, detached branch, divergent/behind state, missing remote, missing
+serving forge/credentials for a publishable branch, or any other unsafe plan
+is `blocked`; the node fails before the gate. A clean branch with no outgoing
+commit is `nothing_to_publish` and still reaches the gate, preserving the
+existing fail-closed policy.
 
 The gate prompt presents the captured branch, base, HEAD, disposition, and
 exit-plan evidence. The operator only chooses `approve` or `reject`; they do
@@ -140,20 +152,18 @@ output reports the tool result without inventing evidence.
 5. Re-read the exit plan on a bounded interval until the push is reflected,
    the operation is observably blocked/failed, or the tool deadline expires.
    Reconciliation always reads state before considering a retry.
-6. When a serving forge is available, call `compozy worktree pr` using the
-   daemon's `pr_prefill` and default branch as argument-vector values. Record
-   its `op_id`, then reconcile until an existing or newly opened PR URL is
-   observable.
-7. When no forge serves, complete as `pushed_pr_manual` only if the fresh exit
-   plan supplies an explicit browser/compare URL.
+6. Call `compozy worktree pr` using the daemon's `pr_prefill` and default
+   branch as argument-vector values. Record its `op_id`, then reconcile until
+   an existing or newly opened PR URL is observable. Forge unavailability is
+   never converted into a compare-URL success.
 
 The output schema requires:
 
 ```text
-status: published | pushed_pr_manual | nothing_to_publish | blocked
+status: published | nothing_to_publish | blocked
 head_sha: exact verified SHA
 op_ids: ordered durable operation IDs
-pr_url or compare_url: required for a published branch
+pr_url: required when status is published
 summary: bounded human-readable result
 ```
 
@@ -171,8 +181,6 @@ the exit plan, and verifies one of:
 
 - the exact expected SHA is the published remote/PR head and the reported PR
   URL is observable;
-- the exact SHA was pushed and the reported compare URL matches daemon
-  evidence when no forge serves;
 - there was genuinely nothing to publish and no push `op_id` was claimed.
 
 Mismatch, unverifiable output, dirty state, or an ambiguous operation fails
@@ -197,6 +205,10 @@ cannot prove cached worktree inspection freshness. `publication_plan` replaces
 the stale generic inspection as the authoritative pre-gate publication
 snapshot. Gate rejection remains terminal `blocked` with the branch intact.
 
+The pre-review delivery path hardcodes `auto_commit=true` for both child
+Loops. A dirty worktree after review is a contract failure, not an alternate
+publication mode and not work delegated to the operator.
+
 The definition of done requires gate approval, successful publisher output,
 and successful independent verification. A Goal output alone can never make
 the delivery successful.
@@ -207,12 +219,15 @@ the delivery successful.
   publication operation starts.
 - Extension subprocess unavailable: required tools/hooks are unavailable and
   the Goal cannot start or mutate state.
+- Forge or forge credentials unavailable before the gate: publication
+  planning returns `blocked`; the operator is not asked to approve a delivery
+  Batuta cannot finish.
 - HEAD or cleanliness changes after the gate: publication returns `blocked`
   before push.
 - Push outcome is ambiguous: re-read the exit plan; never retry blindly.
 - Push succeeds and PR fails transiently: retain the pushed branch and return
-  a truthful blocked result unless daemon evidence supports the documented
-  no-forge compare-URL success path.
+  a truthful blocked result; never report the pushed branch as a completed
+  delivery without a PR.
 - LLM omits, alters, or fabricates evidence: `publication_verify` fails.
 - Tool deadline expires: return the last structured exit plan plus all known
   operation IDs; the run fails without rounding the result to success.
@@ -223,6 +238,10 @@ the delivery successful.
 - The daemon-authenticated workspace scope is mandatory and authoritative.
 - The expected HEAD captured before the gate is rechecked before mutation and
   after publication.
+- The delivery graph always enables child-Loop commits; dirty post-review
+  state fails before the publication gate.
+- A publishable delivery cannot end successfully without an observable PR
+  bound to the exact expected HEAD.
 - The publisher cannot use shell or filesystem tools even under
   `approve-all`.
 - The extension invokes the daemon-resolved Compozy executable directly with
@@ -238,7 +257,7 @@ Implementation acceptance requires:
 
 1. Unit tests for trusted-scope rejection, input validation, exit-plan
    classification, HEAD drift, dirty trees, argv safety, bounded
-   reconciliation, no-forge handling, and output validation.
+   reconciliation, mandatory-forge handling, and output validation.
 2. Hook tests proving `batuta-publisher` may call only the exact publication
    tool and that shell/file/second-tool attempts are denied under
    `approve-all`.
@@ -249,18 +268,28 @@ Implementation acceptance requires:
 5. An isolated daemon smoke with a local bare remote proves unattended
    Goal execution, exact HEAD push, structured `op_id`, and zero pending
    permission interactions.
-6. A forge-backed smoke proves PR creation and independent verification.
-7. Negative live smokes cover rejection, dirty/drifted worktree, fabricated
-   Goal output, a forbidden shell attempt, and an out-of-workspace ref.
+6. A forge-backed smoke proves commit creation, exact-HEAD push, PR creation,
+   and independent verification.
+7. Negative live smokes cover rejection, `auto_commit=false` authoring,
+   dirty/drifted worktree, missing forge/credentials, fabricated Goal output,
+   a forbidden shell attempt, and an out-of-workspace ref.
 
 ## Compatibility and release
 
-This is an executable-extension and runtime-contract change. Batuta must bump
-its prerelease version and its operational Compozy floor to
-`0.3.0-beta.19`, which contains executable extension tools,
-`TrustedWorkspace`, required sync tool hooks, hosted exposure of extension
-tools, and Loop invocation of extension ToolIDs. Installation and republish
-documentation must state the build-toolchain requirement.
+This is an executable-extension and runtime-contract change. Compozy
+`0.3.0-beta.19` contains executable extension tools, `TrustedWorkspace`,
+hosted exposure of extension tools, and Loop invocation of extension ToolIDs,
+but its code-first SDK declaration reduces `supported_hook_events` to an
+unmatched, non-required generated hook. It cannot preserve the required
+publisher matcher or fail-closed availability contract in this design.
+
+Implementation therefore has a platform prerequisite: Compozy must expose a
+code-first synchronous hook declaration with matcher and `required: true`, and
+must prove that a required hook execution failure denies the intercepted tool
+call. Batuta's operational floor must be the first released prerelease that
+contains that contract; it must not claim `0.3.0-beta.19` is sufficient.
+Installation and republish documentation must also state the Go
+build-toolchain requirement.
 
 The public behavior remains intentionally stable: users still request a
 delivery, inspect one publication gate, and choose approve or reject. The
@@ -275,9 +304,10 @@ change removes the undocumented per-command approval burden after `approve`.
   command.
 - **Current LLM plus bare `approve-all`:** leaves unrestricted
   provider-native shell and cross-workspace reach.
+- **Generated non-required hook from `supported_hook_events`:** fails open if
+  the hook subprocess cannot execute and cannot bind the guard declaratively
+  to `batuta-publisher`.
 - **Mutating command criterion in the gate:** abuses verification as an action
   and risks mutation before an attributable approval.
-- **Platform-wide Compozy change first:** a native publication primitive is a
-  valid future simplification, but Batuta can provide the scoped capability
-  through the supported extension-tool boundary without blocking on another
-  repository and release.
+- **Compare-URL success without a PR:** leaves an operational publication step
+  to the operator and violates full-cycle Batuta ownership.
