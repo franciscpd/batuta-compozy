@@ -220,7 +220,7 @@ git commit -m "feat: inventory batuta execution lanes"
 - Create: `docs/images/batuta-next-roadmap.png`
 
 **Interfaces:**
-- Consumes: Task 1 matrix contract, Task 2 conductor contract, staged Batuta extension, released Compozy binary.
+- Consumes: Task 1 matrix contract, Task 2 conductor contract, staged Batuta extension, minimal migration-free Compozy Next binary.
 - Produces: reproducible local evidence with run IDs/commit SHAs plus one 16:9 roadmap visual and Portuguese presenter sequence.
 
 - [ ] **Step 1: Stage and install the updated extension in an isolated lab**

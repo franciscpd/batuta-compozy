@@ -33,7 +33,8 @@ shown separately.
 
 The presentation must have durable evidence for:
 
-1. Batuta installed and healthy on released Compozy `0.3.0-beta.20`.
+1. Batuta installed and healthy on the local migration-free Compozy Next
+   build identified as `v0.3.0-beta.21` for the preview.
 2. Codex, OpenCode, and Cursor Agent discovered from the local provider
    surfaces, with redacted authentication posture.
 3. At least two authored tasks with different canonical `type` and/or
