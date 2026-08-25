@@ -49,7 +49,14 @@ compozy extension install "$STAGE" --allow-unverified --yes -o json \
 compozy extension enable batuta -o json | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-assert d.get("extension", {}).get("state") == "active", d
+assert d.get("enabled") is True, d
+'
+
+compozy extension status batuta -o json | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d.get("state") == "active", d
+assert d.get("health") == "healthy", d
 '
 
 # Nota: nao usar `cmd | python3 - <<PY`; `python3 -` le o proprio script do
