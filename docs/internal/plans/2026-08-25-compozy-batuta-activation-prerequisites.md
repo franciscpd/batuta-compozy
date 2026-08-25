@@ -108,6 +108,10 @@ rtk git commit -m "feat: allow extension daemon version floor"
 **Files:**
 
 - Modify: `internal/loop/service_types.go`
+- Modify: `internal/loop/config.go`
+- Modify: `internal/loop/config_test.go`
+- Modify: `internal/loop/coordinator_generation_succession.go`
+- Modify: `internal/loop/coordinator_generation_succession_test.go`
 - Modify: `internal/loop/service.go`
 - Modify: `internal/loop/service_test.go`
 - Modify: `internal/api/contract/loops.go`
@@ -322,6 +326,8 @@ rtk git commit -m "feat: add revisioned loop configuration"
 - Create: `internal/daemon/loop_nested_recovery_integration_test.go`
 - Modify: OpenAPI/generated API artifacts
 - Modify: `packages/site/content/docs/loops/time-travel.mdx`
+- Modify: `packages/site/content/docs/loops/configure.mdx`
+- Modify: `skills/compozy/references/loops.md`
 
 **Public contract:**
 
@@ -477,6 +483,15 @@ compozy loop recover-nested --workspace <ref> --run <parent-id> --request-id <id
 The native tool schema exposes the same closed inputs. Integration starts a
 real parent `run-loop` over a fan-out child, settles one sibling successfully
 and one unsuccessfully, recovers twice with two exact runtimes, and proves:
+
+Add the closed `reattempt_strategy: halt` value before constructing this
+fixture. Domain, config, contract, OpenAPI, and coordinator REDs prove that
+`halt` terminalizes a failed generation as `failed` without quarantine, a new
+generation, or another coordinator reservation. The existing default remains
+`failed_only`, and `full_body` remains unchanged. Document the opt-in value in
+the public Loop configuration page and official Compozy Loop skill reference.
+Use `halt` only in the integration definitions that need a naturally settled
+failed lineage; do not seed terminal state or weaken the recovery assertions.
 
 - parent and child run IDs never change;
 - successful siblings carry and only failed cells/dependents rerun;

@@ -93,6 +93,14 @@ rejects caller-selected foreign nodes or task metadata, reopens only the failed
 child item and transitive dependents, carries successful siblings, and resumes
 the owning parent after the child settles.
 
+Compozy also exposes the closed Loop `reattempt_strategy` value `halt`. When a
+generation settles as failed under this strategy, the coordinator terminalizes
+the run as `failed` without quarantine or another generation. Existing Loops
+retain `failed_only` as the default, and `full_body` is unchanged. This gives
+recovery an explicit, opt-in way to preserve a naturally failed item and its
+successful siblings as a settled recoverable lineage; it is not an implicit
+change to retry behavior.
+
 The recovery generation inherits the original pinned definition, task set,
 token accounting, wall-clock deadline, and iteration ceiling. The exact runtime
 applies only to that recovery generation and never enters stored workspace
