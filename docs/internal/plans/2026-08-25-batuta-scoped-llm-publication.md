@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn Batuta into a code-backed Go extension that owns clean-HEAD publication, permits its publisher LLM to call exactly one mutating capability, and ends an approved delivery only after an independently verified pull request exists.
+**Goal:** Turn Batuta into a code-backed Go extension that owns clean-HEAD publication, permits its publisher LLM to call exactly one mutating capability, and automatically ends a clean delivery only after an independently verified pull request exists.
 
-**Architecture:** A standard-library publication core owns command execution, trusted-workspace validation, worktree inspection, Git evidence, exit-plan classification, push/PR reconciliation, and final verification. A thin Compozy SDK boundary registers three tools, while the existing daemon-enforced agent tool allowlist limits the publisher to the single mutating tool. The existing resource kit remains bundled, while `batuta-deliver` becomes a literal-commit, plan → gate → scoped Goal → verify graph.
+**Architecture:** A standard-library publication core owns command execution, trusted-workspace validation, worktree inspection, Git evidence, exit-plan classification, push/PR reconciliation, and final verification. A thin Compozy SDK boundary registers three tools, while the existing daemon-enforced agent tool allowlist limits the publisher to the single mutating tool. The existing resource kit remains bundled, while `batuta-deliver` becomes a literal-commit, plan → deterministic route → scoped Goal → verify graph. Only a deterministic pre-mutation blocker may route to bounded operator recovery; the healthy path has no human gate.
 
 **Tech Stack:** Go 1.26.4, Compozy Go extension SDK, standard-library `os/exec` and `encoding/json`, Bash contract tests, Python `unittest`, Compozy Loop v1.
 
@@ -21,7 +21,7 @@
 - `batuta-deliver` has no `auto_commit` input and passes literal `true` to `implement-tasks` and `review-and-fix`.
 - A publishable result is successful only with a real PR URL and exact expected remote HEAD; compare-only success is forbidden.
 - GitHub distribution for the first executable beta is explicitly `linux/amd64`; local source builds remain host-native. Do not publish one Linux archive as if it were portable to macOS or Windows.
-- Keep the public publication gate. The operator chooses only approve or reject and performs no implementation, commit, push, PR, or verification step.
+- Do not place a human gate on `publishable` or `nothing_to_publish`. Publication and PR opening are automatic after clean review. A deterministic pre-mutation blocker may route to one bounded recovery gate; post-mutation ambiguity stops terminally with durable operation IDs. Merge remains manual.
 - Run `tests/contract/run.sh` only from a disposable detached worktree without a `.compozy/` marker.
 - Every shell command starts with `rtk`. Keep heavy build scratch in a unique `/home/francisross/tmp-builds` directory, but leave `TMPDIR` and `GOTMPDIR` unset for Compozy `make gate*` and Go tests that need `/tmp` semantics.
 
@@ -364,7 +364,7 @@ type BlockedPlanError struct { Plan PlanOutput }
 codes; callers recover the structured plan with `errors.As` and never parse the
 message.
 
-Use stable machine blocker values: `trusted_scope_missing`, `worktree_unavailable`, `workspace_mismatch`, `worktree_not_ready`, `worktree_path_invalid`, `git_unreadable`, `dirty_worktree`, `detached_head`, `branch_mismatch`, `head_invalid`, `exit_plan_mismatch`, `exit_plan_paused`, `branch_diverged`, `branch_behind`, `remote_missing`, `forge_unavailable`, and `publication_state_ambiguous`. Return `BlockedPlanError` carrying the structured blocked plan for expected unsafe posture. Malformed input and transport/decoding failures remain distinct errors. The SDK handler in Task 5 maps `BlockedPlanError` to a typed tool failure with safe blocker data, so the Loop stops before the human gate; only `publishable` and `nothing_to_publish` are successful tool results.
+Use stable machine blocker values: `trusted_scope_missing`, `worktree_unavailable`, `workspace_mismatch`, `worktree_not_ready`, `worktree_path_invalid`, `git_unreadable`, `dirty_worktree`, `detached_head`, `branch_mismatch`, `head_invalid`, `exit_plan_mismatch`, `exit_plan_paused`, `branch_diverged`, `branch_behind`, `remote_missing`, `forge_unavailable`, and `publication_state_ambiguous`. Return `BlockedPlanError` carrying the structured blocked plan for expected unsafe posture. Malformed input and transport/decoding failures remain distinct errors. The SDK handler in Task 5 converts only expected pre-mutation `BlockedPlanError` values into a safe structured `blocked` plan so Task 6 can route them to bounded recovery. Transport, decoding, and unexpected failures remain tool failures and stop the Loop.
 
 Treat tracking-upstream state separately from remote existence. A first publication legitimately has `has_upstream=false`, null `ahead`/`behind`, and a non-null `ahead_of_base`; the fresh exit plan's `push` row proves that an origin exists. After push, `has_upstream=true` and `ahead_of_base` is null. Classify both using `CommitsAheadOfBase` against the daemon-selected base, call `UpstreamHead` only when tracking exists, and cross-check `ahead_of_base` when Compozy supplies it.
 
@@ -659,7 +659,7 @@ publish_worktree      risk=mutating   input={worktree_ref,expected_head_sha}
 publication_verify    read_only=true  input={worktree_ref,expected_head_sha,publisher_result}
 ```
 
-Every input schema uses `additionalProperties:false`. Tool handlers require non-nil trusted workspace with non-empty ID and absolute Root and convert only that object into `publication.TrustedScope`. The plan handler maps `BlockedPlanError` to a typed tool failure carrying only the closed blocker codes, so unsafe posture terminates the node before the gate; that handler returns `compozysdk.StructuredResult` only for `publishable` and `nothing_to_publish`. The mutating publisher still returns its structured `blocked` status so the Goal can emit authoritative top-level `status: blocked`. No handler returns textual success without structured evidence.
+Every input schema uses `additionalProperties:false`. Tool handlers require non-nil trusted workspace with non-empty ID and absolute Root and convert only that object into `publication.TrustedScope`. The plan handler maps an expected `BlockedPlanError` to a successful structured result whose disposition is `blocked` and whose evidence contains only the closed blocker code, clean/head/branch facts, and safe exit-plan projection. That is routing data, not publication success. Transport, decoding, malformed-input, or unknown errors remain typed tool failures. The mutating publisher returns structured `blocked` after any unsafe or ambiguous mutation outcome so the Goal emits authoritative top-level `status: blocked`. No handler returns textual success without structured evidence.
 
 - [ ] **Step 7: Verify generated manifest round-trip and commit**
 
@@ -687,19 +687,19 @@ rtk git commit -m "feat: expose scoped publication extension"
 
 ---
 
-### Task 6: Literal-commit Loop graph and publisher agent containment
+### Task 6: Automatic publication graph and publisher containment
 
 **Files:**
 - Modify: `loops/batuta-deliver/loop.yaml`
 - Modify: `agents/batuta-publisher/AGENT.md`
 - Modify: `agents/batuta/AGENT.md`
 - Modify: `tests/contract/test_04_deliver_validate.sh`
-- Modify: `tests/e2e/assert_publication_gate.py`
-- Modify: `tests/e2e/test_assert_publication_gate.py`
+- Rename: `tests/e2e/assert_publication_gate.py` → `tests/e2e/assert_publication_flow.py`
+- Rename: `tests/e2e/test_assert_publication_gate.py` → `tests/e2e/test_assert_publication_flow.py`
 
 **Interfaces:**
 - Consumes: Task 5 exact tool IDs and Task 3/4 output schemas.
-- Produces: review → plan → unconditional check → human gate → scoped publisher Goal → independent verify.
+- Produces: review → plan → deterministic route → automatic scoped publisher Goal → independent verify; only a pre-mutation blocker reaches operator recovery.
 
 - [ ] **Step 1: Rewrite contract tests first**
 
@@ -711,15 +711,20 @@ implement.params.inputs.auto_commit == true
 review.params.inputs.auto_commit == true
 publication_plan kind == ext__batuta__publication_plan
 publication_plan receives only worktree_ref
+publication_route is a route over publication_plan.output.disposition
+publishable routes directly to publish with no gate
+nothing_to_publish routes directly to publication_verify with no gate
+blocked routes only to recovery_gate
+recovery_gate cannot reach publish directly
 publish Goal output has control status complete|blocked and a nested publication_result
 publication_result forbids compare_url and requires status/head_sha/op_ids/summary
 publication_verify kind == ext__batuta__publication_verify
-publication_verify receives publish.output.publication_result, never Goal control status
-edges are review→publication_plan→publish_check→publish_gate→publish→publication_verify
-definition_of_done requires publication_verify
+publication_verify receives publish.output.publication_result on the published path
+definition_of_done requires publication_verify and a real PR for published work
+no automatic merge node or tool exists
 ```
 
-Update the Python event checker to require a successful `publication_verify` event after a successful `publish`, and to reject compare-only evidence.
+Replace the gate-centric Python checker with a publication-flow checker. It must require `publish` and then `publication_verify` on the healthy published path without any `needs_approval`; accept a verified `nothing_to_publish` path without running `publish`; require `needs_approval` only for `recovery_gate` after a structured blocked plan; and reject compare-only evidence, an operator gate on the healthy path, or any merge mutation.
 
 - [ ] **Step 2: Verify RED**
 
@@ -727,16 +732,32 @@ Run:
 
 ```bash
 rtk tests/contract/test_04_deliver_validate.sh
-rtk python3 -m unittest tests.e2e.test_assert_publication_gate
+rtk python3 -m unittest tests.e2e.test_assert_publication_flow
 ```
 
-Expected: failures on the old `auto_commit` input, missing plan/verify nodes, and compare URL acceptance.
+Expected: failures on the old `auto_commit` input, mandatory human gate, missing plan/verify nodes, and compare URL acceptance.
 
 - [ ] **Step 3: Implement the revised graph and agent contract**
 
-Remove `inputs.auto_commit`. Pass literal `true` to both child Loops. Replace `worktree_state` with direct `publication_plan`, keep `publish_check condition: "true"`, and render plan evidence in the human gate prompt. A `BlockedPlanError` from the direct plan action fails the node, so only `publishable` and `nothing_to_publish` can reach `publish_check` and the gate. The publisher Goal objective supplies only `worktree_ref` and `publication_plan.output.head_sha`, instructs exactly one call to `ext__batuta__publish_worktree`, and forbids invented evidence.
+Remove `inputs.auto_commit` and pass literal `true` to both child Loops. Replace `worktree_state`/`publish_check` with direct `publication_plan` and a closed `route`:
 
-The Goal output uses Compozy's authoritative control envelope:
+```yaml
+- id: publication_route
+  class: control
+  kind: route
+  routes:
+    - when: nodes.publication_plan.output.disposition == 'publishable'
+      to: publish
+    - when: nodes.publication_plan.output.disposition == 'nothing_to_publish'
+      to: publication_verify_nothing
+    - when: nodes.publication_plan.output.disposition == 'blocked'
+      to: recovery_gate
+  default: publication_contract_failure
+```
+
+`publication_contract_failure` fails closed without mutation. `recovery_gate` is the only human gate and its prompt contains the safe blocker code plus run/worktree identity. Approval performs one bounded re-plan by returning to a distinct `publication_replan` node and route; rejection stops blocked. The recovery path has no edge directly to `publish`, and the graph admits at most one operator-assisted re-plan. Any blocker after `publish_worktree` returns top-level Goal `status: blocked` with durable operation IDs and terminates without a gate or retry.
+
+The publisher Goal objective supplies only `worktree_ref` and `publication_plan.output.head_sha`, instructs exactly one call to `ext__batuta__publish_worktree`, and forbids invented evidence. Its output uses Compozy's authoritative control envelope:
 
 ```yaml
 status: complete | blocked
@@ -749,7 +770,7 @@ publication_result:
   last_exit_plan: object
 ```
 
-When the tool returns `published` or `nothing_to_publish`, the agent reports top-level `status: complete`; when it returns `blocked`, it reports top-level `status: blocked`, terminating the Goal and parent run without verification. Add `publication_verify` only on the successful Goal edge and pass `publish.output.publication_result` as `publisher_result`, never the top-level Goal control status.
+When the tool returns `published` or `nothing_to_publish`, the agent reports top-level `status: complete`; when it returns `blocked`, it reports top-level `status: blocked`. `publication_verify` receives `publish.output.publication_result`, never the top-level Goal control status. The `nothing_to_publish` verifier receives a deterministic publisher-result envelope built from the fresh plan and zero operation IDs. No path accepts a compare URL. No path merges the PR.
 
 Set `agents/batuta-publisher/AGENT.md` frontmatter to:
 
@@ -763,7 +784,7 @@ tools:
 ---
 ```
 
-Its body must say: call the tool exactly once with the provided ref/SHA; never call shell, Git, filesystem, session, gate, or another extension tool; report the structured result exactly; a blocked tool result remains blocked. Remove all shell procedure and compare-URL language. Update the conductor so `auto_commit=true` is a Batuta invariant, not a preference or operator gate.
+Its body must say: call the tool exactly once with the provided ref/SHA; never call shell, Git, filesystem, session, gate, merge, or another extension tool; report the structured result exactly; a blocked tool result remains blocked. Remove all shell procedure and compare-URL language. Update the conductor so literal commits, automatic publication after clean review, automatic PR opening, and manual merge are Batuta invariants.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
@@ -774,13 +795,13 @@ rtk tests/contract/test_04_deliver_validate.sh
 rtk python3 -m unittest discover -s tests/e2e -p 'test_*.py'
 ```
 
-Expected: all pass.
+Expected: all pass with no healthy-path approval event.
 
 Commit:
 
 ```bash
-rtk git add loops/batuta-deliver/loop.yaml agents/batuta-publisher/AGENT.md agents/batuta/AGENT.md tests/contract/test_04_deliver_validate.sh tests/e2e/assert_publication_gate.py tests/e2e/test_assert_publication_gate.py
-rtk git commit -m "feat: complete verified publication loop"
+rtk git add loops/batuta-deliver/loop.yaml agents/batuta-publisher/AGENT.md agents/batuta/AGENT.md tests/contract/test_04_deliver_validate.sh tests/e2e
+rtk git commit -m "feat: automate verified publication loop"
 ```
 
 ---
@@ -877,6 +898,7 @@ rtk git commit -m "build: package executable batuta extension"
 - Modify: `docs/how-it-works.md`
 - Modify: `docs/architecture.md`
 - Modify: `docs/verify.md`
+- Modify: `docs/images/batuta-no-compozy.png`
 - Modify: `CONTRIBUTING.md`
 - Create: `docs/releases/0.1.0-beta.5.md`
 - Create: `docs/internal/qa/2026-08-25-batuta-publication.md`
@@ -887,7 +909,7 @@ rtk git commit -m "build: package executable batuta extension"
 
 - [ ] **Step 1: Write the no-forge refusal smoke before implementation**
 
-`publication_negative_smoke.sh` creates a temporary workspace, local bare Git remote, base commit, delivery worktree/branch, committed change, isolated Compozy home/daemon, and dev-linked Batuta generation. It invokes `publication_plan` through the public Compozy surface and requires a typed `forge_unavailable` failure before the gate. It then proves the remote branch was not created, no push/PR operation ID exists, and no publication handler mutation occurred. It never calls `publish_worktree` after the blocked plan and never treats a compare URL as success.
+`publication_negative_smoke.sh` creates a temporary workspace, local bare Git remote, base commit, delivery worktree/branch, committed change, isolated Compozy home/daemon, and dev-linked Batuta generation. It invokes `publication_plan` through the public Compozy surface and requires a structured `forge_unavailable` blocked disposition routed to `recovery_gate`. It then proves the remote branch was not created, no push/PR operation ID exists, and no publication handler mutation occurred. It never calls `publish_worktree` before an approved bounded re-plan becomes publishable and never treats a compare URL as success.
 
 - [ ] **Step 2: Write the serving-forge and Goal-containment smoke**
 
@@ -907,7 +929,7 @@ It proves:
 - dirty/drifted, foreign-workspace, fabricated-result, and unavailable-tool cases fail closed;
 - teardown leaves no extension or Goal subprocess alive.
 
-It also runs live negative rows for human gate rejection, an authored submission containing the removed `auto_commit=false` input, and a serving forge with credentials deliberately unavailable. Every row requires zero push, zero PR, zero durable publication operation, zero pending permission interaction, and clean fixture teardown. This deterministic fixture is integration evidence, not a substitute for the release QA run against a real serving forge.
+It also runs live negative rows for a structured pre-mutation blocker routed to `recovery_gate`, recovery rejection, an authored submission containing the removed `auto_commit=false` input, and a serving forge with credentials deliberately unavailable. Every pre-mutation blocked row requires zero push, zero PR, zero durable publication operation, zero pending permission interaction outside the explicit recovery gate, and clean fixture teardown. This deterministic fixture is integration evidence, not a substitute for the release QA run against a real serving forge.
 
 - [ ] **Step 3: Verify RED, then implement only the fixtures/harnesses required by the tests**
 
@@ -915,7 +937,7 @@ Run each smoke once to capture honest RED at its named missing fixture/boundary,
 
 - [ ] **Step 4: Update docs and the release QA matrix**
 
-Document: Go 1.26.4 toolchain; exact qualifying Compozy prerelease; literal commits; one human publication gate; exact daemon-enforced publisher allowlist; trusted publication capability; actual PR requirement; local bare-remote negative smoke; fixture-backed and real-forge positive smokes; dirty/drifted/foreign-worktree/fabricated-result/forbidden-tool negatives; and the initial `linux/amd64` GitHub-package limit. Remove every instruction that asks the operator to commit, push, open a PR, accept compare-only success, configure `auto_commit=false`, or approve publisher shell commands. The beta release note records removal of `auto_commit=false` as a breaking change.
+Document: Go 1.26.4 toolchain; exact qualifying Compozy prerelease; literal commits; automatic publication and PR opening after clean review; conditional bounded operator recovery only for pre-mutation blockers; manual merge; exact daemon-enforced publisher allowlist; trusted publication capability; actual PR requirement; local bare-remote negative smoke; fixture-backed and real-forge positive smokes; dirty/drifted/foreign-worktree/fabricated-result/forbidden-tool negatives; and the initial `linux/amd64` GitHub-package limit. Remove every instruction that asks the operator to commit, push, open a PR, accept compare-only success, configure `auto_commit=false`, approve healthy publication, or approve publisher shell commands. Update `docs/images/batuta-no-compozy.png` so the dominant path is `Implementar → Revisar → Publicar + abrir PR (Automático)`, `Bloqueio → Operador` is a side branch, and `Merge manual` is explicit. The beta release note records removal of `auto_commit=false` as a breaking change.
 
 - [ ] **Step 5: Run focused and full local verification**
 
@@ -941,7 +963,7 @@ Before publishing the beta, run the same positive assertions against a real serv
 - [ ] **Step 7: Commit docs and integration evidence**
 
 ```bash
-rtk git add tests/integration tests/e2e tests/contract/test_07_public_docs.sh README.md README.pt-BR.md CONTRIBUTING.md docs/architecture.md docs/how-it-works.md docs/verify.md docs/releases docs/internal/qa
+rtk git add tests/integration tests/e2e tests/contract/test_07_public_docs.sh README.md README.pt-BR.md CONTRIBUTING.md docs/architecture.md docs/how-it-works.md docs/verify.md docs/images/batuta-no-compozy.png docs/releases docs/internal/qa
 rtk git commit -m "docs: ship autonomous publication workflow"
 ```
 
@@ -961,4 +983,4 @@ Stop this plan when:
 6. a real serving-forge QA smoke proves actual PR creation and independent verification; `blocked-verify` stops release and is not acceptance;
 7. no operator-owned commit, push, PR, compare URL, path, remote, or workspace input remains.
 
-Do not add graph engineering, executor inventory, domain routing, multi-forge support, automatic merge, branch cleanup, release publishing, or UI work in this plan.
+Do not add graph engineering, executor inventory, domain routing, multi-forge support, automatic merge, branch cleanup, release publishing, or product UI work in this plan. The presentation image update is documentation, not product UI.
