@@ -1,8 +1,10 @@
 # Smoke E2E — feature pequena de ponta a ponta
 
-Pré-condições: extensão `batuta` instalada+habilitada; providers das lanes
-autenticados; um repo cobaia registrado como workspace (qualquer projeto
-pequeno com suite de testes real).
+Pré-condições: extensão `batuta` instalada+habilitada; inventário redigido de
+providers e modelos das lanes; um repo cobaia registrado como workspace
+(qualquer projeto pequeno com suite de testes real). Provider presente,
+modelo catalogado e credencial utilizável são evidências distintas; nunca
+registre secrets ou configuração bruta do provider.
 
 ## Roteiro
 
@@ -16,7 +18,9 @@ pequeno com suite de testes real).
    `_user_stories.md`, `_dx.md` e `_tests.md`, com `_uiux.md` somente se
    houver mudança Web. Depois o Batuta conduz `cy-create-tasks`;
    `.compozy/tasks/<slug>/` contém `_tasks.md` + `task_NN.md`, cada task com
-   `complexity`, e o breakdown é apresentado para aprovação em conversa.
+   `type` canônico e `complexity`, e o breakdown é apresentado para aprovação
+   em conversa. Para este smoke, use duas tasks disjuntas: `backend/low` e
+   `frontend/medium`.
    Aceite negativo: nenhuma chamada de `compozy__config_get` para
    `loops.inputs.batuta-deliver.auto_commit` ocorre durante esta fase.
 3. **Gate antes do primeiro caminho de entrega**: as chamadas de caminho de
@@ -29,8 +33,10 @@ pequeno com suite de testes real).
    acima. Quando ausente, o Batuta pergunta auto-commit sem fazer discovery,
    routing, preflight, dry-run ou inspeção de Loop.
 4. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
-   tabela de roteamento (confira depois com dry-run:
-   `effective_config.run_runtime_rules` preenchido).
+   matriz `domain × complexity` (confira depois com dry-run:
+   `effective_config.run_runtime_rules` contém as células `backend/low` e
+   `frontend/medium`). A leitura de status deve provar `resolved_runtime`
+   distinto para cada lane configurada.
 5. **Despacho composto**: o Batuta chama diretamente o
    `ext__spec_cycle__import_tasks` somente leitura e confirma `count > 0`;
    depois roda dry-run, mostra o plano e
@@ -56,7 +62,8 @@ pequeno com suite de testes real).
    `load_check` do Loop falhar sozinho. Um smoke que pula esta checagem não
    prova que a feature funciona.
 7. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
-   commit por task implementada (auto_commit=true). Nenhum push.
+   commit por task implementada (`auto_commit=true`), em execução sequencial.
+   Never run concurrent writers in one worktree. Nenhum push.
 8. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
    terminais dos filhos, seus `resolved_runtime` e as rodadas em
    `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada

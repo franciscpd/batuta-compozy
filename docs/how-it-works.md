@@ -35,14 +35,24 @@ integrating uncommitted work is fully manual.
 ## 2. Bootstrap and routing
 
 After the gate opens, Batuta reads the stored `implement-tasks` runtime rules.
-When absent, it derives them: the `batuta-routing` skill gives lane semantics
-(`low`, `medium`, `high`, `critical`) and the JSON shape; the live catalog
-from `compozy__provider_models_list` (with costs) is the only source of
-provider and model IDs. Batuta shows the derived table with costs, waits for
-your confirmation, then stores it with `compozy__loop_configure`
+When absent, it derives them as a `domain × complexity` matrix. Domains use
+the closed task vocabulary (`backend`, `frontend`, `mobile`, `data`, `infra`,
+`security`, `testing`, `docs`, `general`, `fullstack`); complexity remains
+`low`, `medium`, `high`, or `critical`. The `batuta-routing` skill gives the
+lane semantics and JSON shape; the live catalog from
+`compozy__provider_models_list` (with costs) is the source of exact provider
+and model IDs. Provider presence, model catalog membership, and credential
+state remain separate evidence, and secrets or raw provider configuration
+never enter the stored matrix. Batuta shows the redacted derived table with
+costs, waits for your confirmation, then stores it with `compozy__loop_configure`
 (`name: implement-tasks`, field `runtime_rules`). Reconfiguration later is a
 conversation request that re-applies the override. Routing is auditable per
 generation in `resolved_runtime`.
+
+For example, authored tasks `backend/low` and `frontend/medium` may resolve to
+different live models. The status of each task records its own
+`resolved_runtime`; with `auto_commit=true`, successful sequential items also
+produce one local commit each.
 
 Bootstrap also provisions a 4-hour wall-clock budget per workspace: a stored
 workspace-scope `budget_wall_sec: 14400` override on `batuta-deliver`,
@@ -86,6 +96,10 @@ submitting an unbounded real run. Once the budget checks out, it submits
 the real run with the same inputs. `batuta-deliver` chains the bundled
 `implement-tasks` and `review-and-fix` Loops inside the daemon; Batuta never
 dispatches them separately and never sends per-run runtime rules.
+
+Never run concurrent writers in one worktree. The preview keeps task writers
+sequential; bounded parallelism is deferred until each independent task owns
+an isolated worktree and Batuta has a deterministic integration order.
 
 A successful dispatch ends the turn: Batuta reports `run_id` (and `web_url`
 when available) and stops.

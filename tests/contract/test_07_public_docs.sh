@@ -71,6 +71,14 @@ for text in \
   'effective_config.budget_wall_sec' \
   'config_overrides.budget_wall_sec' \
   'budget_wall_sec: 14400, budget_on_exceeded: halt' \
+  'domain × complexity' \
+  'backend' \
+  'frontend' \
+  'compozy__provider_models_list' \
+  'resolved_runtime' \
+  'Provider presence, model catalog membership, and credential state are separate evidence.' \
+  'Secrets and raw provider configuration never enter routing artifacts.' \
+  'Never run concurrent writers in one worktree.' \
   '`failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike'; do
   require_text agents/batuta/AGENT.md "$text"
 done
@@ -94,6 +102,11 @@ for text in \
   'publication gate' \
   'batuta/<slug>' \
   'wall-clock budget' \
+  'domain × complexity' \
+  'backend/low' \
+  'frontend/medium' \
+  'resolved_runtime' \
+  'Never run concurrent writers in one worktree.' \
   'auto_commit=false'; do
   require_text docs/how-it-works.md "$text"
 done
