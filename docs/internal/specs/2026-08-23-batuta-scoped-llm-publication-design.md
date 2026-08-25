@@ -1,6 +1,6 @@
 # Batuta scoped LLM publication — design
 
-Status: approved; implementation requires the Compozy hook prerequisite
+Status: approved; revised on 2026-08-25 to use existing Compozy boundaries
 
 ## Context
 
@@ -65,11 +65,8 @@ contract. Direct submissions cannot select an uncommitted delivery path.
 
 Batuta becomes a Go SDK executable extension while retaining its existing
 agents, skills, Loops, and documentation resources. Installation builds one
-extension subprocess. The subprocess registers the three tools and one
-required synchronous `tool.pre_call` hook. This requires a Compozy code-first
-hook declaration that preserves `required: true` and the
-`agent_name=batuta-publisher` matcher in the generated manifest; the
-compatibility section records the missing runtime prerequisite.
+extension subprocess. The subprocess registers the three publication tools.
+Batuta does not require a new Compozy hook declaration or hook-runtime change.
 
 The extension receives the resolved Compozy executable through a manifest
 environment value based on `{{compozy_executable}}`; it never searches `PATH`
@@ -114,32 +111,27 @@ not run publication commands.
 ### LLM publisher capability
 
 `batuta-publisher` remains the agent used by the `publish` Goal. Its effective
-surface is narrowed in three independent layers:
+surface is narrowed by two existing enforcement layers:
 
 1. Its agent definition allows only `ext__batuta__publish_worktree`. Loop v1
    has no Goal-level `allowed_tools` field, so the Goal objective repeats the
    one-tool instruction but is not counted as a separate enforcement surface.
-2. A required synchronous `tool.pre_call` hook matching
-   `agent_name=batuta-publisher` denies every tool call except that exact
-   canonical ToolID. This includes provider-native shell, file reads/writes,
-   subprocess creation, session tools, and all other hosted tools. Hook
-   unavailability or malformed input denies execution.
-3. The publication tool itself accepts only `worktree_ref` and
+2. The publication tool itself accepts only `worktree_ref` and
    `expected_head_sha`, and derives the workspace and path from trusted daemon
    context.
 
 With those containment layers in place, the publisher uses
 `permissions: approve-all` solely to prevent the provider from pausing on its
 one authorized tool call. `approve-all` is not treated as the security
-boundary; the required hook, the concrete tool allowlist, and trusted
-workspace resolution are. A test must prove that shell and a second benign
-tool are denied even while the session reports `approve-all`.
+boundary; the daemon-enforced concrete tool allowlist and trusted workspace
+resolution are. A test must prove that shell and a second benign tool are
+absent or denied even while the session reports `approve-all`.
 
 Implementation ruling: Loop v1 exposes `allowed_tools` on `run-agent`, but not
 on `goal`. Batuta keeps the approved Goal controller instead of adding another
 platform prerequisite. The exact `tools` allowlist therefore lives in the
-`batuta-publisher` definition, while the required synchronous hook remains the
-independent runtime enforcement boundary for every attempted ToolID.
+`batuta-publisher` definition and is enforced by Compozy's existing agent tool
+projection.
 
 The Goal objective gives the publisher the pre-gate `head_sha` and worktree
 ref and instructs it to call the capability exactly once. Compozy owns the
@@ -227,9 +219,9 @@ the delivery successful.
 
 ## Failure and recovery semantics
 
-- Permission hook denies a non-publication tool: the Goal fails closed; no
-  publication operation starts.
-- Extension subprocess unavailable: required tools/hooks are unavailable and
+- Agent allowlist excludes a non-publication tool: the Goal cannot dispatch it;
+  no publication operation starts.
+- Extension subprocess unavailable: the publication tools are unavailable and
   the Goal cannot start or mutate state.
 - Forge or forge credentials unavailable before the gate: publication
   planning returns `blocked`; the operator is not asked to approve a delivery
@@ -262,8 +254,7 @@ the delivery successful.
   argument vectors.
 - PR prefill and repository content never enter a shell or capability
   decision.
-- A stopped hook, unavailable tool, stale worktree, or incomplete proof fails
-  closed.
+- An unavailable tool, stale worktree, or incomplete proof fails closed.
 
 ## Verification
 
@@ -272,12 +263,11 @@ Implementation acceptance requires:
 1. Unit tests for trusted-scope rejection, input validation, exit-plan
    classification, HEAD drift, dirty trees, argv safety, bounded
    reconciliation, mandatory-forge handling, and output validation.
-2. Hook tests proving `batuta-publisher` may call only the exact publication
-   tool and that shell/file/second-tool attempts are denied under
-   `approve-all`.
+2. Agent-surface tests proving `batuta-publisher` receives only the exact
+   publication tool and that shell/file/second-tool attempts are unavailable
+   or denied under `approve-all`.
 3. Contract tests for executable-extension staging, the three tool
-   descriptors, required hook, agent allowlist, revised graph, and independent
-   verifier.
+   descriptors, agent allowlist, revised graph, and independent verifier.
 4. Existing Batuta contract and Python E2E suites remain green.
 5. An isolated daemon smoke with a local bare remote proves the pre-gate
    missing-forge refusal and zero publication mutation.
@@ -293,24 +283,14 @@ Implementation acceptance requires:
 
 ## Compatibility and release
 
-This is an executable-extension and runtime-contract change. Compozy
-`0.3.0-beta.19` contains executable extension tools, `TrustedWorkspace`,
-hosted exposure of extension tools, and Loop invocation of extension ToolIDs,
-but its code-first SDK declaration reduces `supported_hook_events` to an
-unmatched, non-required generated hook. It cannot preserve the required
-publisher matcher or fail-closed availability contract in this design.
-
-Implementation therefore has a platform prerequisite: Compozy must expose a
-code-first synchronous hook declaration with matcher and `required: true`, and
-must prove that a required hook execution failure denies the intercepted tool
-call. The SDK must also let an extension declare its exact minimum compatible
-Compozy version in the generated manifest; the SDK-wide historical default is
-not a sufficient Batuta compatibility floor. The complete platform contract is recorded in
-`docs/internal/specs/2026-08-24-compozy-batuta-platform-prerequisites-design.md`.
-Batuta's operational floor must be the first released prerelease that contains
-that contract; it must not claim `0.3.0-beta.19` is sufficient.
-Installation and republish documentation must also state the Go
-build-toolchain requirement.
+This is a Batuta executable-extension change built on Compozy's existing
+extension tools, `TrustedWorkspace`, hosted extension-tool exposure, agent
+tool allowlists, and Loop invocation of extension ToolIDs. It introduces no
+new Compozy hook or manifest contract. Batuta pins a published SDK/binary pair
+that contains the existing extension surfaces it consumes; its runtime guard
+checks that pair directly rather than requiring a new extension-specific
+minimum-version field. Installation and republish documentation must state the
+Go build-toolchain requirement.
 
 Code-backed GitHub packages are immutable generated bundles and include the
 compiled subprocess; installing a GitHub package does not compile its source.
@@ -332,10 +312,11 @@ change removes the undocumented per-command approval burden after `approve`.
 - **Current LLM plus `approve-reads`:** proven to stop on the first shell
   command.
 - **Current LLM plus bare `approve-all`:** leaves unrestricted
-  provider-native shell and cross-workspace reach.
-- **Generated non-required hook from `supported_hook_events`:** fails open if
-  the hook subprocess cannot execute and cannot bind the guard declaratively
-  to `batuta-publisher`.
+  provider-native shell and cross-workspace reach; the accepted design pairs
+  `approve-all` with an exact daemon-enforced agent tool allowlist.
+- **New required-hook prerequisite:** adds a broad Compozy core/SDK/runtime
+  change when the existing exact agent allowlist already provides the needed
+  publisher capability boundary.
 - **Mutating command criterion in the gate:** abuses verification as an action
   and risks mutation before an attributable approval.
 - **Compare-URL success without a PR:** leaves an operational publication step

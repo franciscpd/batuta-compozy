@@ -4,7 +4,7 @@
 
 **Goal:** Turn Batuta into a code-backed Go extension that owns clean-HEAD publication, permits its publisher LLM to call exactly one mutating capability, and ends an approved delivery only after an independently verified pull request exists.
 
-**Architecture:** A standard-library publication core owns command execution, trusted-workspace validation, worktree inspection, Git evidence, exit-plan classification, push/PR reconciliation, and final verification. A thin Compozy SDK boundary registers three tools and declares one required synchronous `tool.pre_call` guard; the fixed subprocess multiplexes SDK JSON-RPC and raw hook payloads. The existing resource kit remains bundled, while `batuta-deliver` becomes a literal-commit, plan → gate → scoped Goal → verify graph.
+**Architecture:** A standard-library publication core owns command execution, trusted-workspace validation, worktree inspection, Git evidence, exit-plan classification, push/PR reconciliation, and final verification. A thin Compozy SDK boundary registers three tools, while the existing daemon-enforced agent tool allowlist limits the publisher to the single mutating tool. The existing resource kit remains bundled, while `batuta-deliver` becomes a literal-commit, plan → gate → scoped Goal → verify graph.
 
 **Tech Stack:** Go 1.26.4, Compozy Go extension SDK, standard-library `os/exec` and `encoding/json`, Bash contract tests, Python `unittest`, Compozy Loop v1.
 
@@ -12,13 +12,12 @@
 
 ## Global Constraints
 
-- The operational floor is the first released Compozy prerelease after `0.3.0-beta.20` that contains commits `caca649c6` and `858ef5a86`; never claim `0.3.0-beta.19` or `0.3.0-beta.20` is sufficient.
-- That Compozy release must also let a code-first extension override the SDK's historical minimum-daemon default and preserve Batuta's exact qualifying floor in the generated manifest. Treat this as a platform prerequisite, not a shell-only compatibility check.
+- The operational floor is the first published Compozy SDK/binary prerelease that contains the merged conjunctive runtime-routing contract from PR #475 and the existing extension-tool, trusted-workspace, and agent-allowlist surfaces consumed by Batuta.
+- Do not require a new Compozy hook, recovery, configuration-CAS, migration, or extension-specific minimum-version contract for this plan.
 - Do not commit a local `replace` directive, pseudo-version for an unpublished commit, vendored SDK fork, or manually authored subprocess manifest. If no qualifying SDK release exists, Tasks 1–4 may complete, but execution must stop before Task 5.
 - All three tool inputs derive workspace and path from daemon-authenticated `TrustedWorkspace`; no tool accepts a workspace ID, path, repository URL, remote, destination URL, executable, or raw command. `publication_verify` may receive the publisher's claimed PR URL only inside its untrusted result envelope for comparison with freshly observed forge evidence.
 - Invoke Compozy only through the manifest-provided `COMPOZY_EXECUTABLE`; invoke all subprocesses with `exec.CommandContext` and argument vectors, never a shell.
-- `ext__batuta__publish_worktree` is the only tool the `batuta-publisher` agent may call. The Goal DSL has no `allowed_tools` field, so the exact agent allowlist plus the required hook provide the two independent containment layers; do not add a new Compozy Goal surface for this feature.
-- The required hook matches `agent_name=batuta-publisher`, runs synchronously, allows only the exact canonical publish ToolID, and denies malformed payloads and every other ToolID.
+- `ext__batuta__publish_worktree` is the only tool the `batuta-publisher` agent may call. The Goal DSL has no `allowed_tools` field, so the existing exact agent allowlist is the publisher capability boundary; do not add a new Compozy Goal or hook surface for this feature.
 - `batuta-deliver` has no `auto_commit` input and passes literal `true` to `implement-tasks` and `review-and-fix`.
 - A publishable result is successful only with a real PR URL and exact expected remote HEAD; compare-only success is forbidden.
 - GitHub distribution for the first executable beta is explicitly `linux/amd64`; local source builds remain host-native. Do not publish one Linux archive as if it were portable to macOS or Windows.
@@ -554,7 +553,7 @@ rtk git commit -m "feat: verify publication independently"
 
 ---
 
-### Task 5: Code-first extension tools and required publisher guard
+### Task 5: Code-first extension tools on existing Compozy boundaries
 
 **Files:**
 - Modify: `go.mod`
@@ -567,58 +566,55 @@ rtk git commit -m "feat: verify publication independently"
 
 **Interfaces:**
 - Consumes: Tasks 1–4 publication services and the first qualifying released Compozy Go SDK.
-- Produces: executable `batuta`; tools `ext__batuta__publication_plan`, `ext__batuta__publish_worktree`, `ext__batuta__publication_verify`; required hook `batuta-publisher-guard`; generated manifest with the exact qualifying `min_compozy_version`.
+- Produces: executable `batuta`; tools `ext__batuta__publication_plan`, `ext__batuta__publish_worktree`, and `ext__batuta__publication_verify`; generated manifest and bundled resources using the released SDK contract.
 
 - [ ] **Step 1: Enforce the release gate before changing dependencies**
 
-Query the public Go module registry and the remote repository tags. Select one
-exact prerelease identity greater than `0.3.0-beta.20` that exists both as
-`sdk/go/vX` and `vX`. In a unique temporary audit repository under
-`/home/francisross/tmp-builds`, fetch only the two selected tags and the
-prerequisite history, prove both peeled commits contain prerequisite HEAD
-`858ef5a86`, then remove only that audit directory:
+Query the public Go module registry and remote repository tags. Select one
+exact prerelease identity that exists both as `sdk/go/vX` and `vX`, contains
+the merged PR #475 runtime-routing contract, and retains the existing
+extension-tool, trusted-workspace, and agent-allowlist surfaces used here. In
+a unique temporary audit repository under `/home/francisross/tmp-builds`,
+fetch only the selected tags and prerequisite history, prove both tags contain
+the merge, then remove only that audit directory:
 
 ```bash
 rtk go list -m -versions github.com/compozy/compozy/sdk/go
-rtk git -C /home/francisross/Projects/opensource/_worktrees/batuta-platform-prerequisites ls-remote --tags origin
-rtk git -C <temporary-audit-repository> merge-base --is-ancestor 858ef5a86 sdk/go/<qualifying-version>^{commit}
-rtk git -C <temporary-audit-repository> merge-base --is-ancestor 858ef5a86 <qualifying-version>^{commit}
+rtk git -C /home/francisross/Projects/opensource/compozy ls-remote --tags origin
+rtk git -C <temporary-audit-repository> merge-base --is-ancestor <pr-475-merge> sdk/go/<qualifying-version>^{commit}
+rtk git -C <temporary-audit-repository> merge-base --is-ancestor <pr-475-merge> <qualifying-version>^{commit}
 ```
 
-Expected: one published matching SDK/binary prerelease pair greater than
-`0.3.0-beta.20`. Its SDK must expose the extension-specific minimum version
-field. If any condition is absent, record `BLOCKED: qualifying Compozy SDK and
-binary release unavailable` in the SDD task report and stop this plan here. Do
-not create a local tag or dependency workaround.
+Expected: one published matching SDK/binary prerelease pair. If it is absent,
+record `BLOCKED: qualifying Compozy SDK and binary release unavailable` in the
+SDD task report and stop this plan here. Do not create a local tag, pseudo
+version, SDK fork, or dependency workaround.
 
-- [ ] **Step 2: Write failing raw-hook multiplexer tests**
+- [ ] **Step 2: Write failing executable entrypoint tests**
 
-In `main_test.go`, feed one raw `contracts.ToolPreCallPayload` JSON document
-without a trailing newline, then close stdin so the frame ends at `io.EOF`.
-Also cover JSON-RPC as newline-delimited transport:
+In `main_test.go`, test the executable startup seam without duplicating SDK
+transport tests:
 
 ```go
-func TestPublisherGuardAllowsOnlyExactPublishTool(t *testing.T)
-func TestPublisherGuardDeniesShellFileAndSecondExtensionTool(t *testing.T)
-func TestPublisherGuardDeniesMalformedOrWrongEventPayload(t *testing.T)
-func TestPublisherGuardAcceptsRawJSONAtEOFWithoutNewline(t *testing.T)
-func TestMainRoutesJSONRPCInitializeToSDKRuntime(t *testing.T)
-func TestMainReplaysInitializeFrameByteForByte(t *testing.T)
+func TestRunRejectsMissingOrRelativeCompozyExecutable(t *testing.T)
+func TestRunResolvesGitOnceAndStartsInjectedExtension(t *testing.T)
 ```
 
-Allowed input has `event=tool.pre_call`, `agent_name=batuta-publisher`, and `tool_id=ext__batuta__publish_worktree`, producing `{}`. Every other ToolID produces `{"deny":true,"deny_reason":"batuta-publisher may call only ext__batuta__publish_worktree"}`. Missing agent/tool/event exits nonzero so required-hook execution fails closed.
+The test injects the executable resolver and extension runner, proving startup
+passes only absolute resolved paths into `extensionapp.New`. Provider
+transport behavior remains owned by the published SDK.
 
 - [ ] **Step 3: Verify RED**
 
 Run:
 
 ```bash
-rtk go test . -run 'TestPublisherGuard|TestMainRoutes' -count=1
+rtk go test . -run 'TestRun' -count=1
 ```
 
-Expected: compilation fails because the multiplexer does not exist.
+Expected: compilation fails because the executable startup seam does not exist.
 
-- [ ] **Step 4: Pin the qualifying SDK and implement the fixed subprocess multiplexer**
+- [ ] **Step 4: Pin the qualifying SDK and implement the executable entrypoint**
 
 Add the exact released module version proven in Step 1 to `go.mod`; record that
 literal version in the task report and all Batuta floor checks:
@@ -627,18 +623,10 @@ literal version in the task report and all Batuta floor checks:
 rtk go get github.com/compozy/compozy/sdk/go@<qualifying-version-from-step-1>
 ```
 
-`main.go` uses one buffered reader when not in `__describe` mode. A non-empty
-first frame ending in `io.EOF` is valid input, because Compozy sends a raw hook
-payload with `json.Marshal` and no delimiter before closing stdin. If that JSON
-is a raw `tool.pre_call`, decode `contracts.ToolPreCallPayload` and write one
-`contracts.ToolCallPatch` JSON object. JSON-RPC remains newline-delimited: when
-the first complete line is `initialize`, replay the exact original bytes,
-including its delimiter, plus all remaining stdin into the SDK extension
-transport. Empty EOF, partial/malformed JSON, or any other envelope fails
-closed. `__describe` starts the same SDK definition. No separate hook script
-or command is allowed. Set the extension definition's `MinCompozyVersion` to
-the exact qualifying binary prerelease; never inherit the SDK's historical
-default.
+`main.go` requires an absolute `COMPOZY_EXECUTABLE`, resolves `git` once through
+Task 1's `ExecutableResolver`, constructs the SDK definition, and delegates
+describe/runtime transport to the published SDK. It contains no hook
+multiplexer, shell fallback, local SDK fork, or handwritten manifest.
 
 - [ ] **Step 5: Write failing declaration and tool tests**
 
@@ -646,26 +634,17 @@ In `internal/extensionapp/app_test.go`, use the SDK's in-memory transport to ass
 
 ```go
 func TestDefinitionShipsResourcesAndResolvedCompozyExecutable(t *testing.T)
-func TestDefinitionPinsBatutaBetaFiveAndQualifiedDaemonFloor(t *testing.T)
-func TestDefinitionDeclaresRequiredSynchronousPublisherGuard(t *testing.T)
+func TestDefinitionPinsBatutaBetaFive(t *testing.T)
 func TestDefinitionRegistersExactPublicationToolDescriptors(t *testing.T)
 func TestToolHandlersRejectMissingTrustedWorkspace(t *testing.T)
 func TestToolHandlersPassOnlyDaemonTrustedScopeToServices(t *testing.T)
 ```
 
-The hook declaration is exactly:
-
-```go
-compozysdk.DescribeHookEvent{
-	Name: "batuta-publisher-guard",
-	Event: contracts.HookEventToolPreCall,
-	Mode: contracts.HookMode("sync"),
-	Matcher: contracts.HookMatcher{AgentName: "batuta-publisher"},
-	Required: true,
-}
-```
-
-The definition declares `Version: "0.1.0-beta.5"`, the qualifying minimum Compozy floor, `agents`, `resources/skills`, and `loops`, subprocess `./bin`, and env `COMPOZY_EXECUTABLE={{compozy_executable}}`.
+The definition declares `Version: "0.1.0-beta.5"`, `agents`,
+`resources/skills`, and `loops`, subprocess `./bin`, and env
+`COMPOZY_EXECUTABLE={{compozy_executable}}`. It uses the released SDK's
+generated compatibility metadata without requiring a Batuta-specific Compozy
+manifest field.
 
 - [ ] **Step 6: Implement the SDK boundary**
 
@@ -691,7 +670,9 @@ rtk zsh -c 'build_tmp=$(mktemp -d -p /home/francisross/tmp-builds batuta-extensi
 rtk git diff --check
 ```
 
-Inspect the generated manifest and assert the three tools, resource paths, fixed subprocess, matcher, `mode=sync`, `required=true`, and exact qualifying `min_compozy_version` survived build/reload.
+Inspect the generated manifest and assert the three tools, resource paths, and
+fixed subprocess survived build/reload. The publisher's exact tool allowlist
+is verified from the bundled agent definition in Task 6.
 
 Commit:
 
@@ -844,7 +825,7 @@ Expected: failures because staging, validation, workflows, and republish still i
 
 - [ ] **Step 3: Implement code-backed staging, republish, CI, and release preflight**
 
-`stage-extension.sh` copies only the curated source/resource set into an empty real directory. `republish.sh` builds that source, reads `generation_dir` from structured output, validates it, and installs that immutable generated package before enabling and verifying inventory. It cleans only temporary directories it created. Do not install or validate the source directory as if it were a handwritten manifest package. Inventory must contain the four static resources plus the three tool descriptors and `batuta-publisher-guard`; use the actual public inventory `kind`/`name` projection returned by the qualifying Compozy release.
+`stage-extension.sh` copies only the curated source/resource set into an empty real directory. `republish.sh` builds that source, reads `generation_dir` from structured output, validates it, and installs that immutable generated package before enabling and verifying inventory. It cleans only temporary directories it created. Do not install or validate the source directory as if it were a handwritten manifest package. Inventory must contain the four static resources plus the three tool descriptors; use the actual public inventory `kind`/`name` projection returned by the qualifying Compozy release.
 
 CI installs Go 1.26.4, tests the module, builds once into a unique heavy scratch directory, and validates the generated manifest. Release consumes the already verified source, requires `release_version == 0.1.0-beta.5 == generated_manifest.version`, runs every build/test/contract/archive check before any irreversible tag push, sets `GOOS=linux GOARCH=amd64`, inspects the binary/archive concretely, and publishes only the immutable generated directory. There is no invented machine-readable platform label: workflow/artifact naming and public docs state the `linux/amd64` limitation until Compozy supports platform-aware assets.
 
@@ -911,26 +892,16 @@ rtk git commit -m "build: package executable batuta extension"
 
 `scripted-publisher-acp` is a deterministic ACP stdio provider configured only in the isolated test profile. Across Goal turns it requests, in order, one provider-native shell tool, one filesystem tool, the counter extension tool through its real hosted MCP binding, and finally `ext__batuta__publish_worktree`; after each denied result it continues, and after the admitted publish result it emits the exact Goal control/publication envelope. The fixture asserts the attempted ToolIDs and never fabricates publication evidence itself.
 
-`publication_forge_fixture_smoke.sh` builds those fixtures, serves the temporary bare remote through the public forge fixture, and runs the installed `batuta-publisher` Goal under `approve-all`. Containment is proved in two separate rows so layer ordering is observable:
-
-1. the production `batuta-publisher` definition proves its exact allowlist
-   rejects shell, filesystem, and counter before dispatch, with zero pending
-   permission interaction;
-2. an isolated test-profile agent with the same effective
-   `agent_name=batuta-publisher` but a test-only allowlist containing exactly
-   publish plus counter proves the required hook denies the hosted counter
-   before its handler increments, while admitting publish. This agent is never
-   embedded, staged, or released.
+`publication_forge_fixture_smoke.sh` builds those fixtures, serves the temporary bare remote through the public forge fixture, and runs the installed `batuta-publisher` Goal under `approve-all`. The production `batuta-publisher` definition proves its exact daemon-enforced allowlist rejects shell, filesystem, and counter before dispatch, with zero pending permission interaction and zero counter-handler execution.
 
 It proves:
 
 - the production allowlist denies shell, filesystem, and the second extension
-  tool; the broadened test-only row reaches the hook and proves it independently
-  denies that real hosted counter with zero handler execution;
+  tool with zero handler execution;
 - the exact publish tool is admitted once;
 - exact-HEAD push and PR creation expose ordered durable operation IDs and an observable HTTPS PR URL;
 - `publication_verify` independently confirms the exact remote/PR head;
-- dirty/drifted, foreign-workspace, fabricated-result, and unavailable-hook cases fail closed;
+- dirty/drifted, foreign-workspace, fabricated-result, and unavailable-tool cases fail closed;
 - teardown leaves no extension or Goal subprocess alive.
 
 It also runs live negative rows for human gate rejection, an authored submission containing the removed `auto_commit=false` input, and a serving forge with credentials deliberately unavailable. Every row requires zero push, zero PR, zero durable publication operation, zero pending permission interaction, and clean fixture teardown. This deterministic fixture is integration evidence, not a substitute for the release QA run against a real serving forge.
@@ -941,7 +912,7 @@ Run each smoke once to capture honest RED at its named missing fixture/boundary,
 
 - [ ] **Step 4: Update docs and the release QA matrix**
 
-Document: Go 1.26.4 toolchain; exact qualifying Compozy prerelease and generated manifest floor; literal commits; one human publication gate; exact scoped publisher capability; required hook fail-closed behavior; actual PR requirement; local bare-remote negative smoke; fixture-backed and real-forge positive smokes; dirty/drifted/foreign-worktree/fabricated-result/forbidden-tool negatives; and the initial `linux/amd64` GitHub-package limit. Remove every instruction that asks the operator to commit, push, open a PR, accept compare-only success, configure `auto_commit=false`, or approve publisher shell commands. The beta release note records removal of `auto_commit=false` as a breaking change.
+Document: Go 1.26.4 toolchain; exact qualifying Compozy prerelease; literal commits; one human publication gate; exact daemon-enforced publisher allowlist; trusted publication capability; actual PR requirement; local bare-remote negative smoke; fixture-backed and real-forge positive smokes; dirty/drifted/foreign-worktree/fabricated-result/forbidden-tool negatives; and the initial `linux/amd64` GitHub-package limit. Remove every instruction that asks the operator to commit, push, open a PR, accept compare-only success, configure `auto_commit=false`, or approve publisher shell commands. The beta release note records removal of `auto_commit=false` as a breaking change.
 
 - [ ] **Step 5: Run focused and full local verification**
 
@@ -980,7 +951,7 @@ After every task has an approved task review, generate one whole-branch review p
 Stop this plan when:
 
 1. all unit, race, vet, Python, contract, and local integration commands above have fresh evidence;
-2. the generated manifest preserves all resources, three tool descriptors, and the required matched hook;
+2. the generated manifest preserves all resources and three tool descriptors, while the bundled publisher agent preserves its exact one-tool allowlist;
 3. a publisher-shell attempt is denied under `approve-all` with zero handler execution;
 4. a local bare remote proves missing-forge refusal with zero mutation;
 5. a deterministic serving-forge integration proves the complete Goal, push, PR, and verifier path;

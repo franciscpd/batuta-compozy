@@ -1,5 +1,9 @@
 # Compozy Code-First Required Hooks Implementation Plan
 
+Status: cancelled on 2026-08-25. Batuta uses Compozy's existing exact agent
+tool allowlist and does not depend on this platform change. Preserve this file
+as historical design context; do not execute or publish this plan for Batuta.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Preserve hook name, mode, matcher, and `required: true` from Go/TypeScript code-first declarations into generated manifests and prove required failures block matched tool calls.

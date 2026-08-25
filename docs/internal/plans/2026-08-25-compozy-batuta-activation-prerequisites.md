@@ -1,5 +1,10 @@
 # Compozy Batuta Activation Prerequisites Implementation Plan
 
+Status: superseded on 2026-08-25. Batuta now consumes existing Compozy
+extension/tool/allowlist boundaries and the independent conjunctive
+runtime-routing change only. Do not execute the minimum-version, config-CAS,
+nested-recovery, migration, or required-hook work in this plan for Batuta.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use
 > `superpowers:subagent-driven-development` or `superpowers:executing-plans`,
 > and apply `superpowers:test-driven-development` to every task.

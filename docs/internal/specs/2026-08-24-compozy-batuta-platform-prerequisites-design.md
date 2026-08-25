@@ -1,6 +1,10 @@
 # Compozy prerequisites for autonomous Batuta delivery — design
 
-Status: approved in conversation on 2026-08-24
+Status: superseded on 2026-08-25. Batuta no longer adopts this aggregate
+platform floor. The active Compozy dependency is the independent conjunctive
+runtime-routing change; required hooks, revisioned Loop configuration, nested
+recovery, and extension-specific minimum-version overrides are not Batuta
+prerequisites.
 
 ## Context
 
