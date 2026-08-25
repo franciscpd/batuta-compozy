@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var gitSHA = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+var gitBaseRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 type GitSnapshot struct {
 	HeadSHA  string
@@ -68,6 +70,25 @@ func (c GitClient) UpstreamHead(ctx context.Context, worktreePath string) (strin
 		return "", fmt.Errorf("publication: read git upstream HEAD: %w", err)
 	}
 	return parseGitSHA(result.Stdout)
+}
+
+func (c GitClient) CommitsAheadOfBase(ctx context.Context, worktreePath, base string) (int, error) {
+	if err := c.validate(worktreePath); err != nil {
+		return 0, err
+	}
+	base = strings.TrimSpace(base)
+	if !gitBaseRef.MatchString(base) || strings.Contains(base, "..") || strings.Contains(base, "@{") {
+		return 0, errors.New("publication: base branch is invalid")
+	}
+	result, err := c.run(ctx, worktreePath, "rev-list", "--count", base+"..HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("publication: count commits ahead of base: %w", err)
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(string(result.Stdout)))
+	if err != nil || count < 0 {
+		return 0, errors.New("publication: Git returned an invalid base-ahead count")
+	}
+	return count, nil
 }
 
 func (c GitClient) validate(worktreePath string) error {

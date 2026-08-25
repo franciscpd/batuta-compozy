@@ -179,7 +179,7 @@ rtk git commit -m "feat: add safe publication process boundary"
 
 **Interfaces:**
 - Consumes: Task 1 `CommandRunner`, `GitClient`, and `GitSnapshot`.
-- Produces: `TrustedScope`, `CLIClient`, `Planner.Plan(context.Context, TrustedScope, PlanInput) (PlanOutput, error)`, and stable JSON structs reused by Tasks 3–5.
+- Produces: `TrustedScope`, `CLIClient`, `PublicationPlanner.Plan(context.Context, TrustedScope, PlanInput) (PlanOutput, error)`, and stable JSON structs reused by Tasks 3–5. This planner only classifies publication safety; Compozy remains the owner of task decomposition and execution planning.
 
 - [ ] **Step 1: Write failing CLI argv and decode tests**
 
@@ -295,6 +295,7 @@ type WorktreeClient interface {
 type GitEvidence interface {
 	Snapshot(context.Context, string) (GitSnapshot, error)
 	UpstreamHead(context.Context, string) (string, error)
+	CommitsAheadOfBase(context.Context, string, string) (int, error)
 }
 ```
 
@@ -330,7 +331,7 @@ Run:
 rtk go test ./internal/publication -run 'TestPlanner' -count=1
 ```
 
-Expected: compilation fails because `Planner`, `PlanInput`, and `PlanOutput` are absent.
+Expected: compilation fails because `PublicationPlanner`, `PlanInput`, and `PlanOutput` are absent.
 
 - [ ] **Step 6: Implement deterministic planning**
 
@@ -355,7 +356,7 @@ type PlanOutput struct {
 	ExitPlan ExitPlan `json:"exit_plan"`
 	Blockers []string `json:"blockers,omitempty"`
 }
-type Planner struct { Compozy WorktreeClient; Git GitEvidence }
+type PublicationPlanner struct { Compozy WorktreeClient; Git GitEvidence }
 type BlockedPlanError struct { Plan PlanOutput }
 ```
 
@@ -364,6 +365,8 @@ codes; callers recover the structured plan with `errors.As` and never parse the
 message.
 
 Use stable machine blocker values: `trusted_scope_missing`, `worktree_unavailable`, `workspace_mismatch`, `worktree_not_ready`, `worktree_path_invalid`, `git_unreadable`, `dirty_worktree`, `detached_head`, `branch_mismatch`, `head_invalid`, `exit_plan_mismatch`, `exit_plan_paused`, `branch_diverged`, `branch_behind`, `remote_missing`, `forge_unavailable`, and `publication_state_ambiguous`. Return `BlockedPlanError` carrying the structured blocked plan for expected unsafe posture. Malformed input and transport/decoding failures remain distinct errors. The SDK handler in Task 5 maps `BlockedPlanError` to a typed tool failure with safe blocker data, so the Loop stops before the human gate; only `publishable` and `nothing_to_publish` are successful tool results.
+
+Treat tracking-upstream state separately from remote existence. A first publication legitimately has `has_upstream=false`, null `ahead`/`behind`, and a non-null `ahead_of_base`; the fresh exit plan's `push` row proves that an origin exists. After push, `has_upstream=true` and `ahead_of_base` is null. Classify both using `CommitsAheadOfBase` against the daemon-selected base, call `UpstreamHead` only when tracking exists, and cross-check `ahead_of_base` when Compozy supplies it.
 
 - [ ] **Step 7: Verify GREEN and commit**
 
@@ -392,7 +395,7 @@ rtk git commit -m "feat: plan trusted worktree publication"
 - Create: `internal/publication/publish_test.go`
 
 **Interfaces:**
-- Consumes: Task 2 `Planner`, `WorktreeClient`, `GitEvidence`, `ExitPlan`, `Operation`, and `TrustedScope`.
+- Consumes: Task 2 `PublicationPlanner`, `WorktreeClient`, `GitEvidence`, `ExitPlan`, `Operation`, and `TrustedScope`.
 - Produces: `Publisher.Publish(context.Context, TrustedScope, PublishInput) (PublishOutput, error)`.
 
 - [ ] **Step 1: Write the failing state-machine tests**
@@ -447,7 +450,7 @@ type PublishOutput struct {
 	LastExitPlan ExitPlan `json:"last_exit_plan"`
 }
 type Publisher struct {
-	Planner Planner
+	Planner PublicationPlanner
 	Compozy WorktreeClient
 	Git GitEvidence
 	PollInterval time.Duration
@@ -528,7 +531,7 @@ type VerifyOutput struct {
 	PRURL string `json:"pr_url,omitempty"`
 	Summary string `json:"summary"`
 }
-type Verifier struct { Planner Planner; Git GitEvidence }
+type Verifier struct { Planner PublicationPlanner; Git GitEvidence }
 ```
 
 For `published`, rerun planning, require clean exact local HEAD, require upstream HEAD equal to expected, require a current `view_pr` action/forge status with an absolute HTTPS URL, and require it equal to the publisher result. For `nothing_to_publish`, require a fresh `nothing_to_publish` disposition, zero claimed operations, and no PR URL. `blocked`, unknown status, malformed URLs, missing evidence, or mismatch returns an error and `Verified=false`.
@@ -648,7 +651,7 @@ manifest field.
 
 - [ ] **Step 6: Implement the SDK boundary**
 
-`main` resolves `git` once through Task 1's `ExecutableResolver`, requires absolute `COMPOZY_EXECUTABLE`, and injects both paths into `extensionapp.New`. `extensionapp.New` constructs `ExecRunner`, `CLIClient`, `GitClient`, `Planner`, `Publisher`, and `Verifier`, then registers:
+`main` resolves `git` once through Task 1's `ExecutableResolver`, requires absolute `COMPOZY_EXECUTABLE`, and injects both paths into `extensionapp.New`. `extensionapp.New` constructs `ExecRunner`, `CLIClient`, `GitClient`, `PublicationPlanner`, `Publisher`, and `Verifier`, then registers:
 
 ```go
 publication_plan      read_only=true  input={worktree_ref}

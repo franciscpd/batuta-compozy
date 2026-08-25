@@ -85,6 +85,34 @@ func TestGitClientUpstreamHeadReturnsTheRemoteTrackingSHA(t *testing.T) {
 	}
 }
 
+func TestGitClientCommitsAheadOfBaseUsesExactValidatedRevision(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingCommandRunner{results: []CommandResult{{Stdout: []byte("2\n")}}}
+	client := GitClient{Executable: "/controlled/git", Runner: runner}
+	got, err := client.CommitsAheadOfBase(context.Background(), "/trusted/worktree", "main")
+	if err != nil {
+		t.Fatalf("CommitsAheadOfBase() error = %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("CommitsAheadOfBase() = %d, want 2", got)
+	}
+	want := []Command{{
+		Executable: "/controlled/git",
+		Args:       []string{"rev-list", "--count", "main..HEAD"},
+		Directory:  "/trusted/worktree",
+	}}
+	if !reflect.DeepEqual(runner.commands, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+
+	for _, base := range []string{"", "--help", "main..other", "main@{upstream}", "main branch"} {
+		if _, err := client.CommitsAheadOfBase(context.Background(), "/trusted/worktree", base); err == nil {
+			t.Fatalf("CommitsAheadOfBase(base=%q) error = nil, want validation error", base)
+		}
+	}
+}
+
 func TestGitClientRejectsRelativeWorktreePath(t *testing.T) {
 	t.Parallel()
 
