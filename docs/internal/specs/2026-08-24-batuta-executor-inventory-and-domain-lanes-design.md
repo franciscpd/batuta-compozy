@@ -1,7 +1,7 @@
 # Batuta executor inventory and domain lanes — design
 
-Status: approved in conversation on 2026-08-24; implementation requires the
-Compozy conjunctive-runtime-rule prerequisite
+Status: approved in conversation on 2026-08-24; activation requires all six
+Compozy platform contracts in the companion prerequisite design
 
 ## Context
 
@@ -59,6 +59,15 @@ The initial closed domain vocabulary is:
 Complexity remains `low`, `medium`, `high`, or `critical`. Neither axis is
 encoded into the other; values such as `frontend-high` are invalid.
 
+For Batuta-authored delivery tasks, canonical domain is stored directly in the
+existing task frontmatter `type`; there is no second hidden `domain` field.
+Generic work-type slugs such as `test`, `refactor`, `chore`, `bugfix`,
+`qa-report`, or `qa-execution` are not lane domains. During task authoring,
+Batuta semantically reclassifies them into the closed vocabulary (for example
+`test` becomes `testing`) and materializes the result before approval. Routing
+rejects a later noncanonical `type` as an artifact defect and re-enters task
+authoring; it never maps it silently at dispatch time.
+
 ## Classification and decomposition
 
 Classification is hybrid and structured:
@@ -77,6 +86,13 @@ piece can be implemented and verified independently. For example, an API
 change and its browser consumer become `backend` and `frontend` tasks. The
 `fullstack` fallback is used only when splitting would break atomic behavior or
 produce unverifiable intermediate work.
+
+Implementation ruling: decomposition is materialized during spec-cycle task
+authoring, before approval and import. Routing loads the approved
+`.compozy/tasks/<slug>/task_*.md` set from the trusted workspace, validates the
+already materialized dependency graph, and digests every artifact byte. It
+never creates an in-memory decomposition that `implement-tasks` cannot consume,
+and it never trusts caller-supplied authored metadata.
 
 This supersedes the older spec-cycle rule that required the operator to review
 every type and complexity assignment. Batuta may explain the classification,
@@ -156,6 +172,30 @@ tooling, database access, infrastructure CLIs, MCPs, repository instructions,
 sandbox write access, or test commands. Complexity sets minimum model tier,
 reasoning effort, verification depth, retry budget, and review posture.
 
+The fallback budget is closed and counts automatic recovery operations, not
+the daemon's own action retry attempts:
+
+| Complexity | Maximum fallbacks for one task |
+| --- | --- |
+| `low` | 1 |
+| `medium` | 2 |
+| `high` | 3 |
+| `critical` | 3 |
+
+One `batuta-deliver` run permits at most three fallback operations in total,
+regardless of how many tasks fail. Its original contract therefore starts with
+`iteration_cap: 4` (generation 1 plus three recovery generations). Batuta uses
+the lower of the per-task remaining allowance, the delivery-wide remaining
+allowance, and the runtime candidate count. Exhaustion blocks with evidence;
+it never raises the ceiling or starts a new delivery run.
+
+In Loop v1, runtime rules directly apply provider, model, reasoning, and speed.
+Verification depth and review posture are enforced by the `code_implementer`
+contract from the authored complexity. The complexity retry budget is Batuta's
+maximum number of floor-preserving fallback candidates inside the enclosing
+Loop's unchanged budget; it does not claim a nonexistent per-cell daemon retry
+field or enlarge the daemon's own lifecycle limits.
+
 The inventory does not claim that an executor is capable merely because it is
 installed. A candidate is eligible only when every hard requirement is
 `resolved` or is proven by a successful bounded probe. `declared` evidence may
@@ -191,21 +231,52 @@ capabilities; they do not invent a Compozy provider or model binding.
 The stored matrix is refreshed automatically when an executable version,
 effective configuration digest, provider catalog generation, or relevant
 workspace instruction digest changes. A dispatch snapshots and reports the
-resolved routing generation so a mid-run configuration change cannot silently
-rewrite an executing task.
+resolved routing generation and carries its digest as a required immutable
+delivery input. Batuta archives the validated fallback chain under that digest;
+recovery reads the binding from authoritative run status, so a mid-run matrix
+refresh or process restart cannot silently rewrite an executing task's
+candidates.
+
+Safe persistence requires a read-only stored Loop-config snapshot with a
+canonical revision and compare-and-swap replacement. The current
+`loop configure` mutation path can create an override row and cannot be used as
+a read by writing `{}`. Batuta reads the
+stored override plus revision, preserves every non-owned rule, writes against
+that revision, and replans on conflict. Matrix persistence remains blocked
+until the released Compozy surface provides this read/CAS contract. Automatic
+fallback is gated separately on same-lineage nested recovery with an ephemeral
+exact runtime; neither gate substitutes for the other.
 
 ## Automatic fallback
 
 Binding failures, unavailable models, quota/auth errors, and repeated
 execution failures are classified from structured runtime evidence. Batuta
-selects the next eligible candidate, writes a surgical exact-task override,
-and redispatches within the existing iteration, token, and wall-clock budgets.
-It never downgrades the task's complexity floor.
+selects the next eligible candidate and requests one same-lineage recovery
+with an ephemeral exact runtime inside the existing iteration, token, and
+wall-clock budgets. It never downgrades the task's complexity floor.
 
-Exact-task overrides are Batuta-owned transient state. Batuta records their
-owner delivery run, removes them after the replacement child run snapshots its
-configuration, and reconciles stale owned overrides before the next Batuta
-dispatch. It never removes an operator-authored rule.
+Exact-task fallbacks are Batuta-owned transient recovery-generation state, not
+stored workspace rules. Batuta records the owner delivery run, recovery
+operation, selected fallback, attempt, and resulting runtime evidence. Compozy
+applies the exact runtime only to the replacement generation, so there is no
+workspace-rule cleanup and no possibility of deleting an operator-authored
+rule. Matrix ownership remains revisioned stored state and is reconciled
+separately.
+
+The replacement is a durable same-lineage recovery, not a new full delivery
+run: Compozy reopens the failed nested `implement-tasks` item and its transitive
+dependents, carries successful siblings, applies the exact runtime only to the
+replacement generation, and preserves the original parent token, wall-clock,
+and iteration accounting. Batuta supplies only the opaque delivery run ID and
+derives child/item/failure/runtime evidence from authoritative status. Until a
+released Compozy recovery surface can reopen that nested lineage, automatic
+fallback is blocked rather than approximated with a fresh budget or by
+re-executing the whole task set.
+
+Every terminal effect identity includes the Loop generation. Batuta uses
+`loop_run_id + generation + trigger` in its queued-session message and
+idempotency keys so each re-settlement wakes the conductor exactly once while
+duplicate delivery of the same settlement remains harmless.
 
 If no candidate satisfies the lane, Batuta attempts valid decomposition and
 the `general`/`fullstack` fallbacks where semantically sound. It blocks only
@@ -253,9 +324,11 @@ Implementation acceptance requires:
    ranking, stable ties, unavailable providers, and provider-specific model
    IDs;
 6. Compozy integration tests proving `type + complexity` rules select distinct
-   providers/models and exact-ID fallback retains precedence;
-7. recovery tests proving Batuta-owned overrides are reconciled without
-   deleting operator-authored rules;
+   providers/models and an ephemeral exact recovery runtime has precedence only
+   for its recovered generation cell;
+7. recovery tests proving ephemeral Batuta fallbacks never mutate stored rules,
+   preserve operator-authored rules, and wake the conductor exactly once per
+   settlement generation;
 8. an isolated end-to-end smoke with at least two domains and two complexity
    levels proving resolved runtime provenance, one commit per task, committed
    review fixes, clean HEAD, push, PR creation, and exact-HEAD verification;
@@ -264,9 +337,12 @@ Implementation acceptance requires:
 
 ## Compatibility and rollout
 
-The feature requires the first Compozy prerelease that supports conjunctive
-`type + complexity` runtime matches. Batuta's runtime guard must recognize the
-exact released identity before the new matrix is activated.
+The feature requires the first Compozy prerelease containing all six platform
+contracts: required code-first hooks, conjunctive `type + complexity` runtime
+rules, extension-specific minimum daemon version, read-only revisioned Loop
+config with CAS, same-lineage nested recovery with an ephemeral exact runtime,
+and the closed complexity-verification policy. Batuta's generated manifest and
+runtime guard must recognize that exact released floor before activation.
 
 Inventory rollout begins read-only and records snapshots without changing
 routing. Matrix selection is then enabled in an isolated QA workspace, followed

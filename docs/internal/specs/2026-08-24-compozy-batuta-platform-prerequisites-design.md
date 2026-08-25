@@ -10,32 +10,120 @@ Batuta has two approved functional changes:
    fixes, then pushes and opens a verified pull request after one human gate;
 2. executor inventory and routing by the matrix `domain × complexity`.
 
-Current Compozy provides almost all required primitives, but two platform
-contracts are insufficient for those designs:
+Current Compozy provides most required primitives, but six platform contracts
+are insufficient for those designs:
 
 - an SDK-built extension can describe supported hook events, but the generated
   manifest cannot preserve a matcher or `required: true`; and
 - one task runtime rule may match `id`, `type`, or `complexity`, but validation
   requires exactly one selector, so it cannot express `frontend/high` as one
-  durable rule.
+  durable rule;
+- a code-first extension cannot override the SDK's historical minimum daemon
+  version in its generated manifest;
+- Loop config has a structured GET internally, but no CLI read surface or
+  revisioned compare-and-swap replacement; and
+- a settled parent cannot autonomously reopen one failed nested child item
+  under the original lineage budget with an ephemeral runtime; and
+- the spec-cycle implementer receives task complexity but has no closed,
+  testable verification-depth contract keyed by that value.
 
-These are generic Compozy capabilities. Batuta must not emulate either
-contract with unrestricted shell access, mutable user configuration, composite
+These are generic Compozy capabilities. Batuta must not emulate these
+contracts with unrestricted shell access, mutable user configuration, composite
 task-type strings, or operator cleanup.
 
 ## Decision
 
-Implement two independent, compatibility-safe Compozy changes and release
-them together as the Batuta platform floor:
+Implement independent, compatibility-safe Compozy changes and release them
+together as the Batuta platform floor:
 
 1. code-first hook declarations preserve the security-relevant declaration
    fields needed for fail-closed extension hooks;
 2. runtime rules accept a conjunctive `type + complexity` selector with an
-   explicit specificity order.
+   explicit specificity order;
+3. code-first definitions can declare an extension-specific minimum daemon;
+4. Loop config supports read-only revision snapshots and optional CAS writes;
+5. nested recovery preserves lineage, carried work, and budgets;
+6. spec-cycle execution applies a closed complexity verification policy.
 
-The changes receive separate implementation plans and tests. Batuta raises its
-operational minimum only after both contracts exist in a released Compozy
+The changes receive reviewed implementation plans and tests. Batuta raises its
+operational minimum only after every contract exists in a released Compozy
 prerelease.
+
+The last four contracts were found during executable-plan review. They do not
+change Batuta's product scope; they make the approved publication and routing
+semantics executable without destructive reads, stale writes, fresh budgets,
+or handwritten generated manifests.
+
+## Extension-specific minimum daemon version
+
+`ExtensionDefinition` accepts an optional string `min_compozy_version`. The SDK
+trims surrounding whitespace before testing presence and validity. When the
+normalized value is empty, it retains its historical default for compatibility.
+When present, SDK describe preserves that normalized valid SemVer value into
+`sdk.min_compozy_version`, and the generated manifest/install compatibility
+check uses it. A non-empty invalid SemVer value fails validation.
+This lets Batuta's generated immutable bundle carry its actual platform floor;
+a shell guard that is absent from the published bundle is insufficient.
+
+## Revisioned Loop configuration
+
+A public Loop config read returns the stored override, effective config, and a
+canonical monotonic `int64` `config_revision` without mutation. Revision `0`
+means no stored override; clients otherwise treat the value as an opaque
+concurrency token. The CLI exposes this as
+an explicit read-only command; the current `loop configure --file {}` uses the
+write/auth path and can create an empty row, so it is never documented as a
+read even though omitted patch fields preserve an existing row.
+
+Loop config mutation accepts an optional `expected_revision`. When present,
+the store compares it atomically with the current stored revision and either
+commits the validated patch or returns a typed conflict without mutation.
+Legacy callers that omit it retain existing patch semantics.
+The revision changes whenever the stored override changes and has one stable
+sentinel for an absent override. It contains no configuration or credential
+material.
+
+## Same-lineage nested recovery
+
+Compozy exposes a durable recovery operation for a settled parent delivery run
+that owns a failed nested `run-loop` child item. Given the trusted workspace,
+opaque parent run ID, an idempotency key, and a validated ephemeral exact-item
+runtime, the daemon itself resolves the parent/child/node/item lineage. It
+rejects caller-selected foreign nodes or task metadata, reopens only the failed
+child item and transitive dependents, carries successful siblings, and resumes
+the owning parent after the child settles.
+
+The recovery generation inherits the original pinned definition, task set,
+token accounting, wall-clock deadline, and iteration ceiling. The exact runtime
+applies only to that recovery generation and never enters stored workspace
+rules. Status exposes the recovery operation ID and resolved-runtime snapshot
+needed for Batuta to reconcile its journal. Cancellation, conflict, exhausted
+budgets, missing ownership, or an unsettled lineage fail with typed evidence
+and never start a fresh full-budget delivery.
+
+## Complexity-aware task verification
+
+The spec-cycle importer already carries authored `complexity`. The
+`implement-tasks` prompt exposes that exact value to `code_implementer`, and
+`code_implementer` plus `cy-execute-task` apply this closed minimum policy:
+
+| Complexity | Minimum verification depth | Review posture |
+| --- | --- | --- |
+| `low` | focused tests and formatting/lint for every changed surface | required self-review |
+| `medium` | `low` plus the owning package/suite and applicable static analysis | self-review plus contract parity |
+| `high` | `medium` plus applicable race/integration coverage and cross-surface regression checks | independent review required |
+| `critical` | `high` plus the repository's affected system/gate | independent review plus final contract-parity review required |
+
+Repository instructions and the approved task resolve concrete commands; the
+agent cannot skip an applicable row merely because the task omitted a command.
+An inapplicable check is reported with bounded evidence, not silently treated
+as pass. Existing `review-and-fix` remains the independent review executor;
+independence means its reviewer runs in a new isolated session with no
+implementation-session history. Its prompt receives the exact complexity of
+the named review target. A single-task caller supplies that task's complexity;
+the Batuta parent names the whole slug as its delivery-review target and passes
+the deterministic highest authored complexity returned by task import. This
+policy does not invent a per-cell daemon retry field or a model tier.
 
 ## Code-first required hook declarations
 
@@ -58,7 +146,7 @@ otherwise, empty matcher, and `required: false`.
 Batuta declares one synchronous `tool.pre_call` hook with:
 
 ```text
-name: batuta-publisher-tool-guard
+name: batuta-publisher-guard
 event: tool.pre_call
 mode: sync
 matcher.agent_name: batuta-publisher
@@ -173,16 +261,29 @@ The Compozy implementation is accepted only when:
    and per-field provenance.
 6. API/native-tool and config round trips accept `type + complexity` without
    changing legacy single-selector output.
-7. `make codegen-check`, focused Go/TypeScript tests, `make gate`, and
+7. SDK describe/build/reload tests preserve an explicit minimum daemon and
+   retain the historical default when the field is omitted.
+8. CLI/API/store integration proves a read causes zero mutation, stale
+   revisions conflict atomically, absent-config revisions are stable, and
+   legacy unconditional PUT remains compatible.
+9. Recovery integration proves one failed nested item and dependents rerun,
+   successful siblings carry, parent continuation resumes, the ephemeral
+   runtime appears in resolved provenance, original budgets remain monotonic,
+   and replayed idempotency keys do not duplicate work.
+10. Spec-cycle contract tests cover all four complexity rows, unknown/missing
+    values, applicable/inapplicable evidence, and high/critical independent
+    review posture.
+11. `make codegen-check`, focused Go/TypeScript tests, `make gate`, and
    `make gate-full` pass with `TMPDIR` and `GOTMPDIR` unset as required by the
    repository test contract.
 
 ## Rollout
 
-The two changes land as separately reviewable commits in an isolated Compozy
+The changes land as separately reviewable commits in an isolated Compozy
 worktree. They may share one release, but neither Batuta feature claims
-compatibility until both are present in a published prerelease and the Batuta
-runtime guard recognizes its exact identity.
+compatibility until all required contracts are present in a published
+prerelease and the Batuta generated manifest/runtime guard recognizes its exact
+identity.
 
 The dirty primary Compozy checkout is never used for implementation. Existing
 unrelated edits there remain untouched.

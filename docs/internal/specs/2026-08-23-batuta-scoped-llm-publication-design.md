@@ -116,8 +116,9 @@ not run publication commands.
 `batuta-publisher` remains the agent used by the `publish` Goal. Its effective
 surface is narrowed in three independent layers:
 
-1. Its agent definition and the Goal node both allow only
-   `ext__batuta__publish_worktree`.
+1. Its agent definition allows only `ext__batuta__publish_worktree`. Loop v1
+   has no Goal-level `allowed_tools` field, so the Goal objective repeats the
+   one-tool instruction but is not counted as a separate enforcement surface.
 2. A required synchronous `tool.pre_call` hook matching
    `agent_name=batuta-publisher` denies every tool call except that exact
    canonical ToolID. This includes provider-native shell, file reads/writes,
@@ -134,9 +135,20 @@ boundary; the required hook, the concrete tool allowlist, and trusted
 workspace resolution are. A test must prove that shell and a second benign
 tool are denied even while the session reports `approve-all`.
 
+Implementation ruling: Loop v1 exposes `allowed_tools` on `run-agent`, but not
+on `goal`. Batuta keeps the approved Goal controller instead of adding another
+platform prerequisite. The exact `tools` allowlist therefore lives in the
+`batuta-publisher` definition, while the required synchronous hook remains the
+independent runtime enforcement boundary for every attempted ToolID.
+
 The Goal objective gives the publisher the pre-gate `head_sha` and worktree
-ref and instructs it to call the capability exactly once. Its structured
-output reports the tool result without inventing evidence.
+ref and instructs it to call the capability exactly once. Compozy owns the
+top-level Goal control status, so the Goal returns `status: complete|blocked`
+and places the unmodified tool result under `publication_result`. A successful
+tool result uses top-level `complete`; a tool result with publication status
+`blocked` uses top-level `blocked`, terminating the Loop before verification.
+The independent verifier receives only `publication_result` and never treats
+the Goal control status as publication evidence.
 
 ### Deterministic publication
 
@@ -234,7 +246,9 @@ the delivery successful.
 
 ## Security invariants
 
-- No publication tool accepts workspace, path, remote, URL, or command input.
+- No publication tool accepts workspace, path, remote, destination URL, or
+  command input. The verifier may receive the publisher's claimed PR URL only
+  as untrusted evidence to compare with a freshly observed forge URL.
 - The daemon-authenticated workspace scope is mandatory and authoritative.
 - The expected HEAD captured before the gate is rechecked before mutation and
   after publication.
@@ -265,11 +279,14 @@ Implementation acceptance requires:
    descriptors, required hook, agent allowlist, revised graph, and independent
    verifier.
 4. Existing Batuta contract and Python E2E suites remain green.
-5. An isolated daemon smoke with a local bare remote proves unattended
-   Goal execution, exact HEAD push, structured `op_id`, and zero pending
-   permission interactions.
-6. A forge-backed smoke proves commit creation, exact-HEAD push, PR creation,
-   and independent verification.
+5. An isolated daemon smoke with a local bare remote proves the pre-gate
+   missing-forge refusal and zero publication mutation.
+6. A deterministic serving-forge integration proves unattended Goal
+   execution, exact-HEAD push, structured operation IDs, PR creation,
+   independent verification, and zero pending permission interactions. A
+   release QA smoke against a real serving forge must prove the same external
+   outcome before the beta is published; missing credentials may block QA but
+   cannot satisfy release acceptance.
 7. Negative live smokes cover rejection, `auto_commit=false` authoring,
    dirty/drifted worktree, missing forge/credentials, fabricated Goal output,
    a forbidden shell attempt, and an out-of-workspace ref.
@@ -286,12 +303,22 @@ publisher matcher or fail-closed availability contract in this design.
 Implementation therefore has a platform prerequisite: Compozy must expose a
 code-first synchronous hook declaration with matcher and `required: true`, and
 must prove that a required hook execution failure denies the intercepted tool
-call. The complete platform contract is recorded in
+call. The SDK must also let an extension declare its exact minimum compatible
+Compozy version in the generated manifest; the SDK-wide historical default is
+not a sufficient Batuta compatibility floor. The complete platform contract is recorded in
 `docs/internal/specs/2026-08-24-compozy-batuta-platform-prerequisites-design.md`.
 Batuta's operational floor must be the first released prerelease that contains
 that contract; it must not claim `0.3.0-beta.19` is sufficient.
 Installation and republish documentation must also state the Go
 build-toolchain requirement.
+
+Code-backed GitHub packages are immutable generated bundles and include the
+compiled subprocess; installing a GitHub package does not compile its source.
+Until Compozy gains platform-aware asset selection, the first executable
+Batuta beta release is explicitly `linux/amd64`. Local development remains
+source-based and builds on the host through `compozy extension build`. Other
+published platforms require a later distribution contract and are not
+silently served a Linux binary.
 
 The public behavior remains intentionally stable: users still request a
 delivery, inspect one publication gate, and choose approve or reject. The
