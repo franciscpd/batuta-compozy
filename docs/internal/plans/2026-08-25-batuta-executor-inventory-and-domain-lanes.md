@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The operational floor is the first released Compozy prerelease containing all six platform contracts: required code-first hooks, conjunctive `type + complexity` runtime rules, extension-specific minimum daemon version, read-only revisioned Loop config with CAS, same-lineage nested recovery with an ephemeral exact runtime, and the closed complexity-verification policy. Do not activate the matrix on `0.3.0-beta.20`.
+- The operational floor is the first released Compozy prerelease containing all five platform contracts: conjunctive `type + complexity` runtime rules, extension-specific minimum daemon version, read-only revisioned Loop config with CAS, same-lineage nested recovery with an ephemeral exact runtime, and the closed complexity-verification policy. Required hooks are not a Batuta prerequisite. Do not activate the matrix on `0.3.0-beta.20`.
 - These are platform prerequisites, not behaviors Batuta may emulate with a write-shaped `{}` read, a stale patch, handwritten manifest, advisory prompt, stored fallback rule, or fresh full-run dispatch.
 - This plan consumes the code-backed extension foundation from `docs/internal/plans/2026-08-25-batuta-scoped-llm-publication.md`; do not create a second extension binary or a separate SDK bootstrap.
 - Do not commit a local `replace`, unpublished pseudo-version, vendored SDK, locally invented tag, or raw hand-authored executable manifest.
@@ -25,7 +25,7 @@
 - Concrete runtime rules use only exact `provider_id` and `model_id` pairs from the live Compozy catalog. External executor inventories can affect eligibility and ranking but cannot invent a Compozy binding.
 - Exact-task fallbacks never lower the task's complexity floor. They are ephemeral recovery-generation state and never enter stored Loop rules; only Batuta-owned matrix rules participate in revisioned refresh.
 - The closed per-task fallback maxima are `low=1`, `medium=2`, `high=3`, and `critical=3`, with at most three recovery operations across one delivery. `batuta-deliver` starts with `iteration_cap: 4`; Batuta never raises it or starts a replacement delivery to obtain a fresh ceiling.
-- The routing operator gate, configurable `auto_commit`, manual fallback selection, and manual cleanup paths are removed. The only remaining human delivery decision is the publication approve/reject gate.
+- The routing operator gate, configurable `auto_commit`, healthy-path publication gate, manual fallback selection, and manual cleanup paths are removed. Batuta returns to the operator only for missing product intent or a genuine external blocker; merge remains manual.
 - Graph-level conflict sets, joins, critical-path planning, and multi-worktree merge policy remain deferred to the graph-engineering follow-up already recorded in the spec.
 - Run `tests/contract/run.sh` only from a disposable detached worktree without `.compozy/`. Every shell command starts with `rtk`.
 
@@ -445,7 +445,7 @@ rtk git commit -m "feat: persist owned routing generations"
 
 ### Task 6: SDK inventory and routing tools
 
-**Hard entry gate:** The publication plan's Task 5 and this plan's Task 5 must be complete. `go.mod` must pin a released Compozy SDK/binary containing all six platform contracts: required code-first hooks, conjunctive runtime rules, the extension-specific minimum-version override, read-only revisioned Loop config and CAS writes, bounded same-lineage recovery, and the closed complexity-verification policy. Otherwise stop here and report the missing released identity; do not create a local dependency workaround.
+**Hard entry gate:** The publication plan's Task 5 and this plan's Task 5 must be complete. `go.mod` must pin a released Compozy SDK/binary containing all five platform contracts: conjunctive runtime rules, the extension-specific minimum-version override, read-only revisioned Loop config and CAS writes, bounded same-lineage recovery, and the closed complexity-verification policy. Otherwise stop here and report the missing released identity; do not create a local dependency workaround.
 
 **Files:**
 - Modify: `main.go`
@@ -472,10 +472,10 @@ func TestRoutingApplyReplansAndRejectsChangedGeneration(t *testing.T)
 func TestRoutingRecoveryLoadsRunEvidenceAndSnapshotsInternally(t *testing.T)
 func TestRoutingRecoveryUsesPinnedGenerationAfterRefreshAndRestart(t *testing.T)
 func TestRoutingRecoveryPreservesOriginalBudgetAndStoredRules(t *testing.T)
-func TestRoutingApplyGuardDeniesEveryNonBatutaAgent(t *testing.T)
+func TestOnlyBatutaAgentDeclaresRoutingApplyTool(t *testing.T)
 func TestToolsRequireTrustedWorkspaceAndNeverReturnSecrets(t *testing.T)
-func TestDescribeRegistersInventoryRoutingToolsAndPublicationHook(t *testing.T)
-func TestGeneratedManifestPinsExactSixContractCompozyFloor(t *testing.T)
+func TestDescribeRegistersInventoryAndRoutingTools(t *testing.T)
+func TestGeneratedManifestPinsExactPlatformFloor(t *testing.T)
 ```
 
 - [ ] **Step 2: Verify RED**
@@ -486,9 +486,7 @@ rtk go test ./internal/extensionapp -run 'TestInventory|TestRouting|TestDescribe
 
 - [ ] **Step 3: Implement thin SDK handlers**
 
-Handlers translate `ToolRequest.TrustedWorkspace`, reject missing identity/root, call Tasks 1–5, and return typed JSON. They do not contain adapter, classification, selection, or recovery policy. `apply_matrix` recollects inventory, reloads the task set, reruns the deterministic plan from the supplied typed request, and archives the winning immutable generation before returning it; it mutates only when the fresh canonical digest equals the caller's expected digest. This closes the plan/apply gap without making the read-only plan tool persist hidden state. `recover_delivery` accepts only the parent delivery run ID, reads its required `routing_generation` input from authoritative status, loads that exact archived fallback chain, lazily repairs the run binding, discovers child/item lineage and prior recovery evidence, then passes one selected exact runtime into the fixed `compozy loop recover-nested` CLI operation. It never exposes the raw native recovery tool to Batuta. The next terminal return calls `reconcile_fallbacks`, which verifies authoritative runtime/budget evidence before another recovery or normal reporting. Stored Loop rules remain byte-for-byte unchanged by recovery. Register the tools alongside the publication tools in the same fixed SDK runtime and preserve the raw required-hook multiplexer. Set `ExtensionDefinition.MinCompozyVersion` to the exact released six-contract floor and assert the generated manifest carries it; the earlier publication-only floor is no longer sufficient.
-
-Declare a second required synchronous `tool.pre_call` hook matched by exact `tool_id=ext__batuta__routing_apply` with no agent matcher. Its raw handler allows only `agent_name=batuta` and denies missing/malformed/other agents. This protects the ownership namespace independently of the agent definition.
+Handlers translate `ToolRequest.TrustedWorkspace`, reject missing identity/root, call Tasks 1–5, and return typed JSON. They do not contain adapter, classification, selection, or recovery policy. `apply_matrix` recollects inventory, reloads the task set, reruns the deterministic plan from the supplied typed request, and archives the winning immutable generation before returning it; it mutates only when the fresh canonical digest equals the caller's expected digest. This closes the plan/apply gap without making the read-only plan tool persist hidden state. `recover_delivery` accepts only the parent delivery run ID, reads its required `routing_generation` input from authoritative status, loads that exact archived fallback chain, lazily repairs the run binding, discovers child/item lineage and prior recovery evidence, then passes one selected exact runtime into the fixed `compozy loop recover-nested` CLI operation. It never exposes the raw native recovery tool to Batuta. The next terminal return calls `reconcile_fallbacks`, which verifies authoritative runtime/budget evidence before another recovery or normal reporting. Stored Loop rules remain byte-for-byte unchanged by recovery. Register the tools alongside the publication tools in the same fixed SDK runtime. Set `ExtensionDefinition.MinCompozyVersion` to the exact released five-contract floor and assert the generated manifest carries it; the earlier publication-only floor is no longer sufficient. Protect the mutating surface with its closed input union, daemon-authenticated `TrustedWorkspace`, and the shipped agent definitions: only the Batuta conductor declares `ext__batuta__routing_apply` in its exact tool allowlist. No required-hook dependency or parallel authorization mechanism is introduced.
 
 - [ ] **Step 4: Verify GREEN and commit**
 
@@ -550,7 +548,7 @@ rtk python3 -m unittest tests.e2e.test_assert_domain_routing
 
 - [ ] **Step 3: Rewrite the Batuta routing contract**
 
-The agent automatically inventories, classifies, requests any semantic task split during task authoring, retries invalid low-confidence LLM output, plans and applies routing, proves the read-back, dispatches, and reconciles ephemeral recovery evidence. It asks the operator only for missing product requirements, approval of authored specs/tasks, a genuine external prerequisite such as credentials, or the publication gate. It never asks the operator to select a model, executor, lane, commit preference, fallback, or cleanup action.
+The agent automatically inventories, classifies, requests any semantic task split during task authoring, retries invalid low-confidence LLM output, plans and applies routing, proves the read-back, dispatches, publishes, and reconciles ephemeral recovery evidence. It asks the operator only for missing product requirements or a genuine external blocker such as unavailable credentials. It never asks the operator to select a model, executor, lane, commit preference, fallback, cleanup action, or approve healthy publication.
 
 Set `permissions: approve-all` only together with an explicit Batuta conductor tool allowlist covering its documented spec-cycle, inventory/routing, worktree, Loop dispatch/status, configuration-budget, skill, and session-return surfaces. The exact list is asserted by contract tests; shell, arbitrary filesystem, raw config, unrelated extension tools, and direct `compozy__loop_recover_nested` are absent. Recovery is reachable only through the guarded `ext__batuta__routing_apply`, whose fixed implementation invokes the structured CLI internally after deterministic candidate selection. On every terminal-effect turn, Batuta first reads the exact delivery status, calls `routing_apply.reconcile_fallbacks` for that run, and, when the result reports one recoverable candidate within the original lineage budget, calls `routing_apply.recover_delivery` once and ends the turn. The Compozy recovery operation reopens the same parent/child lineage, carries successful task items, reruns only the failed item and transitive dependents with the ephemeral exact runtime, and preserves original token/wall-clock/iteration accounting. Stored matrix/operator rules are untouched. Its next terminal effect repeats reconciliation. Change every terminal-effect `message_id` and `idempotency_key` to include `{{ .effect.identity.loop_run_id }}`, `{{ .effect.identity.generation }}`, and `{{ .effect.identity.trigger }}`; Compozy already exposes generation in effect identity. Only an exhausted fallback chain or genuine external prerequisite is reported blocked.
 
@@ -625,7 +623,7 @@ Require the exact released Compozy floor, run all inventory/routing tests, build
 
 - [ ] **Step 4: Update public docs and release note**
 
-Document automatic inventory, redaction guarantees, `resolved|declared|unknown`, domain taxonomy, complexity floors, matrix precedence, ephemeral exact-runtime recovery, matrix ownership refresh, literal `auto_commit=true`, and the remaining publication gate. State that foreign executor configuration informs capability selection but only Compozy-reported bindings execute tasks. Record the operator-routing and `auto_commit` removal as breaking beta behavior.
+Document automatic inventory, redaction guarantees, `resolved|declared|unknown`, domain taxonomy, complexity floors, matrix precedence, ephemeral exact-runtime recovery, matrix ownership refresh, literal `auto_commit=true`, automatic healthy-path publication, blocker-only operator recovery, and manual merge. State that foreign executor configuration informs capability selection but only Compozy-reported bindings execute tasks. Record the operator-routing, configurable `auto_commit`, and healthy-path publication-gate removal as breaking beta behavior.
 
 - [ ] **Step 5: Run focused verification**
 
@@ -657,7 +655,7 @@ rtk git commit -m "docs: ship autonomous domain routing"
 
 ## Stop Conditions
 
-- Stop before Task 6 if no released Compozy SDK/runtime contains all six platform contracts: required code-first hooks, conjunctive runtime rules, extension-specific minimum daemon version, read-only revisioned Loop config with CAS, same-lineage nested recovery with an ephemeral exact runtime, and the closed complexity-verification policy.
+- Stop before Task 6 if no released Compozy SDK/runtime contains all five platform contracts: conjunctive runtime rules, extension-specific minimum daemon version, read-only revisioned Loop config with CAS, same-lineage nested recovery with an ephemeral exact runtime, and the closed complexity-verification policy.
 - Stop before applying rules if inventory or catalog generation changed since planning; recollect and replan automatically.
 - Stop a route only when no candidate can satisfy a hard requirement or a genuine external prerequisite is unavailable. Report the precise blocker; do not provide operator routing or cleanup steps.
 - Stop final completion if any secret canary crosses the inventory boundary, any rule is not confirmed by read-back, any fallback lacks provable Batuta ownership, any task executes below its complexity floor, or publication lacks a real PR at the exact verified HEAD.

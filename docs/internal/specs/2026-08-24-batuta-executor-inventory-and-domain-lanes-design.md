@@ -1,6 +1,6 @@
 # Batuta executor inventory and domain lanes — design
 
-Status: approved in conversation on 2026-08-24; activation requires all six
+Status: approved in conversation on 2026-08-24; activation requires all five
 Compozy platform contracts in the companion prerequisite design
 
 ## Context
@@ -18,9 +18,10 @@ That model misses two requirements:
   provider as interchangeable.
 
 The operator must not become the routing engine. Batuta owns classification,
-decomposition, selection, fallback, persistence, and audit evidence. The only
-remaining human delivery decision is the publication gate defined by the
-scoped-publication spec.
+decomposition, selection, fallback, persistence, publication, and audit
+evidence. The healthy delivery path has no human gate. Batuta returns to the
+operator only for missing product intent or a genuine external blocker; merge
+remains manual.
 
 ## Decision
 
@@ -337,12 +338,13 @@ Implementation acceptance requires:
 
 ## Compatibility and rollout
 
-The feature requires the first Compozy prerelease containing all six platform
-contracts: required code-first hooks, conjunctive `type + complexity` runtime
-rules, extension-specific minimum daemon version, read-only revisioned Loop
-config with CAS, same-lineage nested recovery with an ephemeral exact runtime,
-and the closed complexity-verification policy. Batuta's generated manifest and
-runtime guard must recognize that exact released floor before activation.
+The feature requires the first Compozy prerelease containing all five platform
+contracts: conjunctive `type + complexity` runtime rules, extension-specific
+minimum daemon version, read-only revisioned Loop config with CAS, same-lineage
+nested recovery with an ephemeral exact runtime, and the closed
+complexity-verification policy. Batuta's generated manifest and runtime guard
+must recognize that exact released floor before activation. Required hooks are
+not a Batuta prerequisite.
 
 Inventory rollout begins read-only and records snapshots without changing
 routing. Matrix selection is then enabled in an isolated QA workspace, followed
