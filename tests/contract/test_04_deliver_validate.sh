@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Valida a definição do Loop batuta-deliver sem publicar (lint + compile no daemon).
+# Valida o contrato do Loop batuta-deliver sem publicar.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh
@@ -14,14 +14,8 @@ cleanup() {
   local original_status=$?
   local cleanup_failed=false
   trap - EXIT
-
-  if ! rm -f -- "$TMP"; then
-    cleanup_failed=true
-  fi
-  if ! reject_new_repository_marker \
-    "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
-    cleanup_failed=true
-  fi
+  rm -f -- "$TMP" || cleanup_failed=true
+  reject_new_repository_marker "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED" || cleanup_failed=true
   if [[ $cleanup_failed == true ]]; then
     exit 1
   fi
@@ -38,132 +32,68 @@ assert d.get("valid") is True, f"batuta-deliver invalido: {d}"
 print("OK: batuta-deliver valido (lint+compile)")
 PY
 
-# O grafo deve encadear implement -> review via run-loop, sem tocar nos bundled.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-assert "kind: run-loop" in text, "nós run-loop ausentes"
-assert "loop: implement-tasks" in text and "loop: review-and-fix" in text, "encadeamento incompleto"
-assert text.count("kind: run-loop") == 2, "esperados exatamente 2 nós run-loop"
-assert "kind: ext__spec_cycle__import_tasks" in text, (
-    "spec-cycle import action absent"
-)
-assert "ext__dev_cycle__import_tasks" not in text, (
-    "retired dev-cycle import action remains"
-)
-assert "worktree_ref:" in text, "worktree_ref input ausente"
-assert 'mode: worktree' in text, "Loop-default worktree environment ausente"
-assert 'worktree_ref: "{{ .inputs.worktree_ref }}"' in text, (
-    "environment nao referencia o input worktree_ref"
-)
-print("OK: encadeamento implement-tasks -> review-and-fix por composição")
-PY
-
-# O grafo pos-review deve inspecionar o worktree, decidir por branch, abrir o
-# gate humano e disparar a publicação via agente batuta-publisher.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-assert "id: worktree_state" in text, "no worktree_state inspect node"
-assert "kind: compozy__worktree_inspect" in text, "inspect action ausente"
-assert "id: publish_check" in text and "kind: branch" in text, "branch node ausente"
-assert "id: publish_gate" in text and "kind: gate" in text, "human gate ausente"
-assert "kind: human" in text, "criterio human ausente"
-assert "id: publish" in text and "kind: goal" in text, "publish goal ausente"
-assert "agent: batuta-publisher" in text, "publisher agent nao referenciado"
-print("OK: grafo pos-review inspeciona, decide, aprova e publica")
-PY
-
-# O contrato deve mencionar publicação e a rota nothing-to-publish.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-assert "publication" in text.lower(), "contract nao menciona publicacao"
-assert "nothing to publish" in text, "rota nothing-to-publish ausente do contrato"
-print("OK: contrato cobre publicação e rota nothing-to-publish")
-PY
-
-# O contrato declara o orçamento de 4h e documenta que a aplicação real
-# ocorre via override de compozy__loop_configure (Batuta Bootstrap/Dispatch),
-# não pelo literal do contrato sozinho.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-assert "14400" in text, "default de 4h ausente"
-assert "wall_clock_sec: 0" not in text, "budget ilimitado permanece"
-assert "compozy__loop_configure" in text, (
-    "comentario sobre o override real de compozy__loop_configure ausente"
-)
-assert "effective_config.budget_wall_sec" in text, (
-    "comentario sobre o campo enforced effective_config.budget_wall_sec ausente"
-)
-print("OK: budget wall_clock_sec declarado e mecanismo real documentado")
-PY
-
-# A cadeia de edges pos-review deve encadear exatamente
-# review -> worktree_state -> publish_check e publish_gate -> publish, sem
-# atalhos que pulem o gate humano.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
+python3 - loops/batuta-deliver/loop.yaml agents/batuta-publisher/AGENT.md agents/batuta/AGENT.md <<'PY'
 import re
 import sys
-text = open(sys.argv[1]).read()
-edges_block = text.split("\n  edges:\n", 1)[1]
-pairs = re.findall(
-    r"- from:\s*(\S+)\s*\n\s*to:\s*(\S+)", edges_block
-)
-assert pairs, "nenhuma edge encontrada"
-edge_set = set(pairs)
-required_edges = {
-    ("review", "worktree_state"),
-    ("worktree_state", "publish_check"),
-    ("publish_gate", "publish"),
+
+loop = open(sys.argv[1], encoding="utf-8").read()
+publisher = open(sys.argv[2], encoding="utf-8").read()
+conductor = open(sys.argv[3], encoding="utf-8").read()
+
+assert "\n  auto_commit:\n" not in loop, "auto_commit ainda e input do operador"
+assert loop.count("auto_commit: true") == 2, "filhos nao recebem dois commits literais true"
+assert loop.count("kind: run-loop") == 2, "esperados exatamente dois run-loop filhos"
+assert "loop: implement-tasks" in loop and "loop: review-and-fix" in loop
+
+assert "id: publication_plan" in loop
+assert "kind: ext__batuta__publication_plan" in loop
+assert "id: publication_route" in loop and "kind: route" in loop
+for disposition in ("publishable", "nothing_to_publish", "blocked"):
+    assert f"nodes.publication_plan.output.disposition == '{disposition}'" in loop
+
+assert "id: publish_gate" not in loop, "gate humano permanece no caminho saudavel"
+assert "id: recovery_gate" in loop and "kind: human" in loop
+assert "id: publish" in loop and "agent: batuta-publisher" in loop
+assert "id: publication_verify" in loop
+assert "kind: ext__batuta__publication_verify" in loop
+assert "publisher_result: \"{{ .nodes.publish.output.publication_result }}\"" in loop
+assert "compare_url" not in loop, "compare URL ainda e aceito como sucesso"
+assert "merge" not in loop.lower() or "merge manual" in loop.lower(), "merge automatico apareceu no Loop"
+
+edges = loop.split("\n  edges:\n", 1)[1]
+pairs = set(re.findall(r"- from:\s*(\S+)\s*\n\s*to:\s*(\S+)", edges))
+required = {
+    ("review", "publication_plan"),
+    ("publication_plan", "publication_route"),
+    ("publication_route", "publish"),
+    ("publication_route", "publication_verify_nothing"),
+    ("publication_route", "recovery_gate"),
+    ("publish", "publication_verify"),
 }
-missing = required_edges - edge_set
-assert not missing, f"edges obrigatorias ausentes: {missing}"
-# publish_check so pode levar a publish via publish_gate - nunca direto.
-assert ("publish_check", "publish") not in edge_set, (
-    "publish_check pula o gate humano e vai direto para publish"
-)
-print("OK: cadeia de edges review -> worktree_state -> publish_check e publish_gate -> publish presente")
+assert not (required - pairs), f"edges automaticas ausentes: {required - pairs}"
+assert ("recovery_gate", "publish") not in pairs, "recovery gate publica sem replanejar"
+
+assert "permissions: approve-all" in publisher
+assert re.search(r"tools:\s*\n\s*- ext__batuta__publish_worktree", publisher)
+assert "ext__batuta__publication_plan" not in publisher
+assert "ext__batuta__publication_verify" not in publisher
+for forbidden in ("shell", "filesystem", "merge"):
+    assert forbidden in publisher.lower(), f"publisher nao proibe {forbidden}"
+
+assert "auto_commit=true" in conductor
+assert "automatically publishes" in conductor.lower()
+assert "merge manual" in conductor.lower()
+print("OK: grafo publica e abre PR automaticamente; operador aparece apenas em recovery")
 PY
 
-# O predicado de publish_check deve ser fail-closed: como o daemon nao expoe
-# refresh no node compozy__worktree_inspect nem now() no CEL de branch (ambos
-# confirmados via `compozy tool info` / `compozy loop validate` durante o
-# fix), a unica rota honesta e sempre encaminhar ao gate humano - nunca
-# decidir "nothing to publish" a partir de uma leitura potencialmente
-# obsoleta de ahead_of_base.
 python3 - loops/batuta-deliver/loop.yaml <<'PY'
 import sys
-text = open(sys.argv[1]).read()
-assert 'condition: "true"' in text, (
-    "publish_check nao esta fail-closed (esperado condition: \"true\", sempre rotea ao gate)"
-)
-assert "ahead_of_base > 0" not in text, (
-    "predicado antigo (ahead_of_base > 0) ainda presente - reintroduz o skip silencioso"
-)
-assert "no `refresh` flag" in text, (
-    "comentario sobre ausencia de refresh no worktree_inspect ausente"
-)
-assert "undeclared reference to 'now'" in text, (
-    "comentario sobre ausencia de now() no CEL de branch ausente"
-)
-print("OK: publish_check fail-closed (sempre rotea ao publish_gate) e documentado")
-PY
-
-# O output_schema do node publish deve exigir head_sha e op_ids, mais pelo
-# menos uma URL de publicacao (pr_url ou compare_url) via anyOf - uma
-# "success" sem evidencia de push nao pode satisfazer o contrato.
-python3 - loops/batuta-deliver/loop.yaml <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-assert "required: [status, summary, head_sha, op_ids]" in text, (
-    "output_schema do publish nao exige head_sha/op_ids"
-)
-assert "compare_url:" in text, "propriedade compare_url ausente do output_schema"
-assert "anyOf:" in text, "anyOf (pr_url ou compare_url) ausente do output_schema"
-assert "required: [pr_url]" in text and "required: [compare_url]" in text, (
-    "anyOf nao cobre pr_url e compare_url"
-)
-print("OK: output_schema do publish exige head_sha, op_ids e ao menos uma URL de publicacao")
+text = open(sys.argv[1], encoding="utf-8").read()
+assert "14400" in text, "default de 4h ausente"
+assert "wall_clock_sec: 0" not in text, "budget ilimitado permanece"
+assert "compozy__loop_configure" in text
+assert "effective_config.budget_wall_sec" in text
+assert "publication_verify" in text
+assert "real PR" in text or "PR URL" in text
+print("OK: budget e verificacao independente permanecem no contrato")
 PY

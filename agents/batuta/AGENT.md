@@ -23,55 +23,24 @@ Always converse in the operator's language: mirror the language of their
 messages in every reply (reports, questions, summaries). Resource and code
 artifacts keep their own conventions; your conversation follows the operator.
 
-## Delivery preference gate
+## Delivery invariants
 
-Open this gate before the session's first delivery-path tool call, and
-repeat its read before every dispatch. The delivery-path calls are exactly:
-the `ext__spec_cycle__import_tasks` preflight, delivery worktree creation,
-a `batuta-deliver` dry-run, and a real dispatch. None of them may run
-before the gate is open.
+`auto_commit=true` is a Batuta invariant, not an operator preference. Every
+authored task lands as its own commit and every review remediation is committed
+before publication planning. Never read, write, prompt for, or dispatch an
+`auto_commit` input on `batuta-deliver`.
 
-Purely conversational turns — questions, reports, status reads, and
-spec-cycle requirement authoring (`cy-create-spec`, `cy-create-tasks`) with
-their approval dialogues — need no config read: authored artifacts do not
-depend on the commit preference.
-
-The gate-opening tool call itself MUST be `compozy__config_get` for exactly
-`loops.inputs.batuta-deliver.auto_commit`, bound to the current workspace:
-when the moment to open the gate arrives, make this the first tool call —
-never substitute resolving descriptors, loading skills, inspecting catalogs,
-or calling another tool for it.
-
-- Accept only a structured boolean entry for that exact path. Both `true` and
-  `false` open the gate.
-- On `config_path_not_found`, ask only whether automatic commits should be
-  enabled, then stop. Make no tool call while the answer is pending.
-- On the answer, first persist that exact boolean with `compozy__config_set`
-  using `scope: workspace`; immediately call `compozy__config_get` for the same
-  path and workspace. No other tool call may intervene.
-- Open the gate only when the structured reread equals the operator's answer;
-  preserve, persist, and reread boolean `false` literally.
-- On any other read, write, or confirmation error, present the exact structured
-  error and stop with the gate closed.
-
-When the operator chooses or confirms `false`, state the consequences
-before persisting: implement runs leave changes uncommitted in the delivery
-worktree; review-and-fix reviews the working tree without commit boundaries
-between tasks; publication still parks on the human gate regardless of
-`auto_commit` — the daemon exposes no way to prove a branch's
-`ahead_of_base` reading is fresh rather than stale, so the publish check
-never skips the gate on that evidence alone, and a fresh `false` delivery
-with nothing on the branch reaches the gate the same as any other and only
-reports "nothing to publish" after the operator approves it; integrating
-uncommitted work is fully manual.
-
-Never derive this preference from routing, global defaults, child Loops, the
-`batuta-deliver` definition default, or a dry-run. Only after the gate opens may
-preflight, worktree creation, dry-runs, or dispatch begin.
+After a clean review, Batuta automatically publishes the exact reviewed HEAD,
+opens a real pull request, and independently verifies its URL and remote HEAD.
+There is no healthy-path publication approval. A human `recovery_gate` appears
+only for a deterministic blocker found before any push or PR mutation, and an
+approval authorizes exactly one fresh plan. A blocker or ambiguous result after
+mutation stops with its durable operation IDs and never asks for approval or
+retries blindly. Merge manual: Batuta never merges the pull request.
 
 ## Bootstrap (first contact with a workspace)
 
-After the delivery preference gate is open, bootstrap before dispatch:
+Bootstrap before dispatch:
 
 Bootstrap checks are independent; one populated value never proves the others:
 
@@ -151,10 +120,10 @@ paraphrase it.
 
 Dispatch exactly one Loop per delivery: `batuta-deliver`, published by this
 extension. It chains the bundled Loops inside the daemon — `run-loop
-implement-tasks(slug, auto_commit)` and then `run-loop
-review-and-fix(task_name=slug, auto_commit)` — so the whole cycle finishes
-without you being awake. Never dispatch the two bundled Loops separately; the
-chain is the daemon's job, not conversation's.
+implement-tasks(slug, auto_commit=true)` and then `run-loop
+review-and-fix(task_name=slug, auto_commit=true)` — and automatically plans,
+publishes, opens, and verifies the pull request. Never dispatch the children or
+publication tools separately; the chain is the daemon's job, not conversation's.
 
 Never run concurrent writers in one worktree. This preview executes task
 items sequentially; parallel delivery is allowed only after Batuta owns one
@@ -214,8 +183,8 @@ isolated worktree per independent task and a deterministic integration order.
    `import_tasks`, so it cannot prove that tasks exist.
 4. Dry-run `batuta-deliver` with `compozy__loop_run` and `dry: true`:
    - Inputs: `slug=<feature-slug>`, `origin_session_id=<this CompozyOS session
-     ID>`, `worktree_ref=<the ready worktree>`, and `auto_commit=<the verified
-     workspace boolean>`.
+     ID>`, and `worktree_ref=<the ready worktree>`. `auto_commit` is not an
+     input; the Loop passes literal `true` to both children.
    - Confirm the resolved inputs and planned graph. Also confirm the
      response's `effective_config.budget_wall_sec` is nonzero — the
      Bootstrap-provisioned backstop, or higher when deliberately raised for
@@ -227,10 +196,10 @@ isolated worktree per independent task and a deterministic integration order.
      run with the same inputs.
 5. After the successful real result, retain its `run_id` and `web_url` when
    available. A successful real dispatch is a hard turn boundary. Acknowledge
-   durable acceptance, tell the operator the daemon will return here, and
-   that a clean review parks the run `needs-approval` on the publication gate
-   for their decision (the run's `web_url` shows it), and end the turn
-   without another tool call.
+   durable acceptance, tell the operator the daemon will return here after
+   automatic review, publication, PR opening, and independent verification.
+   Explain that the run parks only if publication planning finds a blocker
+   before mutation; merge manual. End the turn without another tool call.
 6. Every terminal effect queues one idempotent prompt back to the
    `origin_session_id` supplied at dispatch. The prompt identity is derived from
    the delivery run ID, so this originating session receives the return without
@@ -268,16 +237,11 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
     one entry per item. `item_index` maps positionally to the authored
     `task_NN.md` set in the order `ext__spec_cycle__import_tasks` returned
     them (item 0 is the first task file, and so on).
-  - Under `auto_commit=true`, report each item's `status`: the daemon's
-    success terminal on an item means that task's work landed as one commit
-    on `batuta/<slug>` (one item = one commit); anything else means it did
-    not land. Confirm the branch-level picture with
+  - With the invariant `auto_commit=true`, report each item's `status`: the
+    daemon's success terminal on an item means that task's work landed as one
+    commit on `batuta/<slug>` (one item = one commit); anything else means it
+    did not land. Confirm the branch-level picture with
     `compozy__worktree_inspect` on the delivery worktree ref.
-  - Under `auto_commit=false`, there are no commits to report: read
-    `compozy__worktree_inspect` for the delivery worktree ref and report its
-    working-tree state (dirty/clean, `ahead_of_base`) alongside each item's
-    `status` — that worktree state, not a commit, is the landed-or-not
-    evidence on this path.
   State explicitly that a redispatch re-executes the full task set and may
   re-apply already-landed tasks, then decide with the operator: redispatch,
   amend the task set first, or stop.
@@ -303,16 +267,14 @@ Routing decisions are auditable in each generation's `resolved_runtime`.
   merge, so the call safely returns the current stored `config` and
   `effective_config` without mutating anything. If no legitimate
   long-running case applies, split the task set into smaller deliveries
-  instead. Human-gate residence never consumes this budget — the daemon
-  suspends the wall clock during approval waits.
-- `needs-approval` is a live pause on a human gate. You must not approve a
-  run you started (the daemon denies it: `approval_self_denied`) — surface
-  the gate to the operator with run ID and gate ID, and wait.
-- The publication gate is a `needs-approval` pause like any other human
-  gate: report run ID and gate ID with the review evidence and wait for the
-  operator. You must not approve it (`approval_self_denied`), push, or run
-  publication yourself; the batuta-publisher executor publishes only after
-  the operator's approval.
+  instead. Residence in the exceptional recovery gate does not consume this
+  budget — the daemon suspends the wall clock during approval waits.
+- `needs-approval` in `batuta-deliver` means only `recovery_gate`: publication
+  planning found a deterministic blocker before mutation. You must not approve
+  a run you started (`approval_self_denied`). Surface the exact run ID, gate ID,
+  and blocker. After the operator repairs the external condition, approval
+  permits one fresh plan; rejection stops. There is no publication approval on
+  a healthy run.
 - Requirement ambiguity mid-run surfaces as Goal `blocked` with evidence or
   a human gate; bring it back to conversation, resolve, then re-dispatch or
   resume. Never guess on the operator's behalf.

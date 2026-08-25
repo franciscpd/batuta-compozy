@@ -2,10 +2,10 @@ apiVersion: compozy.loop/v1
 kind: Loop
 meta:
   name: batuta-deliver
-  description: Batuta's full delivery cycle in a worktree - implement every task for a slug in the delivery worktree, then review and fix until clean, then publish behind a human gate.
+  description: Batuta implements and reviews every authored task, then automatically publishes the clean delivery branch and opens a verified pull request.
   catalog:
-    use_when: "You have authored tasks under .compozy/tasks/<slug> and want the full batuta cycle in an isolated worktree: implementation with atomic commits, review rounds until clean, and gated publication to the base branch."
-    keywords: [batuta, deliver, implement, review]
+    use_when: "You have approved tasks under .compozy/tasks/<slug> and want Batuta to implement, review, commit, publish, and open the pull request from an isolated worktree."
+    keywords: [batuta, deliver, implement, review, publish]
     category: Engineering
 
 concurrency: queue
@@ -17,9 +17,6 @@ inputs:
   origin_session_id:
     type: string
     required: true
-  auto_commit:
-    type: boolean
-    default: true
   worktree_ref:
     type: string
     required: true
@@ -30,30 +27,22 @@ environment:
 
 contract:
   goal: >
-    Deliver the feature for .compozy/tasks/{{ .inputs.slug }} end to end in the
-    delivery worktree: implement every authored task in dependency order,
-    review and remediate until a round is clean, then — behind the human
-    publication gate — publish the delivery branch.
+    Deliver .compozy/tasks/{{ .inputs.slug }} end to end in the delivery
+    worktree: implement every authored task with literal commits, review and
+    remediate until clean, then automatically publish the exact reviewed HEAD
+    and open its pull request.
   definition_of_done: >
     The implement-tasks child ended done, the review-and-fix child ended done
-    or no-op, the human publication gate was approved, and the publish node
-    ended done reporting the delivery HEAD SHA, its operation IDs, and either
-    a PR URL or an explicit push-only compare URL. A branch with nothing to
-    publish still reaches the gate: the publisher establishes that from the
-    exit plan after approval and reports it as its publication evidence.
+    or no-op, and publication_verify independently confirmed either a real PR
+    URL at the exact reviewed remote HEAD or a genuine nothing-to-publish
+    result with zero mutations. Publication and PR opening are automatic;
+    merge manual. An operator appears only when a deterministic blocker is
+    found before any publication mutation.
   iteration_cap: 1
-  # wall_clock_sec here is declared intent (the daemon rejects a template in
-  # this field, so it is a fixed literal, not a mechanism). It is reported in
-  # the daemon's materialized_contract but the daemon does NOT derive
-  # effective_config.budget_wall_sec from it: a workspace with no stored
-  # budget_wall_sec override runs this Loop unbounded (effective_config.
-  # budget_wall_sec: 0) even though this literal says 14400. The real
-  # backstop is a workspace-scope compozy__loop_configure override
-  # (budget_wall_sec: 14400, budget_on_exceeded: halt) that agents/batuta/
-  # AGENT.md's Bootstrap section provisions and Dispatch verifies before
-  # every real run; see that file's Escalation section for the full
-  # precedence (per-run config_overrides > stored compozy__loop_configure >
-  # this literal's daemon default of 0).
+  # The authored 4h intent is not the daemon's effective enforcement by
+  # itself. Batuta provisions and verifies the workspace override through
+  # compozy__loop_configure; every dispatch requires a nonzero
+  # effective_config.budget_wall_sec before submission.
   budget:
     tokens: 0
     wall_clock_sec: 14400
@@ -69,12 +58,11 @@ contract:
         mode: queue
         message: |
           Batuta delivery run {{ .effect.identity.loop_run_id }} reached terminal
-          trigger {{ .effect.identity.trigger }}. Inspect the run with
-          `compozy__loop_status`, then report its exact terminal outcome, child run
-          IDs, commits, blocker, and publication evidence (HEAD SHA, PR or
-          compare URL) when the publish node ran, in this conversation. Decide any
-          redispatch or escalation with the operator. Never approve a gate, edit
-          code, push, publish, or mutate routing from this return prompt.
+          trigger {{ .effect.identity.trigger }}. Read compozy__loop_status once
+          and report the exact parent/child outcomes, commits, blocker, expected
+          HEAD, durable publication operation IDs, verified PR URL, and whether
+          merge remains pending. Never edit code, push, publish, merge, approve a
+          recovery gate, or mutate routing from this return prompt.
   on_noop:
     - *return_to_origin
   on_blocked:
@@ -103,8 +91,6 @@ graph:
       kind: input
       input_ref: slug
 
-# The agent's direct import preflight detects a missing task set before dry-run.
-# This graph remains fail-closed for direct submissions that skip that preflight.
     - id: load_check
       class: action
       kind: ext__spec_cycle__import_tasks
@@ -121,7 +107,7 @@ graph:
         loop: implement-tasks
         inputs:
           slug: "{{ .inputs.slug }}"
-          auto_commit: "{{ .inputs.auto_commit }}"
+          auto_commit: true
 
     - id: review
       class: action
@@ -130,67 +116,25 @@ graph:
         loop: review-and-fix
         inputs:
           task_name: "{{ .inputs.slug }}"
-          auto_commit: "{{ .inputs.auto_commit }}"
+          auto_commit: true
 
-    # compozy__worktree_inspect's input_schema (confirmed via
-    # `compozy tool info compozy__worktree_inspect`) exposes only `ref` and
-    # `workspace` — there is no `refresh` flag or equivalent freshness knob on
-    # this native tool, so this node cannot force a fresh read; its
-    # output.status is documented by the daemon as "cached status" and can
-    # legitimately be stale (proven: it needs an explicit refresh — e.g. the
-    # CLI-only `compozy worktree status --refresh` — that this node surface
-    # does not expose).
-    - id: worktree_state
+    - id: publication_plan
       class: action
-      kind: compozy__worktree_inspect
+      kind: ext__batuta__publication_plan
       params:
-        ref: "{{ .inputs.worktree_ref }}"
-      produces:
-        status:
-          type: object
-          properties:
-            ahead_of_base:
-              type: integer
+        worktree_ref: "{{ .inputs.worktree_ref }}"
 
-    # Fail-closed by design: publish_check must never let a stale
-    # ahead_of_base reading route silently past the human gate. The only
-    # freshness signal worktree_state.output.status exposes is a
-    # `refreshed_at` timestamp, but this daemon's branch-condition CEL has no
-    # `now()` (confirmed: `compozy loop validate` rejects it as an
-    # "undeclared reference to 'now'"), so there is no expression in this
-    # grammar that can prove a given ahead_of_base reading is fresh rather
-    # than cached-stale. Per the mandated fallback for that case, this
-    # condition is unconditionally true: publish_check always routes to
-    # publish_gate, and the human at the gate — not this predicate — is the
-    # one who gets to decide "nothing to publish" is really true. A zero,
-    # null, missing, or stale ahead_of_base can therefore never short-circuit
-    # straight to a silent `done`; the cheap, safe outcome (an operator
-    # looking at an empty branch) replaces the worst failure mode (a
-    # publishable commit that never reaches anyone).
-    - id: publish_check
+    - id: publication_route
       class: control
-      kind: branch
-      condition: "true"
-
-    - id: publish_gate
-      class: control
-      kind: gate
-      criteria:
-        - kind: human
-      effects:
-        on_pause:
-          - tool: compozy__session_prompt
-            with:
-              session_id: "{{ .inputs.origin_session_id }}"
-              message_id: "batuta-gate-{{ .effect.identity.loop_run_id }}-publish"
-              idempotency_key: "batuta-gate-{{ .effect.identity.loop_run_id }}-publish"
-              mode: queue
-              message: |
-                Batuta delivery run {{ .effect.identity.loop_run_id }} is parked
-                needs-approval on the publication gate. Read compozy__loop_status,
-                report run ID and gate ID with the review evidence, and wait for
-                the operator's decision. Never approve this gate yourself; never
-                edit code, push, or poll.
+      kind: route
+      routes:
+        - when: nodes.publication_plan.output.disposition == 'publishable'
+          to: publish
+        - when: nodes.publication_plan.output.disposition == 'nothing_to_publish'
+          to: publication_verify_nothing
+        - when: nodes.publication_plan.output.disposition == 'blocked'
+          to: recovery_gate
+      default: publication_contract_failure
 
     - id: publish
       class: action
@@ -200,46 +144,181 @@ graph:
         environment:
           mode: worktree
           worktree_ref: "{{ .inputs.worktree_ref }}"
-        judge:
-          - id: worktree_clean
+        judge: &publisher_judge
+          - id: reviewed_worktree_remains_clean
             type: command
             check: "test -z \"$(git -C . status --porcelain)\""
-        max_turns: 10
-        # head_sha and op_ids are required so a "success" report can never be
-        # evidence-free; anyOf(pr_url, compare_url) requires at least one
-        # publication URL, matching the definition_of_done's "PR URL or an
-        # explicit push-only compare URL" — compare_url is the field the
-        # push-only path (no forge provider) reports. `compozy loop validate`
-        # accepts anyOf at the output_schema root for a goal node.
-        output_schema:
+        max_turns: 4
+        output_schema: &publisher_output
           type: object
-          required: [status, summary, head_sha, op_ids]
+          additionalProperties: false
+          required: [status, publication_result]
           properties:
             status:
-              enum: [completed, blocked]
-            summary:
-              type: string
-            head_sha:
-              type: string
-            op_ids:
-              type: array
-              items:
-                type: string
-            pr_url:
-              type: string
-            compare_url:
-              type: string
-          anyOf:
-            - required: [pr_url]
-            - required: [compare_url]
+              enum: [complete, blocked]
+            publication_result:
+              type: object
+              additionalProperties: false
+              required: [status, head_sha, op_ids, summary, last_exit_plan]
+              properties:
+                status:
+                  enum: [published, nothing_to_publish, blocked]
+                head_sha:
+                  type: string
+                op_ids:
+                  type: array
+                  items:
+                    type: string
+                pr_url:
+                  type: string
+                summary:
+                  type: string
+                last_exit_plan:
+                  type: object
         objective: |
-          Publish the reviewed delivery branch of worktree
-          {{ .inputs.worktree_ref }}. Follow your agent contract exactly:
-          verify clean HEAD, read the exit plan, push, open the PR against the
-          repository default branch with title and body derived from
-          .compozy/tasks/{{ .inputs.slug }} artifacts, and report the PR URL —
-          or the exit plan's compare URL with "pushed, PR manual" when no forge
-          provider serves.
+          Call ext__batuta__publish_worktree exactly once with worktree_ref
+          {{ .inputs.worktree_ref }} and expected_head_sha
+          {{ .nodes.publication_plan.output.head_sha }}. Copy its structured
+          result byte-for-byte into publication_result. Report top-level status
+          complete only for published or nothing_to_publish; report blocked for
+          blocked. Never call another tool, invent evidence, accept a compare
+          URL, retry a mutation, or merge the pull request.
+
+    - id: publication_verify
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result: "{{ .nodes.publish.output.publication_result }}"
+
+    - id: publication_verify_nothing
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result:
+          status: nothing_to_publish
+          head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+          op_ids: []
+          summary: "fresh publication plan found no commits to publish"
+          last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"
+
+    - id: recovery_gate
+      class: control
+      kind: gate
+      criteria:
+        - kind: human
+      effects:
+        on_pause:
+          - tool: compozy__session_prompt
+            with:
+              session_id: "{{ .inputs.origin_session_id }}"
+              message_id: "batuta-recovery-{{ .effect.identity.loop_run_id }}-publication"
+              idempotency_key: "batuta-recovery-{{ .effect.identity.loop_run_id }}-publication"
+              mode: queue
+              message: |
+                Batuta delivery run {{ .effect.identity.loop_run_id }} stopped
+                before publication mutation with blocker
+                {{ .nodes.publication_plan.output.blockers }}. Resolve the
+                external condition, then approve exactly one fresh re-plan, or
+                reject to stop. Batuta will never publish directly from this
+                gate and will not ask again if the re-plan remains blocked.
+
+    - id: publication_replan
+      class: action
+      kind: ext__batuta__publication_plan
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+
+    - id: publication_replan_route
+      class: control
+      kind: route
+      routes:
+        - when: nodes.publication_replan.output.disposition == 'publishable'
+          to: publish_after_recovery
+        - when: nodes.publication_replan.output.disposition == 'nothing_to_publish'
+          to: publication_verify_nothing_after_recovery
+        - when: nodes.publication_replan.output.disposition == 'blocked'
+          to: publication_blocked_stop
+      default: recovery_contract_failure
+
+    - id: publish_after_recovery
+      class: action
+      kind: goal
+      params:
+        agent: batuta-publisher
+        environment:
+          mode: worktree
+          worktree_ref: "{{ .inputs.worktree_ref }}"
+        judge: *publisher_judge
+        max_turns: 4
+        output_schema: *publisher_output
+        objective: |
+          After the one approved recovery re-plan, call
+          ext__batuta__publish_worktree exactly once with worktree_ref
+          {{ .inputs.worktree_ref }} and expected_head_sha
+          {{ .nodes.publication_replan.output.head_sha }}. Copy its structured
+          result byte-for-byte into publication_result. Report top-level status
+          complete only for published or nothing_to_publish; report blocked for
+          blocked. Never call another tool, invent evidence, accept a compare
+          URL, retry a mutation, or merge the pull request.
+
+    - id: publication_verify_after_recovery
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_replan.output.head_sha }}"
+        publisher_result: "{{ .nodes.publish_after_recovery.output.publication_result }}"
+
+    - id: publication_verify_nothing_after_recovery
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_replan.output.head_sha }}"
+        publisher_result:
+          status: nothing_to_publish
+          head_sha: "{{ .nodes.publication_replan.output.head_sha }}"
+          op_ids: []
+          summary: "approved recovery re-plan found no commits to publish"
+          last_exit_plan: "{{ .nodes.publication_replan.output.exit_plan }}"
+
+    # Both stop nodes deliberately invoke the independent verifier with a
+    # blocked result. The verifier rejects it, producing a terminal failure
+    # without mutation, another gate, or a model turn.
+    - id: publication_blocked_stop
+      class: action
+      kind: ext__batuta__publication_verify
+      params: &blocked_stop
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_replan.output.head_sha }}"
+        publisher_result:
+          status: blocked
+          head_sha: "{{ .nodes.publication_replan.output.head_sha }}"
+          op_ids: []
+          summary: "publication remains blocked after the one recovery re-plan"
+          last_exit_plan: "{{ .nodes.publication_replan.output.exit_plan }}"
+
+    - id: publication_contract_failure
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result:
+          status: blocked
+          head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+          op_ids: []
+          summary: "publication plan returned an unsupported disposition"
+          last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"
+
+    - id: recovery_contract_failure
+      class: action
+      kind: ext__batuta__publication_verify
+      params: *blocked_stop
 
   edges:
     - from: slug_input
@@ -249,10 +328,30 @@ graph:
     - from: implement
       to: review
     - from: review
-      to: worktree_state
-    - from: worktree_state
-      to: publish_check
-    - from: publish_check
-      to: publish_gate
-    - from: publish_gate
+      to: publication_plan
+    - from: publication_plan
+      to: publication_route
+    - from: publication_route
       to: publish
+    - from: publication_route
+      to: publication_verify_nothing
+    - from: publication_route
+      to: recovery_gate
+    - from: publication_route
+      to: publication_contract_failure
+    - from: publish
+      to: publication_verify
+    - from: recovery_gate
+      to: publication_replan
+    - from: publication_replan
+      to: publication_replan_route
+    - from: publication_replan_route
+      to: publish_after_recovery
+    - from: publication_replan_route
+      to: publication_verify_nothing_after_recovery
+    - from: publication_replan_route
+      to: publication_blocked_stop
+    - from: publication_replan_route
+      to: recovery_contract_failure
+    - from: publish_after_recovery
+      to: publication_verify_after_recovery
