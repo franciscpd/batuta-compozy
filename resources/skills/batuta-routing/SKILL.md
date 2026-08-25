@@ -1,16 +1,19 @@
 ---
 name: batuta-routing
-description: Default cost/complexity routing table for the batuta conductor. Read at bootstrap as a starting point, validated against the live provider catalog, then stored as the per-workspace loop configuration; the stored workspace override is authoritative afterwards.
+description: Domain-by-complexity routing contract for the batuta conductor. Read at bootstrap, validated against the live provider catalog, then stored as the per-workspace loop configuration; the stored workspace override is authoritative afterwards.
 ---
 
 # Batuta Routing Table
 
 Batuta's core opinion: route every task to the cheapest executor that can
-handle it. Lanes use the `complexity` vocabulary that `cy-create-tasks`
-writes into task frontmatter (`low`, `medium`, `high`, `critical`) — the
-same vocabulary `runtime_rules[].match.complexity` matches on.
+handle its domain and risk. A lane is the conjunction `type × complexity`.
+The canonical task domains are `backend`, `frontend`, `mobile`, `data`,
+`infra`, `security`, `testing`, `docs`, `general`, and `fullstack`.
+Complexity is exactly `low`, `medium`, `high`, or `critical`. Reject or
+reauthor a task with a noncanonical `type`; do not silently map it to another
+domain.
 
-## Lane semantics (the durable opinion)
+## Complexity semantics inside every domain
 
 | Lane       | Intent                                | Selection rule                                            |
 | ---------- | ------------------------------------- | --------------------------------------------------------- |
@@ -21,40 +24,46 @@ same vocabulary `runtime_rules[].match.complexity` matches on.
 
 ## How batuta derives the concrete table (never copy an example)
 
-1. `compozy__provider_models_list` (with costs) is the ONLY source of
-   concrete provider/model IDs — it reflects the CLIs actually installed
-   and the models actually discovered on this machine. A provider absent
-   from the catalog is not installed; never route to it.
+1. Read provider presence and health, then call
+   `compozy__provider_models_list` for exact model IDs and costs. These are
+   separate evidence: a provider may be present while authentication is not
+   usable, and a catalog model may be unavailable to the current account.
+   Never copy credentials, tokens, or raw provider configuration into routing
+   artifacts.
 2. Map each lane's selection rule onto the catalog using the cost fields
    (`input_per_million` / `output_per_million`) as evidence.
-3. Model enablement is account-side and invisible to the daemon — present
-   the derived table (with costs) to the operator for confirmation before
-   storing; ask what their accounts enable when in doubt.
+3. Build the useful domain cells first, then add single-axis `type` or
+   `complexity` fallback rules only when their behavior is intentional.
+4. Model enablement is account-side and may be invisible to the daemon —
+   present the redacted evidence and derived table to the operator for
+   confirmation before storing it.
 
-### Example only — derived on one machine on 2026-08-11, DO NOT reuse
+### Example only — model IDs must come from the current live catalog
 
-On that machine the derivation produced: `low → codex/gpt-5.6-luna`,
-`medium → codex/gpt-5.6-terra@high`, `high → codex/gpt-5.6-sol`,
-`critical → claude/claude-opus-4-8`. Your catalog will differ; derive, do
-not copy.
+An installation might route `backend/low` to a fast Codex model,
+`frontend/medium` to a stronger Cursor model, `infra/high` to a high-reasoning
+OpenCode model, and `security/critical` to its most trusted frontier model.
+Those names are roles, not identifiers: derive exact provider/model IDs from
+the live catalog on every installation.
 
 ## Canonical rule shape
 
 This is the exact JSON SHAPE batuta writes with `compozy__loop_configure`
 (stored per-workspace override for `implement-tasks`) after deriving the
-values from the catalog — the model/provider strings below are the same
-dated example as above and MUST be replaced by the derived ones. The stored
-override is what `run-loop` children resolve at execution — batuta never
+values from the catalog — the model/provider strings below are illustrative
+and MUST be replaced by live IDs. The stored override is what `run-loop`
+children resolve at execution — batuta never
 sends per-run rules on dispatch, because per-run rules freeze into the run
 and are not inherited by `run-loop` children anyway. Rule matching
-precedence inside the stored layer: `id > type > complexity`.
+precedence inside the stored layer:
+`id > type + complexity > type > complexity`.
 
 ```json runtime_rules
 [
-  {"match": {"complexity": "low"},      "runtime": {"provider": "codex",  "model": "gpt-5.6-luna"}},
-  {"match": {"complexity": "medium"},   "runtime": {"provider": "codex",  "model": "gpt-5.6-terra", "reasoning": "high"}},
-  {"match": {"complexity": "high"},     "runtime": {"provider": "codex",  "model": "gpt-5.6-sol"}},
-  {"match": {"complexity": "critical"}, "runtime": {"provider": "claude", "model": "claude-opus-4-8"}}
+  {"match": {"type": "backend",  "complexity": "low"},      "runtime": {"provider": "codex",    "model": "gpt-5.6-luna"}},
+  {"match": {"type": "frontend", "complexity": "medium"},   "runtime": {"provider": "cursor",   "model": "catalog-model-id"}},
+  {"match": {"type": "infra",    "complexity": "high"},     "runtime": {"provider": "opencode", "model": "opencode/catalog-model-id", "reasoning": "high"}},
+  {"match": {"type": "security", "complexity": "critical"}, "runtime": {"provider": "codex",    "model": "gpt-5.6-sol"}}
 ]
 ```
 
@@ -74,7 +83,8 @@ precedence inside the stored layer: `id > type > complexity`.
   the STORED override (`compozy__loop_configure` on `implement-tasks`, e.g.
   `{"match":{"id":"task_NN"},"runtime":{...}}` prepended to the rules), then
   re-dispatch `batuta-deliver`. `id` beats `complexity`; remove the rule
-  after the task lands.
+  after the task lands. The `id` rule overrides both conjunctive and
+  single-axis rules.
 - Operator reclassification in conversation ("use luna for this one")
   becomes the same stored `id` rule before the next dispatch.
 - The daemon persists `resolved_runtime` with per-field provenance on every
