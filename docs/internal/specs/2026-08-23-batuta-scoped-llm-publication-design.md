@@ -1,6 +1,6 @@
 # Batuta scoped LLM publication — design
 
-Status: approved; revised on 2026-08-25 to use existing Compozy boundaries
+Status: approved; revised on 2026-08-25 for automatic PR publication
 
 ## Context
 
@@ -18,14 +18,16 @@ run unattended. `deny-all` had already been proven to reject the same commands
 and a bare switch to `approve-all` would expose unrestricted provider-native
 shell access.
 
-The product requirement remains:
+The product requirement is:
 
 - implementation and review fixes are committed by Batuta before publication;
-- the operator makes one publication decision at `publish_gate`;
-- after `approve`, Batuta performs all remaining planning, push, PR creation,
-  reconciliation, and reporting without further operator action;
+- after implementation and a clean review, Batuta automatically performs
+  planning, push, PR creation, reconciliation, and reporting;
 - a publishable delivery ends with an actual pull request, never a compare URL
   that leaves PR creation to the operator;
+- merge remains a manual forge action and is outside Batuta's authority;
+- the operator is involved only after a real blocker, never as a mandatory
+  checkpoint on the healthy path;
 - the publisher remains an LLM agent, but receives no general-purpose
   mutation capability;
 - publication cannot target a workspace or worktree other than the one bound
@@ -41,7 +43,7 @@ The extension also supplies two read-only deterministic tools used directly
 by the Loop:
 
 - `ext__batuta__publication_plan` captures the exact clean HEAD and daemon
-  exit plan before the human gate;
+  exit plan before any mutation;
 - `ext__batuta__publication_verify` proves the remote/PR outcome after the
   publisher reports completion.
 
@@ -100,13 +102,16 @@ It resolves the worktree through the trusted workspace and returns:
 
 A dirty tree, detached branch, divergent/behind state, missing remote, missing
 serving forge/credentials for a publishable branch, or any other unsafe plan
-is `blocked`; the node fails before the gate. A clean branch with no outgoing
-commit is `nothing_to_publish` and still reaches the gate, preserving the
-existing fail-closed policy.
+is `blocked`; no publication mutation starts. A clean branch with no outgoing
+commit is `nothing_to_publish` and terminates as a verified no-op.
 
-The gate prompt presents the captured branch, base, HEAD, disposition, and
-exit-plan evidence. The operator only chooses `approve` or `reject`; they do
-not run publication commands.
+`publishable` proceeds directly to the publisher without asking the operator.
+A pre-mutation `blocked` disposition may park on a conditional recovery gate
+that presents the captured branch, base, HEAD, blocker, and exit-plan evidence.
+That gate is not part of the healthy delivery path: it exists only so the
+operator can repair external state and request a bounded re-plan. A blocker
+observed after a remote mutation terminates the run as `blocked` and returns
+the durable operation IDs to the originating Batuta session for recovery.
 
 ### LLM publisher capability
 
@@ -133,7 +138,7 @@ platform prerequisite. The exact `tools` allowlist therefore lives in the
 `batuta-publisher` definition and is enforced by Compozy's existing agent tool
 projection.
 
-The Goal objective gives the publisher the pre-gate `head_sha` and worktree
+The Goal objective gives the publisher the planned `head_sha` and worktree
 ref and instructs it to call the capability exactly once. Compozy owns the
 top-level Goal control status, so the Goal returns `status: complete|blocked`
 and places the unmodified tool result under `publication_result`. A successful
@@ -197,25 +202,28 @@ The post-review graph becomes:
 ```text
 review
   -> publication_plan
-  -> publish_check (unconditional seam)
-  -> publish_gate (human approve/reject only)
-  -> publish (LLM Goal; one scoped capability)
-  -> publication_verify (deterministic evidence)
-  -> done
+  -> publication_route
+       |-- publishable -> publish (LLM Goal; one scoped capability)
+       |                  -> publication_verify -> done with PR
+       |-- nothing_to_publish -> publication_verify -> no-op
+       `-- blocked -> recovery_gate -> bounded re-plan or stop
 ```
 
-`publish_check` remains unconditional because the current Loop CEL still
-cannot prove cached worktree inspection freshness. `publication_plan` replaces
-the stale generic inspection as the authoritative pre-gate publication
-snapshot. Gate rejection remains terminal `blocked` with the branch intact.
+`publication_plan` replaces stale generic inspection as the authoritative
+pre-mutation snapshot. There is no approval gate on the `publishable` or
+`nothing_to_publish` routes. The conditional `recovery_gate` is reachable only
+from a deterministic `blocked` disposition and never authorizes publication
+by itself: approval means "repair completed, re-plan", not "push despite the
+blocker". Re-planning remains bounded by the Loop's iteration, time, and token
+limits.
 
 The pre-review delivery path hardcodes `auto_commit=true` for both child
 Loops. A dirty worktree after review is a contract failure, not an alternate
 publication mode and not work delegated to the operator.
 
-The definition of done requires gate approval, successful publisher output,
+The definition of done requires successful publisher output with a real PR
 and successful independent verification. A Goal output alone can never make
-the delivery successful.
+the delivery successful. Merge is never attempted.
 
 ## Failure and recovery semantics
 
@@ -223,10 +231,9 @@ the delivery successful.
   no publication operation starts.
 - Extension subprocess unavailable: the publication tools are unavailable and
   the Goal cannot start or mutate state.
-- Forge or forge credentials unavailable before the gate: publication
-  planning returns `blocked`; the operator is not asked to approve a delivery
-  Batuta cannot finish.
-- HEAD or cleanliness changes after the gate: publication returns `blocked`
+- Forge or forge credentials unavailable before mutation: publication
+  planning returns `blocked` and may enter the conditional recovery path.
+- HEAD or cleanliness changes after planning: publication returns `blocked`
   before push.
 - Push outcome is ambiguous: re-read the exit plan; never retry blindly.
 - Push succeeds and PR fails transiently: retain the pushed branch and return
@@ -242,10 +249,10 @@ the delivery successful.
   command input. The verifier may receive the publisher's claimed PR URL only
   as untrusted evidence to compare with a freshly observed forge URL.
 - The daemon-authenticated workspace scope is mandatory and authoritative.
-- The expected HEAD captured before the gate is rechecked before mutation and
+- The expected HEAD captured by planning is rechecked before mutation and
   after publication.
 - The delivery graph always enables child-Loop commits; dirty post-review
-  state fails before the publication gate.
+  state blocks before publication.
 - A publishable delivery cannot end successfully without an observable PR
   bound to the exact expected HEAD.
 - The publisher cannot use shell or filesystem tools even under
@@ -269,8 +276,8 @@ Implementation acceptance requires:
 3. Contract tests for executable-extension staging, the three tool
    descriptors, agent allowlist, revised graph, and independent verifier.
 4. Existing Batuta contract and Python E2E suites remain green.
-5. An isolated daemon smoke with a local bare remote proves the pre-gate
-   missing-forge refusal and zero publication mutation.
+5. An isolated daemon smoke with a local bare remote proves missing-forge
+   recovery routing and zero publication mutation.
 6. A deterministic serving-forge integration proves unattended Goal
    execution, exact-HEAD push, structured operation IDs, PR creation,
    independent verification, and zero pending permission interactions. A
@@ -300,9 +307,9 @@ source-based and builds on the host through `compozy extension build`. Other
 published platforms require a later distribution contract and are not
 silently served a Linux binary.
 
-The public behavior remains intentionally stable: users still request a
-delivery, inspect one publication gate, and choose approve or reject. The
-change removes the undocumented per-command approval burden after `approve`.
+The public behavior is intentionally more autonomous: users request a
+delivery and Batuta opens a verified PR after implementation and clean review.
+The operator is contacted only when the run is blocked. Merge remains manual.
 
 ## Rejected alternatives
 
@@ -317,7 +324,9 @@ change removes the undocumented per-command approval burden after `approve`.
 - **New required-hook prerequisite:** adds a broad Compozy core/SDK/runtime
   change when the existing exact agent allowlist already provides the needed
   publisher capability boundary.
-- **Mutating command criterion in the gate:** abuses verification as an action
-  and risks mutation before an attributable approval.
+- **Mandatory publication gate:** contradicts full-cycle Batuta ownership and
+  makes the operator approve every healthy delivery without adding a security
+  boundary; deterministic planning, scoped capability, and independent
+  verification remain the actual safeguards.
 - **Compare-URL success without a PR:** leaves an operational publication step
   to the operator and violates full-cycle Batuta ownership.
