@@ -1,265 +1,277 @@
-# Batuta + Compozy — demonstração a partir do zero
+# Batuta + Compozy — demonstração pela interface
 
 Data: 2026-08-25  
-Estado: laboratório local pronto; classificação validada por dry-run
+Estado: apresentação pela interface; Compozy beta oficial + Batuta publicado atual
+
+## Ambiente da apresentação
+
+Abra a interface do Compozy beta oficial que você está instalando na outra
+sessão. Não use o laboratório isolado antigo nem tente instalar o branch de
+desenvolvimento durante a apresentação.
+
+Antes de começar, confirme pela interface que o Batuta publicado atual aparece
+em **Marketplace → Extensions → Installed**. A nova publicação automática é
+mostrada somente pelo slide; não a apresente como funcionalidade já instalada.
 
 ## Resultado pronto para apresentar
 
-- Compozy local: `v0.3.0-beta.21.dev.87522fba0`, construído do PR de regras
-  conjuntivas `type + complexity`.
-- Ambiente isolado: `/home/francisross/tmp-builds/batuta-presentation-home`.
-- Daemon isolado: PID `3318163`, UDS no próprio ambiente e HTTP em
-  `http://127.0.0.1:32125`.
-- Projeto de demonstração:
-  `/home/francisross/tmp-builds/batuta-presentation-project`.
-- Workspace: `batuta-presentation` / `ws_8ea88f35db1ec885`.
-- Batuta: `0.1.0-beta.5`, instalado, habilitado, `active` e `healthy`.
-- Recursos vivos: agentes `batuta` e `batuta-publisher`, skill
-  `batuta-routing` e Loop `batuta-deliver`.
-- Matriz persistida e validada:
-  - `backend + low` → `codex/gpt-5.6-luna`, reasoning `medium`;
-  - `frontend + medium` →
-    `cursor/grok-4.6[effort=high,fast=true]`.
-- Imagem do slide: `docs/images/batuta-no-compozy.png`.
+- Compozy: beta oficial, sem patches locais apresentados como produto.
+- Batuta ao vivo: somente a versão publicada que a interface listar como
+  instalada, habilitada e saudável.
+- Demonstração ao vivo: criação de spec/tasks, classificação por lane, grafo,
+  limites e dry-run disponíveis nessa versão publicada.
+- Nova versão: núcleo code-first e grafo automático existem apenas no branch
+  de desenvolvimento e são explicados pelo slide, não executados ao vivo.
+- Imagem do slide: [batuta-no-compozy.png](../../images/batuta-no-compozy.png).
 
-O dry-run não criou run nem gastou tokens. O Grok 4.6 foi obtido do catálogo
-vivo do Cursor com `available=true` e origem `provider_live:cursor`; ainda não
-há nesta rodada uma execução real da tarefa com esse modelo.
+Se o catálogo vivo da instalação oficial listar Cursor/Grok 4.6, use-o como
+exemplo de lane frontend. Caso contrário, mostre a classificação e explique
+que o runtime concreto sempre vem do catálogo realmente disponível; não
+invente nem force um identificador ausente.
 
-## O que significa “ambiente zerado”
+## Roteiro principal — 12 a 18 minutos
 
-Não apagamos `~/.compozy`. O laboratório usa outro `COMPOZY_HOME`, outro
-socket, outra base e outra porta. No primeiro boot, `workspace list` retornou
-`[]` e somente as extensões bundled apareceram. Assim a demonstração é fiel a
-uma instalação nova e o ambiente pessoal continua disponível para rollback.
+### 1. Entrar no workspace — 30 segundos
 
-O arquivo `config.toml` do laboratório contém somente o bootstrap necessário:
-socket/porta isolados, provider default Codex e permission mode local. Nenhuma
-configuração, sessão, workspace ou extensão do ambiente pessoal foi copiada.
+1. Abra a interface pelo link acima.
+2. Abra o seletor de workspace no topo/lateral.
+3. Selecione **batuta-presentation**.
 
-## Atalho seguro — laboratório já preparado
+Fala sugerida:
 
-```bash
-export COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home
-export PATH=/home/francisross/.local/bin:$PATH
-cd /home/francisross/tmp-builds/batuta-presentation-project
+> O workspace é a fronteira de arquivos, configuração, Agents, Loops, sessões
+> e auditoria. O Batuta não recebe acesso global à máquina: ele rege o trabalho
+> dentro dessa fronteira.
 
-compozy version
-compozy status -o json
-compozy workspace list -o json
-compozy extension status batuta -o json
-compozy extension inventory batuta -o json
-```
+Se quiser mostrar o gesto de onboarding sem criar outro workspace, abra o
+seletor e aponte para **New workspace**. A interface permite registrar uma
+pasta pelo seletor nativo, mas não conclua essa ação durante a apresentação.
 
-Resultado esperado: daemon em `32125`, um workspace, Batuta `active/healthy` e
-quatro recursos Batuta vivos.
+### 2. Mostrar o Batuta instalado — 1 minuto
 
-## Roteiro principal — 5 a 7 minutos
+1. Abra **Marketplace**.
+2. Entre em **Extensions**.
+3. Selecione o escopo **Installed**.
+4. Abra **Batuta** e mostre versão, estado e contribuições.
 
-### 1. Mostrar o projeto recém-criado
+Fala sugerida:
 
-```bash
-pwd
-git log --oneline --decorate -2
-sed -n '1,14p' .compozy/tasks/batuta-routing-demo/task_01.md
-sed -n '1,14p' .compozy/tasks/batuta-routing-demo/task_02.md
-```
+> O Batuta é uma extensão instalada no Compozy. Ele contribui Agents, uma
+> skill de roteamento e Loops de orquestração. O Compozy continua sendo o
+> runtime: executa sessões, aplica limites e guarda o histórico.
 
-Fala sugerida: “As tarefas são o contrato executável. O tipo representa o
-domínio; a complexidade representa custo e risco. O Batuta usa os dois sinais,
-não apenas palavras do prompt.”
+Se alguém perguntar como a instalação local funciona, o botão
+**Install extension** abre **Install an extension**; a origem é **Local path**.
+Não reinstale durante a demo porque a extensão já está ativa.
 
-### 2. Mostrar que o projeto virou workspace
+### 3. Entregar uma feature, não tasks prontas — 2 minutos
 
-```bash
-compozy workspace list -o json
-compozy workspace info ws_8ea88f35db1ec885 -o json
-```
-
-Fala sugerida: “O workspace é a fronteira de configuração, recursos, sessões
-e auditoria. O Batuta não opera fora dela.”
-
-### 3. Mostrar o Batuta instalado no Compozy
-
-```bash
-compozy extension status batuta -o json
-compozy extension inventory batuta -o json
-compozy agent list --workspace ws_8ea88f35db1ec885 -o json
-compozy loop list --workspace ws_8ea88f35db1ec885 -o json
-```
-
-Fala sugerida: “O Batuta é o maestro. Ele classifica e orquestra; quem executa
-são Agents, Loops, Worktrees e políticas do Compozy.”
-
-### 4. Mostrar o catálogo vivo do Cursor
-
-```bash
-compozy provider models list cursor --all --refresh -o json
-```
-
-Procure por:
+1. Abra **Agents**.
+2. Abra o Agent **batuta** e crie uma sessão no workspace atual.
+3. Envie exatamente:
 
 ```text
-provider_id: cursor
-model_id: grok-4.6[effort=high,fast=true]
-available: true
-source_id: provider_live:cursor
+Quero entregar a feature status-card-demo neste projeto.
+
+Use Node.js 24, sem framework e sem dependências externas. O backend deve expor
+GET /api/status e responder JSON com status="ok" e updated_at em ISO 8601. O
+frontend deve ter um card acessível em public/index.html, com estados de
+loading, sucesso e erro, consumindo esse endpoint. Use node:test para a API e
+inclua uma verificação do markup. A task simples da API deve ser backend/low; a
+task visual, que inclui acessibilidade e três estados, deve ser frontend/medium.
+
+Não implemente ainda. Conduza cy-create-spec, peça minha aprovação dos
+artefatos e depois conduza cy-create-tasks. Pare depois da aprovação das tasks
+e mostre a tabela final com task, type, complexity, lane, provider, model e
+reasoning.
 ```
 
-Fala sugerida: “O identificador não foi inventado pelo Batuta. Ele veio do
-modelo anunciado ao vivo pelo Cursor nesta máquina.”
+Fala sugerida:
 
-### 5. Mostrar e aplicar a matriz
+> Não estou entregando um plano pronto ao Batuta. Estou entregando intenção,
+> restrições e critérios de aceite. Agora ele usa o planejador padrão do
+> Compozy para transformar isso em contrato executável.
 
-```bash
-cat runtime-rules.json
+O slug `status-card-demo` ainda não existe. As tasks manuais de
+`batuta-routing-demo` permanecem apenas como fallback e não participam deste
+fluxo.
 
-compozy loop configure \
-  --workspace ws_8ea88f35db1ec885 \
-  --name implement-tasks \
-  --file runtime-rules.json \
-  -o json
+### 4. Aprovar a spec e a decomposição — 5 a 8 minutos
+
+1. Responda ao grill de requisitos do `cy-create-spec`.
+2. Quando o Batuta apresentar `_spec.md`, `_user_stories.md`, `_dx.md`,
+   `_uiux.md` e `_tests.md`, revise o resumo e responda:
+
+```text
+Aprovo os artefatos da spec. Pode criar as tasks, sem implementar.
 ```
 
-O `configure` persiste a matriz no workspace. Isso é importante porque o
-`batuta-deliver` chama `implement-tasks` como Loop filho, e o filho resolve sua
-própria configuração armazenada.
+3. O Batuta deve chamar `cy-create-tasks`.
+4. Confira que testes e critérios de aceite foram atribuídos a tasks concretas.
+5. Confira a classificação antes de aprovar:
 
-### 6. Demonstrar a classificação sem gastar tokens
+| tarefa | classificação | runtime esperado |
+| --- | --- | --- |
+| API de status | `backend + low` | `codex / gpt-5.6-luna / medium` |
+| card de status | `frontend + medium` | `cursor / grok-4.6[effort=high,fast=true]` |
 
-```bash
-compozy loop run \
-  --workspace ws_8ea88f35db1ec885 \
-  --name implement-tasks \
-  --input slug=batuta-routing-demo \
-  --input auto_commit=false \
-  --dry-run \
-  -o json
+6. Se a tabela estiver correta, responda:
+
+```text
+Aprovo as tasks e a classificação. Pare antes da implementação.
 ```
 
-No resultado, abra `dry_run.effective_config.runtime_rules`. As duas células
-devem aparecer literalmente, junto dos limites `iteration_cap=6`,
-`budget_tokens=60000` e `budget_wall_sec=1200`.
+Fala sugerida:
 
-Explique a diferença:
+> Primeiro criamos a spec, depois as tasks. As tasks são o contrato executável:
+> `type` define a lane de domínio e `complexity` expressa custo e risco. A
+> aprovação humana acontece antes de qualquer sessão de implementação.
 
-- o frontmatter classifica cada tarefa;
-- a matriz seleciona provider/modelo;
-- o dry-run prova que o daemon aceitou o grafo e a configuração;
-- numa execução real, `runtime_applied` persiste a seleção usada por item.
+Esta etapa consome tokens do Agent e grava artefatos de planejamento em
+`.compozy/tasks/status-card-demo/`, mas não inicia o Loop de implementação, não
+edita o código do produto e não cria commits de implementação.
 
-### 7. Fechar com o slide
+### 5. Mostrar o grafo e os limites — 1 minuto
 
-Abra `docs/images/batuta-no-compozy.png`.
+1. Abra **Loops**.
+2. Abra **batuta-deliver** e mostre **Body · DAG**.
+3. No Batuta publicado, aponte a implementação e o review. Se essa versão ainda
+   mostrar o gate humano, diga explicitamente que ele é o comportamento atual;
+   o slide final mostra a evolução já implementada no branch: publicação e PR
+   automáticos, operador apenas em bloqueio.
+4. Volte à lista, abra **implement-tasks** e expanda **Limits**.
+5. Mostre `iteration cap = 6`, `60,000 tokens` e `1,200 seconds`.
 
-Fala sugerida: “Compozy executa. Batuta rege. Hoje já temos classificação,
-roteamento, implementação/review em Loops e gate humano. A publicação segura
-e o fallback automático são os próximos incrementos.”
+Fala sugerida:
 
-## Reconstrução ao vivo a partir de outro home vazio
+> O Agent toma a decisão de alto nível; o Loop transforma essa decisão num
+> grafo reproduzível. Limites de geração, token e tempo impedem que uma falha
+> vire um loop eterno.
 
-Use esta seção somente se quiser executar a instalação do zero durante a
-apresentação. Ela preserva o laboratório pronto acima como fallback.
+Não use **Configure → Save configuration** nesta preview. A tela ainda não
+edita a matriz `runtime_rules` e salvar por ela substituiria a configuração
+persistida que já está pronta para a demonstração.
 
-```bash
-export DEMO_HOME=/home/francisross/tmp-builds/batuta-live-home
-export DEMO_PROJECT=/home/francisross/tmp-builds/batuta-live-project
-export BATUTA_SOURCE=/home/francisross/tmp-builds/batuta-presentation-source
-export COMPOZY_HOME="$DEMO_HOME"
+### 6. Validar o plano sem executar — 1 minuto
 
-mkdir -p "$DEMO_HOME" "$DEMO_PROJECT"
-```
+1. Em **implement-tasks**, clique **Run loop**.
+2. Preencha `slug` com `status-card-demo`.
+3. Deixe `auto_commit` desligado/`false`.
+4. Clique **Dry run**.
+5. Mostre **Dry run · generation 1 plan**, os inputs resolvidos e os nós do
+   grafo.
 
-Crie `$DEMO_HOME/config.toml` com socket dentro de `$DEMO_HOME`, host
-`127.0.0.1` e uma porta livre diferente de `2123`, `32124` e `32125`. Depois:
+Fala sugerida:
 
-```bash
-compozy daemon start -o json
-compozy workspace list -o json
+> O dry-run valida inputs, configuração e primeira geração do grafo sem abrir
+> um run. Ele prova que o plano é admissível, mas não finge que uma sessão de
+> modelo já aconteceu.
 
-compozy workspace add "$DEMO_PROJECT" \
-  --name batuta-live-demo \
-  -o json
+A UI de dry-run atual não imprime a matriz de runtime. A classificação visível
+vem da tabela aprovada na sessão do Batuta; a prova do runtime realmente
+aplicado vem da execução opcional abaixo.
 
-compozy extension install "$BATUTA_SOURCE" \
-  --allow-unverified \
-  --yes \
-  -o json
+### 7. Execução real opcional — 2 minutos para iniciar
 
-compozy extension status batuta -o json
-compozy extension inventory batuta -o json
-```
+Esta etapa consome tokens e altera o projeto.
 
-O aviso `extension_checksum_unverified` é esperado: esta é uma instalação
-local explicitamente consentida, não um artefato publicado no marketplace.
+1. Continue no formulário de **Run loop**.
+2. Mantenha `slug = status-card-demo`.
+3. Ative `auto_commit` somente se quiser mostrar os commits por tarefa.
+4. Clique **Start run**.
+5. Abra o run criado em **Loop runs**.
+6. Mostre **Story** e depois **Inspect → Events**. Procure o evento
+   `runtime_applied`, exibido como **Runtime settings were applied**.
+7. Abra o nó de backend e siga o link da sessão: o cabeçalho deve mostrar o
+   provider `codex`.
+8. Abra o nó de frontend e siga o link da sessão: o cabeçalho deve mostrar o
+   provider `cursor`. No registro da tarefa, a seção **Execution → Model** deve
+   identificar o Grok selecionado.
 
-Para não digitar as tarefas durante a conversa, copie somente `README.md`,
-`src/`, `tests/`, `.gitignore`, `runtime-rules.json` e
-`.compozy/tasks/batuta-routing-demo/` do projeto preparado; inicialize um novo
-Git e registre o novo diretório como workspace.
+Não afirme sucesso antes de as duas sessões materializarem. Se o provider
+demorar, deixe o run aberto, mostre os limites e siga para o slide; o roteiro
+continua válido com o dry-run.
 
-## Opcional — execução real
+### 8. Fechar com o slide — 1 minuto
 
-O seguinte comando gasta tokens, modifica o projeto e, com `auto_commit=true`,
-cria commits. Rode apenas se quiser demonstrar execução além da classificação:
+Abra [batuta-no-compozy.png](../../images/batuta-no-compozy.png).
 
-```bash
-compozy loop run \
-  --workspace ws_8ea88f35db1ec885 \
-  --name implement-tasks \
-  --input slug=batuta-routing-demo \
-  --input auto_commit=true \
-  -o json
-```
+Fala sugerida:
 
-Depois acompanhe pelo `run_id` retornado:
+> Compozy executa. Batuta rege. A versão publicada mostrou workspace,
+> extensão, Agent, classificação por lane, grafo, limites e dry-run. No branch
+> novo, um review limpo segue automaticamente para publicação e abertura do PR;
+> o operador aparece apenas se houver bloqueio, e o merge continua manual.
 
-```bash
-compozy loop status \
-  --workspace ws_8ea88f35db1ec885 \
-  --run-id <run_id> \
-  -o json
-```
+## Plano B de apresentação
 
-Stop conditions já estão armazenadas: 6 iterações, 60 mil tokens, 20 minutos
-e `budget_on_exceeded=halt`. Não remova esses limites para a apresentação.
+Se a resposta do Agent ou o provider ao vivo atrasar:
+
+1. mostre **Marketplace → Extensions → Installed → Batuta**;
+2. mostre no chat que o Batuta iniciou `cy-create-spec`;
+3. mostre **Loops → batuta-deliver → Body · DAG**;
+4. mostre **implement-tasks → Limits**;
+5. use o slug fallback `batuta-routing-demo` para executar somente **Dry run**;
+6. feche com a imagem e a tabela de classificação deste documento.
+
+Isso preserva a história principal sem alegar que uma execução não observada
+aconteceu.
 
 ## Limites honestos desta preview
 
-Pronto e instalado:
+Pronto para mostrar ao vivo:
 
-- Batuta resource-only, agente, skill de routing e Loop `batuta-deliver`;
+- Batuta resource-only, Agent, skill de routing e Loop `batuta-deliver`;
 - classificação conjuntiva `type + complexity`;
 - Loops bundled `implement-tasks` e `review-and-fix`;
-- gate humano existente no grafo Batuta;
-- núcleo Go de planejamento/publicação/verificação compilado e testado no
-  branch de desenvolvimento.
+- comportamento de publicação que a versão publicada atual expuser;
+- imagem separando claramente versão atual e direção da próxima versão.
 
-Ainda não instalado como tools da extensão:
+Pronto no branch, mas não instalado na demo:
 
-- o novo núcleo Go de publicação segura;
-- abertura autônoma de PR por esse núcleo;
+- três tools code-first de planejar, publicar e verificar;
+- abertura automática de PR após review limpo, sem gate humano saudável;
+- recovery gate somente antes de mutação, com um replanejamento limitado;
 - fallback automático bounded;
 - fan-out paralelo com um worktree por writer.
 
-O bloqueio é de empacotamento: o SDK/release público compatível ainda não foi
-publicado. Não afirmar que esses tools já fazem parte do Batuta instalado.
+Não afirmar que essas tools já fazem parte do Batuta instalado. O branch foi
+compilado e validado num daemon efêmero, mas empacotamento, publicação da beta e
+smoke contra forge real ainda são etapas separadas.
 
-## Encerramento e rollback
+## Bastidores técnicos — não usar na apresentação
 
-Parar somente o daemon da apresentação:
+O laboratório usa:
+
+```text
+COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home
+HTTP=http://127.0.0.1:32125
+workspace=ws_8ea88f35db1ec885
+project=/home/francisross/tmp-builds/batuta-presentation-project
+```
+
+Ele nasceu com home, socket, base, porta e workspace próprios. No primeiro boot
+`workspace list` retornou vazio e apenas extensões bundled existiam. Nada de
+`~/.compozy` foi copiado ou apagado.
+
+Para diagnóstico fora da apresentação:
+
+```bash
+COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home \
+  compozy status -o json
+
+COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home \
+  compozy extension status batuta -o json
+```
+
+Para parar ou reabrir somente o daemon da demo:
 
 ```bash
 COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home \
   compozy daemon stop -o json
-```
 
-Reabrir o laboratório preparado:
-
-```bash
 COMPOZY_HOME=/home/francisross/tmp-builds/batuta-presentation-home \
   compozy daemon start -o json
 ```
 
-O daemon pessoal continua em `~/.compozy` e na porta `2123`; nenhum arquivo
-dele foi apagado ou substituído.
+O daemon pessoal continua em `~/.compozy` e na porta `2123`.
