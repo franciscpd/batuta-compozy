@@ -5,14 +5,15 @@ Status: approved in conversation on 2026-08-25
 ## Objective
 
 Prepare an honest local preview of the next Batuta version for a presentation
-on 2026-08-25 at 19:00. The preview must demonstrate new Batuta-owned routing
-behavior on the released Compozy `0.3.0-beta.20` without depending on the large
-experimental Compozy prerequisite branch.
+on 2026-08-25 at 19:00. The preview demonstrates new Batuta-owned routing
+behavior on a minimal Compozy build containing only the migration-free
+conjunctive runtime-rule stack, without depending on the large experimental
+Compozy prerequisite branch.
 
 ## Decision
 
-The preview is Batuta-only. It adds routing rules on the two existing task
-metadata axes:
+The preview changes Batuta plus one narrow, generic Compozy contract. It adds
+routing rules on the two existing task metadata axes:
 
 ```text
 lane = type + complexity
@@ -47,8 +48,9 @@ The presentation must have durable evidence for:
 
 ## Safety and stop conditions
 
-- No Compozy source change, schema migration, generated contract, or daemon
-  rebuild is part of this preview.
+- The only Compozy source delta is the already-reviewed conjunctive
+  `type + complexity` runtime-rule stack. No config-CAS, nested recovery,
+  schema migration, database change, or new dependency is included.
 - No concurrent agent may write or commit in the same worktree. Parallel task
   delivery is not enabled until Batuta owns a separate worktree per task and a
   deterministic integration order.
@@ -73,7 +75,7 @@ The presentation must have durable evidence for:
 7. Push the exact verified head and open a pull request autonomously.
 
 These increments require no Batuta-specific database migration in Compozy.
-Any small generic Compozy API seam discovered later must be proposed and
+Any additional generic Compozy API seam discovered later must be proposed and
 reviewed independently; it is not a prerequisite for this preview.
 
 ## Verification
@@ -85,4 +87,3 @@ reviewed independently; it is not a prerequisite for this preview.
 - Execute the disposable task set and verify exact commits and test commands.
 - Confirm the Batuta and Compozy source worktrees remain clean.
 - Label every unimplemented roadmap item explicitly in the visual and script.
-

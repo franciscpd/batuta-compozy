@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Demonstrate Batuta routing real tasks by canonical domain and complexity on released Compozy `0.3.0-beta.20`, with bounded execution, verification, atomic commits, and an honest roadmap visual.
+**Goal:** Demonstrate Batuta routing real tasks by canonical domain and complexity on a minimal migration-free Compozy matrix build, with bounded execution, verification, atomic commits, and an honest roadmap visual.
 
-**Architecture:** Keep Batuta resource-only. Extend the routing skill and conductor contract so the live provider/model catalog feeds ordered conjunctive `type + complexity` rules already understood by released Compozy; use a disposable workspace for live evidence. Do not change Compozy source, schemas, or generated contracts.
+**Architecture:** Keep Batuta resource-only. Extend the routing skill and conductor contract so the live provider/model catalog feeds ordered conjunctive `type + complexity` rules. Build Compozy from `upstream/main` plus only the reviewed migration-free matrix stack; use a disposable workspace for live evidence.
 
 **Tech Stack:** Markdown agent/skill resources, Compozy Loop v1 YAML/runtime rules, Bash/Python contract tests, isolated local Compozy daemon, Git.
 
@@ -12,13 +12,58 @@
 
 ## Global Constraints
 
-- Use released Compozy `0.3.0-beta.20`; do not modify Compozy source.
-- Add no database migration, generated API contract, or daemon rebuild.
+- Use `upstream/main` plus only commits `e7b55569c`, `39cf835ad`,
+  `e3cc76d29`, `b21e0d33c`, `9d9360ec6`, and `caca649c6`.
+- Add no database migration, config-CAS, nested recovery, or dependency.
 - Canonical domains are `backend`, `frontend`, `mobile`, `data`, `infra`, `security`, `testing`, `docs`, `general`, and `fullstack`.
 - Complexity is exactly `low`, `medium`, `high`, or `critical`.
 - Never run concurrent writers or committers in one worktree.
 - Never claim automatic fallback, parallel integration, push, or PR creation as implemented without live evidence.
 - Run `tests/contract/run.sh` only in a detached disposable worktree with no `.compozy` marker.
+
+---
+
+### Task 0: Minimal migration-free Compozy matrix build
+
+**Files:**
+- No new source edits; compose an isolated branch from reviewed commits.
+
+**Interfaces:**
+- Consumes: clean `upstream/main` and the six reviewed matrix commits.
+- Produces: one local Compozy binary accepting conjunctive runtime selectors.
+
+- [ ] **Step 1: Create an isolated Compozy worktree**
+
+Create branch `feat/batuta-matrix-preview` from current `upstream/main` under
+`/home/francisross/Projects/opensource/_worktrees/batuta-matrix-preview`.
+
+- [ ] **Step 2: Apply only the matrix stack**
+
+Cherry-pick, in order:
+
+```text
+e7b55569c
+39cf835ad
+e3cc76d29
+b21e0d33c
+9d9360ec6
+caca649c6
+```
+
+Confirm the resulting diff contains no `internal/store/migrations` file and no
+`00090` or `00091` migration.
+
+- [ ] **Step 3: Run focused verification and build**
+
+Run the matrix validation/resolution, API contract, daemon integration, native
+schema, and config tests named by the commit stack. Build `./cmd/compozy` with
+compiler scratch under a unique `/home/francisross/tmp-builds` directory.
+
+- [ ] **Step 4: Re-run the Task 1 RED against this binary**
+
+Run the detached Batuta contract suite with `COMPOZY_BIN`/`PATH` selecting the
+minimal binary. Expected: the conjunctive routing test reaches GREEN while the
+same test remains RED on the released binary.
 
 ---
 
@@ -59,8 +104,8 @@ Run: `tests/contract/test_02_routing_dryrun.sh`
 
 Expected: FAIL because the current test/skill contract is complexity-only or
 because the released daemon rejects the conjunction. If the daemon rejects
-the conjunction, stop Task 1 and report the platform blocker; do not encode a
-composite type or modify Compozy.
+the conjunction, preserve that RED and run the same test against the minimal
+matrix build; do not encode a composite type or task-ID workaround.
 
 - [ ] **Step 3: Update the routing skill**
 
