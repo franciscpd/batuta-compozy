@@ -20,14 +20,16 @@ type RuntimeRule struct {
 }
 
 type RuntimeMatch struct {
-	Domain     Domain     `json:"type"`
-	Complexity Complexity `json:"complexity"`
+	ID         string     `json:"id,omitempty"`
+	Domain     Domain     `json:"type,omitempty"`
+	Complexity Complexity `json:"complexity,omitempty"`
 }
 
 type RuntimeValue struct {
 	Provider  string `json:"provider"`
 	Model     string `json:"model"`
 	Reasoning string `json:"reasoning"`
+	Speed     string `json:"speed,omitempty"`
 }
 
 type RuntimeCandidate struct {
