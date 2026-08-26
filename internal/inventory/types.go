@@ -37,6 +37,14 @@ const (
 	CredentialUnknown    CredentialState = "unknown"
 )
 
+type AvailabilityState string
+
+const (
+	AvailabilityAvailable AvailabilityState = "available"
+	AvailabilityMissing   AvailabilityState = "missing"
+	AvailabilityUnknown   AvailabilityState = "unknown"
+)
+
 type Evidence struct {
 	Name           string          `json:"name"`
 	Source         string          `json:"source"`
@@ -52,14 +60,15 @@ type Diagnostic struct {
 }
 
 type ExecutorSnapshot struct {
-	ID                   ExecutorID      `json:"executor_id"`
-	Version              Evidence        `json:"version"`
-	Health               Evidence        `json:"health,omitempty"`
-	ConfigurationDigests []Evidence      `json:"configuration,omitempty"`
-	InstructionDigests   []Evidence      `json:"instructions,omitempty"`
-	Capabilities         []Evidence      `json:"capabilities,omitempty"`
-	CredentialState      CredentialState `json:"credential_state,omitempty"`
-	Diagnostics          []Diagnostic    `json:"diagnostics,omitempty"`
+	ID                   ExecutorID        `json:"executor_id"`
+	Availability         AvailabilityState `json:"availability"`
+	Version              Evidence          `json:"version"`
+	Health               Evidence          `json:"health,omitempty"`
+	ConfigurationDigests []Evidence        `json:"configuration,omitempty"`
+	InstructionDigests   []Evidence        `json:"instructions,omitempty"`
+	Capabilities         []Evidence        `json:"capabilities,omitempty"`
+	CredentialState      CredentialState   `json:"credential_state,omitempty"`
+	Diagnostics          []Diagnostic      `json:"diagnostics,omitempty"`
 }
 
 type InventorySnapshot struct {
@@ -137,6 +146,11 @@ func (state ResolutionState) valid() bool {
 }
 
 func validateExecutor(executor ExecutorSnapshot) error {
+	if executor.Availability != AvailabilityAvailable &&
+		executor.Availability != AvailabilityMissing &&
+		executor.Availability != AvailabilityUnknown {
+		return fmt.Errorf("unsupported availability %q", executor.Availability)
+	}
 	groups := [][]Evidence{
 		{executor.Version},
 		{executor.Health},

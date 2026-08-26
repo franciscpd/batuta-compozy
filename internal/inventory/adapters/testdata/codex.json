@@ -1,0 +1,8 @@
+{
+  "version": "codex-cli 0.115.0",
+  "doctor": "{\"schema_version\":1,\"status\":\"ok\",\"auth\":{\"configured\":true},\"sandbox\":\"workspace-write\",\"secret\":\"BATUTA_ADAPTER_SECRET_91ef\"}",
+  "mcp": "{\"servers\":[{\"name\":\"github\",\"enabled\":true,\"command\":\"BATUTA_ADAPTER_SECRET_91ef\"}]}",
+  "plugins": "{\"installed\":[{\"pluginId\":\"frontend-kit\",\"name\":\"Frontend Kit\",\"enabled\":true,\"installedPath\":\"/secret/path\"}],\"available\":[]}",
+  "marketplaces": "{\"marketplaces\":[{\"name\":\"openai-curated\",\"root\":\"/secret/root\"}]}",
+  "models": "{\"models\":[{\"slug\":\"gpt-5.6-sol\",\"supports_reasoning\":true}]}"
+}

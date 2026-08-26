@@ -1,0 +1,10 @@
+{
+  "version": "1.0.95",
+  "config": "{\"schema_version\":1,\"model\":\"openai/gpt-5.6-terra\",\"permission\":{\"edit\":\"allow\"},\"apiKey\":\"BATUTA_ADAPTER_SECRET_91ef\"}",
+  "paths": "{\"config\":\"/safe/config\",\"data\":\"/safe/data\"}",
+  "agents": "[{\"name\":\"build\"},{\"name\":\"review\"}]",
+  "skills": "[{\"name\":\"frontend-design\",\"origin\":\"workspace\",\"content\":\"BATUTA_ADAPTER_SECRET_91ef\"}]",
+  "mcp": "[{\"name\":\"browser\",\"status\":\"connected\",\"environment\":\"BATUTA_ADAPTER_SECRET_91ef\"}]",
+  "auth": "openai\nanthropic\n",
+  "models": "openai/gpt-5.6-terra\nanthropic/claude-opus-5\n"
+}

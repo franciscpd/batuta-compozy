@@ -1,0 +1,10 @@
+{
+  "version": "{\"Version\":\"0.3.0-beta.21\",\"Commit\":\"fixture\"}",
+  "status": "{\"schema_version\":\"1\",\"daemon\":{\"status\":\"running\",\"version\":\"0.3.0-beta.21\"},\"token\":\"BATUTA_ADAPTER_SECRET_91ef\"}",
+  "providers": "{\"providers\":[{\"name\":\"cursor\",\"auth_status\":{\"state\":\"configured\"}}]}",
+  "models": "{\"models\":[{\"provider_id\":\"cursor\",\"model_id\":\"grok-4.6\",\"availability_state\":\"available\",\"supports_tools\":true,\"hidden\":false,\"deprecated\":false}]}",
+  "agents": "{\"agents\":[{\"name\":\"frontend\"}]}",
+  "skills": "{\"skills\":[{\"name\":\"impeccable\",\"source\":\"bundled\",\"instructions\":\"BATUTA_ADAPTER_SECRET_91ef\"}]}",
+  "toolsets": "{\"toolsets\":[{\"name\":\"web\"}]}",
+  "tools": "{\"tools\":[{\"id\":\"web__run\"}]}"
+}

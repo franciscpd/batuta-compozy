@@ -9,7 +9,8 @@ func TestSnapshotDigestIsStableAcrossInputOrder(t *testing.T) {
 	t.Parallel()
 
 	first := ExecutorSnapshot{
-		ID: ExecutorCodex,
+		ID:           ExecutorCodex,
+		Availability: AvailabilityAvailable,
 		Version: Evidence{
 			Name:   "version",
 			Source: "codex --version",
@@ -23,7 +24,8 @@ func TestSnapshotDigestIsStableAcrossInputOrder(t *testing.T) {
 		},
 	}
 	second := ExecutorSnapshot{
-		ID: ExecutorCompozy,
+		ID:           ExecutorCompozy,
+		Availability: AvailabilityAvailable,
 		Version: Evidence{
 			Name:   "version",
 			Source: "compozy version",
@@ -39,8 +41,9 @@ func TestSnapshotDigestIsStableAcrossInputOrder(t *testing.T) {
 	got, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{
 		second,
 		{
-			ID:      first.ID,
-			Version: first.Version,
+			ID:           first.ID,
+			Availability: first.Availability,
+			Version:      first.Version,
 			Capabilities: []Evidence{
 				first.Capabilities[2],
 				first.Capabilities[0],
@@ -78,7 +81,8 @@ func TestSnapshotRejectsUnknownExecutorAndResolutionState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
-				ID: tt.executor,
+				ID:           tt.executor,
+				Availability: AvailabilityAvailable,
 				Version: Evidence{
 					Name:   "version",
 					Source: "bounded probe",

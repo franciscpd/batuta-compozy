@@ -1,2 +1,4 @@
 github.com/compozy/compozy/sdk/go v0.3.0-beta.20 h1:5CiDcDKJovkOP2dByhbPqc965yJicyofxcXdUe/osYg=
 github.com/compozy/compozy/sdk/go v0.3.0-beta.20/go.mod h1:pFMFVfFgtF+Mgz7V7aiCerztK7sW1gFlbGfGuvcKnag=
+github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
+github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=

@@ -155,16 +155,15 @@ OpenCode:
   debug agent <validated-listed-name>
   debug skill
   mcp list
-  providers list
+  auth list
   models
 
 Cursor Agent:
   --version
-  status --format json
+  status
   models
   mcp list
   mcp list-tools <validated-listed-id>
-  plugin marketplace list --format json
 ```
 
 Test names:
@@ -186,7 +185,7 @@ Expected: compilation fails because adapters and collector do not exist.
 
 - [ ] **Step 3: Implement the four adapters**
 
-Compozy daemon output is authoritative for effective config, agents, skills, tools, provider auth state, and live provider/model catalog. OpenCode `debug config` is resolved only for fields actually returned there; dynamic agent names must first come from `agent list`, and `debug skill` supplies only safe skill IDs/origins. Codex config/profile, `AGENTS.md`, roots, approval, and sandbox are `declared` or `unknown` unless `doctor` resolves the exact field. Parse only allowlisted Codex TOML fields with the pinned `go-toml/v2` dependency; unknown keys and raw values are dropped before normalization. Codex skill names/origins come only from `$CODEX_HOME/skills` and installed plugin manifests discovered by `plugin list --json`; their instructions/content are never returned. Cursor rules/MCP JSON are `declared`; models/status are resolved from CLI; marketplace names prove only marketplace availability, not installed plugins, while effective CLI config, agents, installed plugins, approval, sandbox, and writable roots remain `unknown`. Editor settings are tagged `editor-only` and never promoted to effective agent capability.
+Compozy daemon output is authoritative for effective config, agents, skills, tools, provider auth state, and live provider/model catalog. OpenCode `debug config` is resolved only for fields actually returned there; dynamic agent names must first come from `agent list`, and `debug skill` supplies only safe skill IDs/origins. `auth list` contributes only configured provider IDs and never credential material. Codex config/profile, `AGENTS.md`, roots, approval, and sandbox are `declared` or `unknown` unless `doctor` resolves the exact field. Parse only allowlisted Codex TOML fields with the pinned `go-toml/v2` dependency; unknown keys and raw values are dropped before normalization. Codex skill names/origins come only from `$CODEX_HOME/skills` and installed plugin manifests discovered by `plugin list --json`; their instructions/content are never returned. Cursor discovery prefers the current `agent` executable and accepts `cursor-agent` only as its documented compatibility alias. Cursor rules/MCP JSON are `declared`; models/status are resolved from CLI; marketplace and installed-plugin state remain `unknown` because the public non-interactive CLI does not expose a stable read-only projection. Editor settings are tagged `editor-only` and never promoted to effective agent capability.
 
 Documented file reads are internally derived only:
 
