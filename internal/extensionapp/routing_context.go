@@ -164,6 +164,21 @@ func (s *deliveryContextService) Budget(
 	if !exists {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
 	}
+	if delivery, exists := journal.Deliveries[input.DeliveryID]; exists && delivery.Graph != nil {
+		if delivery.WorkspaceID != scope.WorkspaceID || delivery.State != routing.DeliveryStateActive {
+			return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
+		}
+		remainingTokens, remainingWall, err := graphRemainingBudget(delivery, s.now())
+		if err != nil {
+			return DeliveryBudgetContextOutput{}, err
+		}
+		if remainingTokens <= 0 || remainingWall <= 0 {
+			return DeliveryBudgetContextOutput{}, routing.ErrNoEligibleCandidate
+		}
+		return DeliveryBudgetContextOutput{
+			RemainingTokens: remainingTokens, RemainingWallSeconds: int(remainingWall / time.Second),
+		}, nil
+	}
 	delivery, attempt, err := deliveryAttemptForContext(journal, scope.WorkspaceID, input.DeliveryID, input.Attempt)
 	if err != nil || attempt.State != routing.AttemptSubmitted || !validOpaqueRunID(attempt.RunID) {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict

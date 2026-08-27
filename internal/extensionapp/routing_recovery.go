@@ -16,6 +16,7 @@ type deliveryOutput struct {
 	NodeID         string `json:"node_id"`
 	ItemIndex      int    `json:"item_index,omitempty"`
 	Status         string `json:"status"`
+	OutputRef      string `json:"output_ref,omitempty"`
 	ChildLoopRunID string `json:"child_loop_run_id,omitempty"`
 }
 

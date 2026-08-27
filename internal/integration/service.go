@@ -29,10 +29,9 @@ func (s Service) Integrate(ctx context.Context, request IntegrationRequest) (Int
 	if err := s.Locker.WithLocked(ctx, request.WorkspaceID, func(journal Journal) error {
 		_, existsNow, err := journal.Load(ctx, request.WorkspaceID, request.DeliveryID, request.OperationID)
 		exists = existsNow
-		if err != nil {
-			return err
+		if err == nil && !existsNow {
+			_, err = projectTracking(ctx, journal, request, PreflightResult{})
 		}
-		_, err = projectTracking(ctx, journal, request)
 		return err
 	}); err != nil {
 		return IntegrationResult{}, err
@@ -54,9 +53,24 @@ func (s Service) Integrate(ctx context.Context, request IntegrationRequest) (Int
 	}
 	var result IntegrationResult
 	err := s.Locker.WithLocked(ctx, request.WorkspaceID, func(journal Journal) error {
-		projection, projectionErr := projectTracking(ctx, journal, request)
-		if projectionErr != nil {
-			return projectionErr
+		current, currentExists, currentErr := journal.Load(ctx, request.WorkspaceID, request.DeliveryID, request.OperationID)
+		if currentErr != nil {
+			return currentErr
+		}
+		var projection TrackingProjection
+		if currentExists {
+			projection = TrackingProjection{
+				Revision: current.ProjectionRevision, RequestDigest: current.RequestDigest,
+				Files: cloneProjectedTracking(current.SharedTracking),
+			}
+		} else if planned != nil {
+			var projectionErr error
+			projection, projectionErr = projectTracking(ctx, journal, request, *planned)
+			if projectionErr != nil {
+				return projectionErr
+			}
+		} else {
+			return ErrJournalConflict
 		}
 		var err error
 		result, err = s.integrateLocked(ctx, journal, request, projection, planned)
@@ -265,10 +279,18 @@ func stateMatchesRequest(state OperationState, request IntegrationRequest, proje
 		reflect.DeepEqual(state.SharedTracking, projection.Files)
 }
 
-func projectTracking(ctx context.Context, journal Journal, request IntegrationRequest) (TrackingProjection, error) {
+func projectTracking(
+	ctx context.Context,
+	journal Journal,
+	request IntegrationRequest,
+	preflight PreflightResult,
+) (TrackingProjection, error) {
 	projection, err := journal.ProjectTracking(ctx, TrackingProjectionRequest{
 		WorkspaceID: request.WorkspaceID, DeliveryID: request.DeliveryID,
 		OperationID: request.OperationID, RequestDigest: request.RequestDigest,
+		AcceptedTaskIDs:      append([]string(nil), preflight.AcceptedTaskIDs...),
+		AcceptedCommitSHAs:   append([]string(nil), preflight.AcceptedCommitSHAs...),
+		IntegratedCommitSHAs: append([]string(nil), preflight.AcceptedResultCommitSHAs...),
 	})
 	if err != nil {
 		return TrackingProjection{}, err
@@ -329,9 +351,11 @@ func integrationResult(state OperationState) IntegrationResult {
 	}
 	return IntegrationResult{
 		OperationID: state.OperationID, RequestDigest: state.RequestDigest,
-		AcceptedTaskIDs:     append([]string{}, state.AcceptedTaskIDs...),
-		AcceptedCommitSHAs:  append([]string{}, state.AcceptedCommitSHAs...),
-		FirstConflictTaskID: state.Preflight.FirstConflictTaskID, ResultingHeadSHA: head,
+		AcceptedTaskIDs:        append([]string{}, state.AcceptedTaskIDs...),
+		AcceptedCommitSHAs:     append([]string{}, state.AcceptedCommitSHAs...),
+		IntegratedCommitSHAs:   append([]string{}, state.ResultingHeadSHAs...),
+		FirstConflictTaskID:    state.Preflight.FirstConflictTaskID,
+		ConflictEvidenceDigest: state.Preflight.ConflictEvidenceDigest, ResultingHeadSHA: head,
 		MetadataCommitSHA: state.MetadataCommitSHA, Complete: state.Complete,
 	}
 }

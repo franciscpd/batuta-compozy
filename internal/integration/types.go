@@ -134,14 +134,16 @@ type OperationState struct {
 }
 
 type IntegrationResult struct {
-	OperationID         string   `json:"operation_id"`
-	RequestDigest       string   `json:"request_digest"`
-	AcceptedTaskIDs     []string `json:"accepted_task_ids"`
-	AcceptedCommitSHAs  []string `json:"accepted_commit_shas"`
-	FirstConflictTaskID string   `json:"first_conflict_task_id,omitempty"`
-	ResultingHeadSHA    string   `json:"resulting_head_sha"`
-	MetadataCommitSHA   string   `json:"metadata_commit_sha,omitempty"`
-	Complete            bool     `json:"complete"`
+	OperationID            string   `json:"operation_id"`
+	RequestDigest          string   `json:"request_digest"`
+	AcceptedTaskIDs        []string `json:"accepted_task_ids"`
+	AcceptedCommitSHAs     []string `json:"accepted_commit_shas"`
+	IntegratedCommitSHAs   []string `json:"integrated_commit_shas"`
+	FirstConflictTaskID    string   `json:"first_conflict_task_id,omitempty"`
+	ConflictEvidenceDigest string   `json:"conflict_evidence_digest,omitempty"`
+	ResultingHeadSHA       string   `json:"resulting_head_sha"`
+	MetadataCommitSHA      string   `json:"metadata_commit_sha,omitempty"`
+	Complete               bool     `json:"complete"`
 }
 
 type Journal interface {
@@ -161,10 +163,13 @@ type ProjectedTrackingFile struct {
 }
 
 type TrackingProjectionRequest struct {
-	WorkspaceID   string `json:"workspace_id"`
-	DeliveryID    string `json:"delivery_id"`
-	OperationID   string `json:"operation_id"`
-	RequestDigest string `json:"request_digest"`
+	WorkspaceID          string   `json:"workspace_id"`
+	DeliveryID           string   `json:"delivery_id"`
+	OperationID          string   `json:"operation_id"`
+	RequestDigest        string   `json:"request_digest"`
+	AcceptedTaskIDs      []string `json:"accepted_task_ids"`
+	AcceptedCommitSHAs   []string `json:"accepted_commit_shas"`
+	IntegratedCommitSHAs []string `json:"integrated_commit_shas"`
 }
 
 type TrackingProjection struct {

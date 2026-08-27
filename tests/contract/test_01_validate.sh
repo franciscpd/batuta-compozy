@@ -48,11 +48,11 @@ with open(sys.argv[1], "rb") as source:
 
 tools = manifest["resources"]["tools"]
 expected = {
-    "delivery_budget_context", "executor_inventory", "publication_plan",
+    "delivery_budget_context", "delivery_graph", "executor_inventory", "publication_plan",
     "publication_verify", "publish_worktree", "routing_apply",
     "routing_context", "routing_plan",
 }
 assert set(tools) == expected, sorted(tools)
 assert manifest["subprocess"]["command"] == "./bin"
-print("OK: generated manifest is code-backed and exposes eight tools")
+print("OK: generated manifest is code-backed and exposes nine tools")
 PY

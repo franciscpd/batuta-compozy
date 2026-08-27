@@ -84,6 +84,41 @@ func (c CLIClient) Inspect(
 	return worktree, nil
 }
 
+func (c CLIClient) FindByName(
+	ctx context.Context,
+	scope publication.TrustedScope,
+	name string,
+) (Worktree, bool, error) {
+	if !boundedIdentity(name) {
+		return Worktree{}, false, ErrInvalidWorktreeIdentity
+	}
+	var raw []daemonWorktree
+	if err := c.runJSON(ctx, scope, []string{
+		"worktree", "list", "--workspace", scope.WorkspaceID, "-o", "json",
+	}, &raw); err != nil {
+		return Worktree{}, false, fmt.Errorf("worktreeops: list worktrees: %w", err)
+	}
+	if len(raw) > 4096 {
+		return Worktree{}, false, ErrInvalidWorktreeIdentity
+	}
+	var matched Worktree
+	matches := 0
+	for _, item := range raw {
+		worktree, err := worktreeFromDaemon(scope, item)
+		if err != nil {
+			return Worktree{}, false, ErrInvalidWorktreeIdentity
+		}
+		if worktree.Name == name {
+			matched = worktree
+			matches++
+		}
+	}
+	if matches > 1 {
+		return Worktree{}, false, ErrInvalidWorktreeIdentity
+	}
+	return matched, matches == 1, nil
+}
+
 func (c CLIClient) Remove(
 	ctx context.Context,
 	scope publication.TrustedScope,
@@ -98,7 +133,7 @@ func (c CLIClient) Remove(
 	}
 	if err := c.runJSON(ctx, scope, []string{
 		"worktree", "remove", worktreeID,
-		"--workspace", scope.WorkspaceID, "--force", "-o", "json",
+		"--workspace", scope.WorkspaceID, "-o", "json",
 	}, &response); err != nil {
 		return Worktree{}, fmt.Errorf("worktreeops: remove worktree: %w", err)
 	}

@@ -36,6 +36,7 @@ type RoutingJournal struct {
 	CurrentGeneration string                       `json:"current_generation"`
 	Generations       map[string]RoutingGeneration `json:"generations"`
 	Deliveries        map[string]DeliveryRecord    `json:"deliveries"`
+	IntegrationStates map[string]json.RawMessage   `json:"integration_states,omitempty"`
 
 	// Compatibility-only fields for unreleased v1 callers. Schema v2 never
 	// encodes them, and the v1 reader intentionally discards them.
@@ -208,7 +209,7 @@ func (s *OwnershipStore) load(workspaceID string) (RoutingJournal, bool, error) 
 		}
 		journal = RoutingJournal{
 			SchemaVersion: journalSchemaVersion, CurrentGeneration: legacy.CurrentGeneration,
-			Generations: legacy.Generations, Deliveries: map[string]DeliveryRecord{},
+			Generations: legacy.Generations, Deliveries: map[string]DeliveryRecord{}, IntegrationStates: map[string]json.RawMessage{},
 		}
 	case journalSchemaVersion:
 		if err := decodeStrictJSON(payload, &journal); err != nil {
@@ -333,6 +334,15 @@ func validateJournal(journal RoutingJournal) error {
 			return err
 		}
 	}
+	for operationID, payload := range journal.IntegrationStates {
+		if !canonicalSHA256.MatchString(operationID) || len(payload) == 0 || len(payload) > 4<<20 || !json.Valid(payload) {
+			return ErrOwnershipUnproven
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(payload, &decoded); err != nil || decoded == nil {
+			return ErrOwnershipUnproven
+		}
+	}
 	return nil
 }
 
@@ -383,11 +393,19 @@ func validateJournalTransition(before, after RoutingJournal) error {
 			return err
 		}
 	}
+	for operationID := range before.IntegrationStates {
+		if _, exists := after.IntegrationStates[operationID]; !exists {
+			return ErrDeliveryConflict
+		}
+	}
 	return nil
 }
 
 func emptyRoutingJournal() RoutingJournal {
-	return RoutingJournal{SchemaVersion: journalSchemaVersion, Generations: map[string]RoutingGeneration{}, Deliveries: map[string]DeliveryRecord{}}
+	return RoutingJournal{
+		SchemaVersion: journalSchemaVersion, Generations: map[string]RoutingGeneration{},
+		Deliveries: map[string]DeliveryRecord{}, IntegrationStates: map[string]json.RawMessage{},
+	}
 }
 
 func cloneJournal(journal RoutingJournal) (RoutingJournal, error) {

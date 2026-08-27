@@ -134,40 +134,34 @@ func TestDeliveryGraphJournalAllowsOnlyValidTaskLifecycle(t *testing.T) {
 		return nil
 	})
 	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
-		task := &graph.Tasks[0]
-		task.State = GraphTaskWaitingInput
-		task.Attempts[0].State = GraphTaskWaitingInput
-		task.Attempts[0].Question = &TaskQuestion{
-			RequestID: "request-1", Prompt: "Choose the public behavior",
+		_, err := graph.RecordQuestion("task_1", 1, "child-run-1", TaskQuestion{
+			RequestID: digestFixture("request-1"), Prompt: "Choose the public behavior",
 			ContextDigest: digestFixture("question-context"),
-		}
-		_, _, err := graph.OpenPause(HumanPause{
-			TaskID: task.TaskID, Execution: 1, RequestID: "request-1",
-			StartedAt: delivery.CreatedAt.Add(10 * time.Minute),
-		})
+		}, delivery.CreatedAt.Add(10*time.Minute))
 		return err
 	})
 	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
-		task := &graph.Tasks[0]
-		task.State = GraphTaskRunning
-		task.Attempts[0].State = GraphTaskRunning
-		_, _, err := graph.ClosePause("request-1", delivery.CreatedAt.Add(20*time.Minute))
+		_, _, err := graph.RecordAnswer("task_1", 1, TaskAnswer{
+			QuestionOperationID: digestFixture("request-1"), LoopRunID: "child-run-1",
+			Generation: 2, NodeID: "ask_operator", ItemIndex: 0, Value: "Keep compatibility",
+		}, delivery.CreatedAt.Add(20*time.Minute))
 		return err
 	})
 	candidate := graphGitSHA("candidate")
 	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
 		task := &graph.Tasks[0]
 		task.State = GraphTaskCandidate
-		task.Attempts[0].State = GraphTaskCandidate
-		task.Attempts[0].CandidateCommitSHA = candidate
-		task.Attempts[0].VerificationDigest = digestFixture("verification")
+		attempt := &task.Attempts[len(task.Attempts)-1]
+		attempt.State = GraphTaskCandidate
+		attempt.CandidateCommitSHA = candidate
+		attempt.VerificationDigest = digestFixture("verification")
 		return nil
 	})
 	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
 		task := &graph.Tasks[0]
 		task.State = GraphTaskIntegrated
 		task.IntegratedCommitSHA = candidate
-		task.Attempts[0].State = GraphTaskIntegrated
+		task.Attempts[len(task.Attempts)-1].State = GraphTaskIntegrated
 		return nil
 	})
 

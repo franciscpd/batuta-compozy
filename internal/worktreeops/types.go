@@ -18,6 +18,7 @@ var ErrInvalidWorktreeIdentity = errors.New("worktreeops: invalid worktree ident
 
 type Client interface {
 	Create(context.Context, publication.TrustedScope, CreateRequest) (Worktree, error)
+	FindByName(context.Context, publication.TrustedScope, string) (Worktree, bool, error)
 	Inspect(context.Context, publication.TrustedScope, string) (Worktree, error)
 	Remove(context.Context, publication.TrustedScope, string) (Worktree, error)
 }

@@ -52,6 +52,27 @@ func (r *deliveryRun) UnmarshalJSON(payload []byte) error {
 type deliveryRunDetail struct {
 	Run         deliveryRun          `json:"run"`
 	Generations []deliveryGeneration `json:"generations"`
+	Requests    []deliveryRequest    `json:"requests"`
+}
+
+type deliveryRequest struct {
+	LoopRunID        string          `json:"loop_run_id"`
+	LoopName         string          `json:"loop_name,omitempty"`
+	Generation       int             `json:"generation"`
+	NodeID           string          `json:"node_id"`
+	ItemIndex        int             `json:"item_index"`
+	Kind             string          `json:"kind"`
+	State            string          `json:"state"`
+	Prompt           string          `json:"prompt"`
+	Context          json.RawMessage `json:"context"`
+	Expect           json.RawMessage `json:"expect,omitempty"`
+	Decisions        []string        `json:"decisions"`
+	Agents           string          `json:"agents"`
+	AnsweredDecision string          `json:"answered_decision,omitempty"`
+	ActorKind        string          `json:"actor_kind,omitempty"`
+	ActorID          string          `json:"actor_id,omitempty"`
+	AnsweredAt       *time.Time      `json:"answered_at,omitempty"`
+	ResolvedAt       *time.Time      `json:"resolved_at,omitempty"`
 }
 
 type deliveryStartRequest struct {

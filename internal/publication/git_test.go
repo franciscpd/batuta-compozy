@@ -227,6 +227,29 @@ func TestGitClientCommitsAheadOfBaseUsesExactValidatedRevision(t *testing.T) {
 	}
 }
 
+func TestGitClientProvesExactCommitReachability(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository(t)
+	ancestor := repository.head(t)
+	if err := os.WriteFile(filepath.Join(repository.path, "second.txt"), []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write second file: %v", err)
+	}
+	repository.run(t, "add", "second.txt")
+	repository.run(t, "commit", "-m", "second")
+	descendant := repository.head(t)
+	client := GitClient{Executable: repository.git, Runner: ExecRunner{}}
+
+	reachable, err := client.IsAncestor(context.Background(), repository.path, ancestor, descendant)
+	if err != nil || !reachable {
+		t.Fatalf("IsAncestor(forward) = %v, error=%v", reachable, err)
+	}
+	reachable, err = client.IsAncestor(context.Background(), repository.path, descendant, ancestor)
+	if err != nil || reachable {
+		t.Fatalf("IsAncestor(reverse) = %v, error=%v", reachable, err)
+	}
+}
+
 func TestGitClientRejectsRelativeWorktreePath(t *testing.T) {
 	t.Parallel()
 

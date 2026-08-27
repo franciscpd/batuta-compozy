@@ -57,6 +57,7 @@ func TestDeliveryContextDescriptorsAreClosedReadOnlyTools(t *testing.T) {
 func TestRoutingContextReturnsAttemptRulesAndRemainingBudgetWithoutMutation(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	makeLegacyDeliveryFixture(t, fixture)
 	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -114,6 +115,7 @@ func TestRoutingContextRejectsCurrentTaskSetDrift(t *testing.T) {
 func TestDeliveryBudgetContextCountsOneOwnedImplementationChildOnce(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	makeLegacyDeliveryFixture(t, fixture)
 	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -162,6 +164,7 @@ func TestDeliveryBudgetContextRejectsForeignNonterminalFailedAndMissingUsageChil
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			fixture := newDeliveryServiceFixture(t)
+			makeLegacyDeliveryFixture(t, fixture)
 			started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 			if err != nil {
 				t.Fatalf("Start() error = %v", err)
@@ -191,6 +194,7 @@ func TestDeliveryBudgetContextRejectsForeignNonterminalFailedAndMissingUsageChil
 func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	makeLegacyDeliveryFixture(t, fixture)
 	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -221,6 +225,53 @@ func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 	}
 }
 
+func TestDeliveryBudgetContextUsesDurableGraphUsageWithoutPollingChildren(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA,
+			CommitSHA:          "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+			VerificationDigest: digestValue("graph-budget-verification"), TokensUsed: 500,
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist graph usage: %v", err)
+	}
+	client := &fakeDeliveryRunClient{}
+	service := deliveryContextService{Store: fixture.store, Client: client, Now: func() time.Time { return fixture.now }}
+
+	output, err := service.Budget(context.Background(), fixture.scope, DeliveryBudgetContextInput{
+		DeliveryID: fixture.deliveryID, Attempt: 1,
+	})
+	if err != nil || output.RemainingTokens != 999_500 || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
+		t.Fatalf("Budget(graph) = %#v, error=%v status_calls=%d", output, err, client.statusCalls)
+	}
+}
+
+func TestDeliveryBudgetContextUsesGraphBeforeFirstWave(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	client := &fakeDeliveryRunClient{}
+	service := deliveryContextService{Store: fixture.store, Client: client, Now: func() time.Time { return fixture.now }}
+
+	output, err := service.Budget(context.Background(), fixture.scope, DeliveryBudgetContextInput{
+		DeliveryID: fixture.deliveryID, Attempt: 1,
+	})
+	if err != nil || output.RemainingTokens != 1_000_000 || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
+		t.Fatalf("Budget(graph before wave) = %#v, error=%v status_calls=%d", output, err, client.statusCalls)
+	}
+}
+
 func deliveryParentWithImplementation(
 	fixture deliveryServiceFixture,
 	started RoutingStartResult,
@@ -235,5 +286,19 @@ func deliveryParentWithImplementation(
 		Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
 			NodeID: "implement", Status: "succeeded", ChildLoopRunID: implementationRunID,
 		}}}},
+	}
+}
+
+func makeLegacyDeliveryFixture(t *testing.T, fixture deliveryServiceFixture) {
+	t.Helper()
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load(legacy fixture) exists=%v error=%v", exists, err)
+	}
+	delivery := journal.Deliveries[fixture.deliveryID]
+	delivery.Graph = nil
+	journal.Deliveries[fixture.deliveryID] = delivery
+	if err := fixture.store.Save(fixture.scope.WorkspaceID, journal); err != nil {
+		t.Fatalf("Save(legacy fixture) error=%v", err)
 	}
 }

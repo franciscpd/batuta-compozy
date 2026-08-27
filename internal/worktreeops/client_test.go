@@ -110,6 +110,34 @@ func TestCLIClientCreateUsesExactBoundedCommandAndAcceptsAdditiveJSON(t *testing
 	}
 }
 
+func TestCLIClientFindsExactWorktreeByDeterministicName(t *testing.T) {
+	t.Parallel()
+
+	repository := filepath.Join(string(filepath.Separator), "trusted", "repository")
+	managed := filepath.Join(string(filepath.Separator), "managed", "worktrees", "task-1")
+	name := "batuta-demo-task-01-a1-deadbeef"
+	raw := worktreeJSON(
+		"wt_task_01", "workspace-demo", name,
+		"batuta/task/aaaaaaaaaaaa/task-01/a1-deadbeef", managed, "ready", "ok", worktreeTestSHA, worktreeTestSHA,
+	)
+	runner := &recordingRunner{result: publication.CommandResult{Stdout: []byte("[" + raw + "]")}}
+	client := CLIClient{Executable: "/controlled/compozy", Runner: runner}
+	scope := publication.TrustedScope{WorkspaceID: "workspace-demo", WorkspaceRoot: repository}
+
+	found, exists, err := client.FindByName(context.Background(), scope, name)
+	if err != nil || !exists || found.ID != "wt_task_01" || found.Name != name {
+		t.Fatalf("FindByName() = %#v, exists=%v, error=%v", found, exists, err)
+	}
+	want := publication.Command{
+		Executable: "/controlled/compozy", Directory: repository,
+		Args:        []string{"worktree", "list", "--workspace", "workspace-demo", "-o", "json"},
+		StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit,
+	}
+	if !reflect.DeepEqual(runner.commands, []publication.Command{want}) {
+		t.Fatalf("commands = %#v, want %#v", runner.commands, []publication.Command{want})
+	}
+}
+
 func TestCLIClientInspectAndRemoveUseCanonicalIDs(t *testing.T) {
 	t.Parallel()
 
@@ -136,7 +164,7 @@ func TestCLIClientInspectAndRemoveUseCanonicalIDs(t *testing.T) {
 	}
 	want := []publication.Command{
 		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "inspect", "wt_task_01", "--workspace", "workspace-demo", "-o", "json"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
-		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "remove", "wt_task_01", "--workspace", "workspace-demo", "--force", "-o", "json"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
+		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "remove", "wt_task_01", "--workspace", "workspace-demo", "-o", "json"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)

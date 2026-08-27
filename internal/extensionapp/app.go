@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
+	"github.com/franciscpd/batuta-compozy/internal/integration"
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
@@ -25,6 +26,7 @@ type routingPlanFunc func(context.Context, publication.TrustedScope, RoutingPlan
 type routingApplyFunc func(context.Context, publication.TrustedScope, RoutingApplyInput) (RoutingApplyOutput, error)
 type routingContextFunc func(context.Context, publication.TrustedScope, RoutingContextInput) (RoutingContextOutput, error)
 type deliveryBudgetContextFunc func(context.Context, publication.TrustedScope, DeliveryBudgetContextInput) (DeliveryBudgetContextOutput, error)
+type deliveryGraphFunc func(context.Context, publication.TrustedScope, DeliveryGraphInput) (DeliveryGraphOutput, error)
 
 type serviceSet struct {
 	plan                  planFunc
@@ -35,6 +37,7 @@ type serviceSet struct {
 	routingApply          routingApplyFunc
 	routingContext        routingContextFunc
 	deliveryBudgetContext deliveryBudgetContextFunc
+	deliveryGraph         deliveryGraphFunc
 	worktrees             worktreeops.Client
 }
 
@@ -53,6 +56,7 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 	client := publication.CLIClient{Executable: compozyExecutable, Runner: runner}
 	taskWorktrees := newTaskWorktreeClient(compozyExecutable, runner)
 	git := publication.GitClient{Executable: gitExecutable, Runner: runner}
+	integrationGit := integration.GitClient{Executable: gitExecutable, Runner: runner}
 	planner := publication.PublicationPlanner{Compozy: client, Git: git}
 	publisher := publication.Publisher{Planner: planner, Compozy: client, Git: git}
 	verifier := publication.Verifier{Planner: planner, Git: git}
@@ -101,6 +105,15 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 		}, err
 	}
 	contextService := &deliveryContextService{StoreForCall: storeForCall, Client: deliveryClient}
+	integrationService := integration.Service{
+		Git: integrationGit, Locker: routingIntegrationLocker{StoreForCall: storeForCall},
+		Tracking: &integration.FileTrackingSynchronizer{GitExecutable: gitExecutable, Runner: runner},
+	}
+	graphService := &deliveryGraphService{
+		StoreForCall: storeForCall, Worktrees: taskWorktrees, WorktreeState: git.WorktreeState,
+		CommitReachable: git.IsAncestor,
+		Runs:            deliveryClient, Candidates: integrationGit, Integrator: integrationService,
+	}
 	engine.startDelivery = func(ctx context.Context, scope publication.TrustedScope, deliveryID string) (RoutingStartResult, error) {
 		fallbacks, err := fallbackService()
 		if err != nil {
@@ -126,7 +139,7 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 		plan: planner.Plan, publish: publisher.Publish, verify: verifier.Verify,
 		inventory: inventoryService, routingPlan: engine.Plan, routingApply: engine.Apply,
 		routingContext: contextService.Routing, deliveryBudgetContext: contextService.Budget,
-		worktrees: taskWorktrees,
+		deliveryGraph: graphService.Execute, worktrees: taskWorktrees,
 	})
 }
 
@@ -182,6 +195,22 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			},
 		},
 	})
+	if err := compozysdk.Tool(
+		extension,
+		"delivery_graph",
+		compozysdk.ToolOptions{
+			Description:  "Coordinate bounded parallel task waves and deterministic integration.",
+			FriendlyVerb: "Coordinate delivery graph",
+			Risk:         compozysdk.RiskMutating,
+			InputSchema:  deliveryGraphInputSchema(),
+			OutputSchema: deliveryGraphOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[DeliveryGraphInput]) (compozysdk.ToolResult, error) {
+			return app.deliveryGraph(ctx, req.TrustedWorkspace, req.Input)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register delivery graph: %w", err)
+	}
 	if err := compozysdk.Tool(
 		extension,
 		"delivery_budget_context",

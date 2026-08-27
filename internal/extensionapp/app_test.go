@@ -13,7 +13,7 @@ import (
 	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
-func TestApplicationWiringUsesManagedWorktreeClientWithoutAddingTool(t *testing.T) {
+func TestApplicationWiringUsesManagedWorktreeClientAndDeliveryGraphTool(t *testing.T) {
 	t.Parallel()
 
 	runner := &applicationWiringRunner{}
@@ -25,8 +25,8 @@ func TestApplicationWiringUsesManagedWorktreeClientWithoutAddingTool(t *testing.
 	if err != nil {
 		t.Fatalf("newWithServices() error = %v", err)
 	}
-	if got := len(extension.GetToolDescriptors()); got != 8 {
-		t.Fatalf("tool descriptor count = %d, want unchanged 8", got)
+	if got := len(extension.GetToolDescriptors()); got != 9 {
+		t.Fatalf("tool descriptor count = %d, want 9", got)
 	}
 }
 
@@ -62,8 +62,8 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	}
 
 	descriptors := extension.GetToolDescriptors()
-	if len(descriptors) != 8 {
-		t.Fatalf("len(descriptors) = %d, want 8", len(descriptors))
+	if len(descriptors) != 9 {
+		t.Fatalf("len(descriptors) = %d, want 9", len(descriptors))
 	}
 	want := []struct {
 		id       compozysdk.ToolID
@@ -72,6 +72,7 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 		risk     compozysdk.RiskClass
 	}{
 		{id: "ext__batuta__delivery_budget_context", handler: "delivery_budget_context", readOnly: true, risk: compozysdk.RiskRead},
+		{id: "ext__batuta__delivery_graph", handler: "delivery_graph", risk: compozysdk.RiskMutating},
 		{id: "ext__batuta__executor_inventory", handler: "executor_inventory", readOnly: true, risk: compozysdk.RiskRead},
 		{id: "ext__batuta__publication_plan", handler: "publication_plan", readOnly: true, risk: compozysdk.RiskRead},
 		{id: "ext__batuta__publication_verify", handler: "publication_verify", readOnly: true, risk: compozysdk.RiskRead},
@@ -89,11 +90,12 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 		if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
 			t.Fatalf("descriptor[%d] schema: %v", index, err)
 		}
-		if descriptor.Handler != "routing_apply" && schema["additionalProperties"] != false {
+		closedUnion := descriptor.Handler == "routing_apply" || descriptor.Handler == "delivery_graph"
+		if !closedUnion && schema["additionalProperties"] != false {
 			t.Fatalf("descriptor[%d] additionalProperties = %#v", index, schema["additionalProperties"])
 		}
-		if descriptor.Handler == "routing_apply" && schema["oneOf"] == nil {
-			t.Fatalf("descriptor[%d] routing apply schema has no closed union", index)
+		if closedUnion && schema["oneOf"] == nil {
+			t.Fatalf("descriptor[%d] %s schema has no closed union", index, descriptor.Handler)
 		}
 	}
 }

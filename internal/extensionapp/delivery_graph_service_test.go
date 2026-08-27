@@ -1,0 +1,1242 @@
+package extensionapp
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/franciscpd/batuta-compozy/internal/integration"
+	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
+)
+
+func TestDeliveryGraphServicePreparesReadyWaveAndReconcilesWithoutDuplicateCreate(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready"}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{
+				HeadSHA:         "0123456789abcdef0123456789abcdef01234567",
+				PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
+			}, nil
+		},
+	}
+	input := DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID}
+	first, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || first.Disposition != GraphDispositionWaveReady || first.Wave != 1 || len(first.Tasks) == 0 {
+		t.Fatalf("Execute(first) = %#v, error %v", first, err)
+	}
+	created := worktrees.createCalls
+	second, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || !reflect.DeepEqual(second, first) || worktrees.createCalls != created || worktrees.inspectCalls != len(first.Tasks) {
+		t.Fatalf("Execute(replay) = %#v, error %v; creates=%d inspects=%d", second, err, worktrees.createCalls, worktrees.inspectCalls)
+	}
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load() exists=%v error=%v", exists, err)
+	}
+	graph := journal.Deliveries[fixture.deliveryID].Graph
+	for _, descriptor := range first.Tasks {
+		task, exists := graph.Task(descriptor.TaskID)
+		if !exists || task.State != routing.GraphTaskRunning || len(task.Attempts) != descriptor.Execution ||
+			task.Attempts[descriptor.Execution-1].WorktreeID != descriptor.WorktreeID {
+			t.Fatalf("durable task %s = %#v, exists=%v", descriptor.TaskID, task, exists)
+		}
+	}
+}
+
+func TestDeliveryGraphServiceReturnsStructuredExhaustionBeforePreparingWave(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: &fakeGraphWorktreeClient{scope: fixture.scope},
+		Now: func() time.Time { return delivery.AbsoluteDeadline },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{
+				HeadSHA:         delivery.InitialWorktreeFingerprint.HeadSHA,
+				PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
+			}, nil
+		},
+	}
+
+	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID,
+	})
+	if err != nil || output.Disposition != GraphDispositionExhausted || output.BlockerCode != "delivery_budget_exhausted" {
+		t.Fatalf("prepare exhausted = %#v, error=%v", output, err)
+	}
+}
+
+func TestDeliveryWaveSlotsAreBoundedByAvailableTokens(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		available int64
+		want      int
+	}{{available: 0, want: 0}, {available: 1, want: 1}, {available: 3, want: 3}, {available: 4, want: 4}, {available: 100, want: 4}} {
+		if got := deliveryWaveSlots(test.available); got != test.want {
+			t.Fatalf("deliveryWaveSlots(%d) = %d, want %d", test.available, got, test.want)
+		}
+	}
+}
+
+func TestDeliveryGraphServiceRecoversCreateAfterCrashFromPersistedIntent(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	crash := errors.New("simulated process crash after create")
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", createErrAfterPersist: crash}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{
+				HeadSHA:         "0123456789abcdef0123456789abcdef01234567",
+				PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
+			}, nil
+		},
+	}
+	input := DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID}
+
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, crash) {
+		t.Fatalf("Execute(crash) error = %v, want simulated crash", err)
+	}
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load(crash) exists=%v error=%v", exists, err)
+	}
+	task, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if len(task.Attempts) != 1 || task.Attempts[0].WorktreeIntent == nil || task.Attempts[0].WorktreeID != "" {
+		t.Fatalf("persisted create intent = %#v", task.Attempts)
+	}
+
+	worktrees.createErrAfterPersist = nil
+	output, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || output.Disposition != GraphDispositionWaveReady || worktrees.createCalls != 1 || worktrees.findCalls != 2 {
+		t.Fatalf("Execute(reconcile) = %#v, error=%v creates=%d finds=%d", output, err, worktrees.createCalls, worktrees.findCalls)
+	}
+}
+
+func TestDeliveryGraphServicePrepareWaveSkipsCandidateAlreadyReadyForSettlement(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA,
+			CommitSHA:          "1111111111111111111111111111111111111111",
+			VerificationDigest: digestValue("candidate-ready"), TokensUsed: 10,
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready"}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{
+				HeadSHA: wave.BaseHeadSHA, PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
+			}, nil
+		},
+	}
+
+	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID,
+	})
+	if err != nil || output.Disposition != GraphDispositionWaveReady || output.Wave != wave.Number ||
+		len(output.Tasks) != 0 || worktrees.findCalls != 0 || worktrees.inspectCalls != 0 || worktrees.createCalls != 0 {
+		t.Fatalf("prepare settled candidate = %#v, error=%v worktree calls=%d/%d/%d", output, err, worktrees.findCalls, worktrees.inspectCalls, worktrees.createCalls)
+	}
+}
+
+func TestActiveDeliveryWaveReturnsOlderCandidateAfterConflictRetrySettles(t *testing.T) {
+	t.Parallel()
+
+	older := routing.DeliveryWave{Number: 1, BaseHeadSHA: "1111111111111111111111111111111111111111", TaskIDs: []string{"task_01", "task_02"}}
+	retry := routing.DeliveryWave{Number: 2, BaseHeadSHA: "2222222222222222222222222222222222222222", TaskIDs: []string{"task_01"}}
+	graph := &routing.DeliveryGraph{
+		Tasks: []routing.GraphTask{
+			{TaskID: "task_01", State: routing.GraphTaskIntegrated},
+			{TaskID: "task_02", State: routing.GraphTaskCandidate},
+		},
+		Waves: []routing.DeliveryWave{older, retry},
+	}
+
+	got, exists := activeDeliveryWave(graph)
+	if !exists || !reflect.DeepEqual(got, older) {
+		t.Fatalf("activeDeliveryWave() = %#v, exists=%v, want older candidate wave", got, exists)
+	}
+}
+
+func TestDeliveryGraphServiceReturnsExactTaskContextWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	before, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load(before) exists=%v error=%v", exists, err)
+	}
+	service := deliveryGraphService{Store: fixture.store, Now: func() time.Time { return fixture.now }}
+
+	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpTaskContext, DeliveryID: fixture.deliveryID,
+		Wave: wave.Number, TaskID: "task_01", Execution: 1,
+	})
+	if err != nil {
+		t.Fatalf("Execute(task_context) error = %v", err)
+	}
+	task, _ := before.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	wantWall, _ := before.Deliveries[fixture.deliveryID].RemainingActiveWall(fixture.now)
+	if output.Operation != GraphOpTaskContext || output.Disposition != GraphDispositionTaskReady ||
+		output.TaskID != "task_01" || output.Execution != 1 ||
+		output.TaskFile != ".compozy/tasks/demo/task_01.md" || output.Runtime == nil || *output.Runtime != task.Attempts[0].Runtime ||
+		output.WorktreeID != "wt_task_01" || output.WorktreeRoot != taskRoot ||
+		output.BaseSHA != wave.BaseHeadSHA || output.RemainingTaskExecutions != 3 ||
+		output.RemainingTokens != 1_000_000 || output.RemainingWallSeconds != int(wantWall/time.Second) ||
+		output.Answers == nil || len(output.Answers) != 0 {
+		t.Fatalf("task context = %#v", output)
+	}
+	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("task_context mutated journal: error=%v before=%#v after=%#v", err, before, after)
+	}
+	exhausted, err := (&deliveryGraphService{
+		Store: fixture.store, Now: func() time.Time { return before.Deliveries[fixture.deliveryID].AbsoluteDeadline },
+	}).Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpTaskContext, DeliveryID: fixture.deliveryID,
+		Wave: wave.Number, TaskID: "task_01", Execution: 1,
+	})
+	if err != nil || exhausted.Disposition != GraphDispositionExhausted ||
+		exhausted.BlockerCode != "delivery_budget_exhausted" || exhausted.RemainingWallSeconds != 0 {
+		t.Fatalf("task context exhausted = %#v, error=%v", exhausted, err)
+	}
+}
+
+func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	run := deliveryRun{
+		ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task",
+		Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now,
+		Inputs: graphTaskRunInputs(delivery, wave, task, 1),
+	}
+	runs := &fakeGraphRunReader{recent: []deliveryRun{run}, statuses: map[string]deliveryRunDetail{}}
+	service := deliveryGraphService{Store: fixture.store, Runs: runs, Now: func() time.Time { return fixture.now }}
+	questionInput := DeliveryGraphInput{
+		Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?",
+		ContextDigest: digestValue(`{"task_id":"task_01"}`),
+		Choices:       []string{"Preserve compatibility", "Adopt the new contract"},
+	}
+
+	question, err := service.Execute(context.Background(), fixture.scope, questionInput)
+	if err != nil || question.Disposition != GraphDispositionWaitingInput ||
+		!routingDigestPattern.MatchString(question.QuestionOperationID) || runs.recentCalls != 1 {
+		t.Fatalf("record_question = %#v, error=%v recent_calls=%d", question, err, runs.recentCalls)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, questionInput)
+	if err != nil || !reflect.DeepEqual(replay, question) || runs.recentCalls != 1 {
+		t.Fatalf("record_question replay = %#v, error=%v recent_calls=%d", replay, err, runs.recentCalls)
+	}
+	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
+	storedTask, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if storedTask.State != routing.GraphTaskWaitingInput || storedTask.Attempts[0].ChildRunID != run.ID ||
+		storedTask.Attempts[0].Question == nil || storedTask.Attempts[0].Question.RequestID != question.QuestionOperationID ||
+		len(journal.Deliveries[fixture.deliveryID].Graph.Pauses) != 1 ||
+		journal.Deliveries[fixture.deliveryID].Graph.Pauses[0].EndedAt != nil {
+		t.Fatalf("stored question task = %#v pauses=%#v", storedTask, journal.Deliveries[fixture.deliveryID].Graph.Pauses)
+	}
+
+	runs.statuses[run.ID] = deliveryRunDetail{
+		Run: run,
+		Requests: []deliveryRequest{{
+			LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator",
+			ItemIndex: 0, Kind: "ask", State: "answered", Prompt: questionInput.Prompt,
+			Context: json.RawMessage(`{"task_id":"task_01"}`), Expect: taskAnswerExpectation(),
+			Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond",
+			ActorKind: "human", ActorID: "operator-1", AnsweredAt: timePointer(fixture.now), ResolvedAt: timePointer(fixture.now),
+		}},
+	}
+	answerInput := DeliveryGraphInput{
+		Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID,
+		RequestLoopRunID: run.ID, RequestGeneration: 2, RequestNodeID: "ask_operator",
+		RequestItemIndex: 0, Answer: "Preserve compatibility",
+	}
+	answer, err := service.Execute(context.Background(), fixture.scope, answerInput)
+	if err != nil || answer.Disposition != GraphDispositionTaskReady || answer.Execution != 2 || runs.statusCalls != 1 {
+		t.Fatalf("record_answer = %#v, error=%v status_calls=%d", answer, err, runs.statusCalls)
+	}
+	answerReplay, err := service.Execute(context.Background(), fixture.scope, answerInput)
+	if err != nil || !reflect.DeepEqual(answerReplay, answer) || runs.statusCalls != 1 {
+		t.Fatalf("record_answer replay = %#v, error=%v status_calls=%d", answerReplay, err, runs.statusCalls)
+	}
+	questionReplay, err := service.Execute(context.Background(), fixture.scope, questionInput)
+	if err != nil || !reflect.DeepEqual(questionReplay, question) || runs.recentCalls != 1 {
+		t.Fatalf("record_question after answer = %#v, error=%v recent_calls=%d", questionReplay, err, runs.recentCalls)
+	}
+
+	contextOutput, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpTaskContext, DeliveryID: fixture.deliveryID,
+		Wave: wave.Number, TaskID: "task_01", Execution: 1,
+	})
+	if err != nil || contextOutput.Execution != 2 || len(contextOutput.Answers) != 1 || contextOutput.Answers[0].Value != "Preserve compatibility" ||
+		contextOutput.Answers[0].QuestionOperationID != question.QuestionOperationID {
+		t.Fatalf("continued task context = %#v, error=%v", contextOutput, err)
+	}
+	identity, err := worktreeops.DeriveIdentity(worktreeops.IdentityInput{
+		WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		Slug: delivery.Slug, TaskID: "task_01", Execution: 1, BaseSHA: wave.BaseHeadSHA,
+	})
+	if err != nil {
+		t.Fatalf("DeriveIdentity() error = %v", err)
+	}
+	service.Worktrees = &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", byID: map[string]worktreeops.Worktree{
+		"wt_task_01": {
+			ID: "wt_task_01", Name: identity.Name, Root: taskRoot, WorkspaceID: fixture.scope.WorkspaceID,
+			RepositoryRoot: fixture.scope.WorkspaceRoot, RepositoryIdentity: digestValue("repository"),
+			Branch: identity.Branch, BaseRef: wave.BaseHeadSHA, BaseSHA: wave.BaseHeadSHA,
+			State: "ready", Setup: worktreeops.SetupResult{State: "ok"},
+		},
+	}}
+	service.WorktreeState = func(context.Context, string) (publication.WorktreeState, error) {
+		return publication.WorktreeState{HeadSHA: wave.BaseHeadSHA, PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest()}, nil
+	}
+	prepared, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID,
+	})
+	if err != nil || prepared.Disposition != GraphDispositionWaveReady || len(prepared.Tasks) != 1 ||
+		prepared.Tasks[0].Execution != 2 || prepared.Tasks[0].WorktreeID != "wt_task_01" {
+		t.Fatalf("continued prepare_wave = %#v, error=%v", prepared, err)
+	}
+
+	verification := json.RawMessage(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	verificationDigest := digestValue(string(verification))
+	commitSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	run.Status = "done"
+	run.TokensUsed = 700
+	run.TokensUsedPresent = true
+	runs.statuses[run.ID] = deliveryRunDetail{
+		Run: run, Generations: []deliveryGeneration{{Generation: 3, Outputs: []deliveryOutput{{
+			NodeID: "implementation", Status: "succeeded",
+			OutputRef: completedTaskOutputRef(t, "task_01", 2, commitSHA, verification, verificationDigest),
+		}}}},
+	}
+	validator := &fakeGraphCandidateValidator{evidence: integration.CandidateEvidence{
+		RepositoryIdentity: digestValue("repository"), CommitSHA: commitSHA,
+		TreeSHA: "1234512345123451234512345123451234512345", OwnedTrackingPaths: []string{},
+		Tracking: []integration.TrackingFile{},
+	}}
+	service.Candidates = validator
+	candidate, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 2, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,
+		CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest,
+	})
+	if err != nil || candidate.Disposition != GraphDispositionCandidateRecorded {
+		t.Fatalf("continued record_candidate = %#v, error=%v", candidate, err)
+	}
+	if validator.last.ExpectedBranch != identity.Branch {
+		t.Fatalf("continued candidate branch = %q, want original worktree branch %q", validator.last.ExpectedBranch, identity.Branch)
+	}
+}
+
+func TestDeliveryGraphServiceMapsConflictWithoutRetryBudgetToExhausted(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	operationID := digestValue("conflict-exhausted-operation")
+	task := &delivery.Graph.Tasks[0]
+	task.State = routing.GraphTaskBlocked
+	task.BlockerCode = "integration_conflict_exhausted"
+	task.Attempts = []routing.GraphTaskAttempt{{
+		Execution: 1, State: routing.GraphTaskBlocked, BaseHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA,
+		CandidateCommitSHA: "1111111111111111111111111111111111111111",
+		BlockerCode:        "integration_conflict_exhausted",
+		Conflict: &routing.ConflictProof{
+			IntegrationOperationID: operationID, IntegrationHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA,
+			CandidateCommitSHA: "1111111111111111111111111111111111111111",
+			EvidenceDigest:     digestValue("conflict-exhausted"),
+		},
+	}}
+	delivery.Graph.Waves = []routing.DeliveryWave{{
+		Number: 1, BaseHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA, TaskIDs: []string{task.TaskID},
+	}}
+	delivery.Graph.Integrations = []routing.IntegrationOperation{{
+		OperationID: operationID, RequestDigest: digestValue("conflict-exhausted-request"), Wave: 1,
+		StartingHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA, OrderedTaskIDs: []string{task.TaskID},
+		CandidateCommitSHAs: []string{"1111111111111111111111111111111111111111"},
+		ConflictingTaskID:   task.TaskID, ConflictEvidenceDigest: digestValue("conflict-exhausted"),
+		FinalHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA,
+	}}
+	service := deliveryGraphService{Now: func() time.Time { return fixture.now }}
+
+	output, err := service.settlementOutput(delivery, DeliveryGraphInput{
+		Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: 1,
+	}, operationID)
+	if err != nil || output.Disposition != GraphDispositionExhausted || output.BlockerCode != task.BlockerCode {
+		t.Fatalf("conflict exhausted = %#v, error=%v", output, err)
+	}
+}
+
+func TestDeliveryGraphServiceReplaysConflictOutputAfterRetryIntegrated(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	operationID := digestValue("historical-conflict-operation")
+	base := delivery.InitialWorktreeFingerprint.HeadSHA
+	retryBase := "1111111111111111111111111111111111111111"
+	finalHead := "2222222222222222222222222222222222222222"
+	runtime := routing.RuntimeValue{Provider: "codex", Model: "gpt-5.6-terra", Reasoning: "high"}
+	task := &delivery.Graph.Tasks[0]
+	task.State = routing.GraphTaskIntegrated
+	task.IntegratedCommitSHA = finalHead
+	task.Attempts = []routing.GraphTaskAttempt{
+		{Execution: 1, RunExecution: 1, State: routing.GraphTaskCandidate, BaseHeadSHA: base, Conflict: &routing.ConflictProof{
+			IntegrationOperationID: operationID, IntegrationHeadSHA: retryBase,
+			CandidateCommitSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", EvidenceDigest: digestValue("historical-conflict"),
+		}},
+		{Execution: 2, RunExecution: 2, Runtime: runtime, State: routing.GraphTaskIntegrated, BaseHeadSHA: retryBase},
+	}
+	delivery.Graph.Waves = []routing.DeliveryWave{
+		{Number: 1, BaseHeadSHA: base, TaskIDs: []string{task.TaskID}},
+		{Number: 2, BaseHeadSHA: retryBase, TaskIDs: []string{task.TaskID}},
+	}
+	delivery.Graph.Integrations = []routing.IntegrationOperation{
+		{OperationID: operationID, Wave: 1, ConflictingTaskID: task.TaskID, FinalHeadSHA: retryBase},
+		{OperationID: digestValue("historical-retry-operation"), Wave: 2, FinalHeadSHA: finalHead},
+	}
+	service := deliveryGraphService{Now: func() time.Time { return fixture.now }}
+
+	output, err := service.settlementOutput(delivery, DeliveryGraphInput{
+		Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: 1,
+	}, operationID)
+	if err != nil || output.Disposition != GraphDispositionReexecuteConflict || output.TaskID != task.TaskID ||
+		output.Execution != 2 || output.Runtime == nil || *output.Runtime != runtime || output.BaseSHA != retryBase {
+		t.Fatalf("historical conflict output = %#v, error=%v", output, err)
+	}
+}
+
+func TestDeliveryGraphServiceRecordsTerminalFailureOnceAndPreparesExactFallback(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	generation := journal.Generations[delivery.RoutingGenerationDigest]
+	if len(generation.Cells) != 1 || len(generation.Cells[0].Fallbacks) == 0 {
+		t.Fatalf("fixture has no immutable fallback: %#v", generation.Cells)
+	}
+	run := deliveryRun{
+		ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task",
+		Status: "failed", CreatedAt: fixture.now, StartedAt: fixture.now,
+		TokensUsed: 1200, TokensUsedPresent: true, Inputs: graphTaskRunInputs(delivery, wave, task, 1),
+	}
+	runs := &fakeGraphRunReader{statuses: map[string]deliveryRunDetail{run.ID: {Run: run}}}
+	service := deliveryGraphService{Store: fixture.store, Runs: runs, Now: func() time.Time { return fixture.now }}
+	input := DeliveryGraphInput{
+		Operation: GraphOpRecordFailure, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BlockerCode: "implementation_failed",
+	}
+
+	first, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || first.Disposition != GraphDispositionPreparing || first.Wave != 2 ||
+		first.TaskID != "task_01" || first.Execution != 2 || first.Runtime == nil ||
+		*first.Runtime == task.Attempts[0].Runtime || first.RemainingTokens != delivery.TokenCeiling-run.TokensUsed ||
+		runs.statusCalls != 1 {
+		t.Fatalf("record_failure = %#v, error=%v status_calls=%d", first, err, runs.statusCalls)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || !reflect.DeepEqual(replay, first) || runs.statusCalls != 1 {
+		t.Fatalf("record_failure replay = %#v, error=%v status_calls=%d", replay, err, runs.statusCalls)
+	}
+
+	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
+	stored, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if stored.State != routing.GraphTaskPreparing || len(stored.Attempts) != 2 ||
+		stored.Attempts[0].State != routing.GraphTaskBlocked || stored.Attempts[0].TokensUsed == nil ||
+		*stored.Attempts[0].TokensUsed != run.TokensUsed || stored.Attempts[1].Runtime != *first.Runtime {
+		t.Fatalf("stored failed task = %#v", stored)
+	}
+}
+
+func TestDeliveryGraphServiceRecordsOneValidatedCandidateAndUsage(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	run := deliveryRun{
+		ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task",
+		Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now,
+		TokensUsed: 900, TokensUsedPresent: true, Inputs: graphTaskRunInputs(delivery, wave, task, 1),
+	}
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	verificationDigest := digestValue(string(verification))
+	commitSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	runOutput := completedTaskOutputRef(t, "task_01", 1, commitSHA, verification, verificationDigest)
+	validator := &fakeGraphCandidateValidator{evidence: integration.CandidateEvidence{
+		RepositoryIdentity: digestValue("repository"),
+		CommitSHA:          commitSHA, TreeSHA: "1234512345123451234512345123451234512345",
+		OwnedTrackingPaths: []string{}, Tracking: []integration.TrackingFile{},
+	}}
+	runs := &fakeGraphRunReader{statuses: map[string]deliveryRunDetail{run.ID: {
+		Run: run, Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
+			NodeID: "implementation", Status: "succeeded", OutputRef: runOutput,
+		}}}},
+	}}}
+	service := deliveryGraphService{
+		Store: fixture.store, Runs: runs, Candidates: validator, Now: func() time.Time { return fixture.now },
+	}
+	input := DeliveryGraphInput{
+		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,
+		CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest,
+	}
+
+	first, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || first.Disposition != GraphDispositionCandidateRecorded || first.RemainingTokens != delivery.TokenCeiling-run.TokensUsed ||
+		runs.statusCalls != 1 || validator.calls != 1 {
+		t.Fatalf("record_candidate = %#v, error=%v status_calls=%d validator_calls=%d", first, err, runs.statusCalls, validator.calls)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || !reflect.DeepEqual(replay, first) || runs.statusCalls != 1 || validator.calls != 1 {
+		t.Fatalf("record_candidate replay = %#v, error=%v status_calls=%d validator_calls=%d", replay, err, runs.statusCalls, validator.calls)
+	}
+	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
+	stored, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if stored.State != routing.GraphTaskCandidate || stored.Attempts[0].CandidateCommitSHA != commitSHA ||
+		stored.Attempts[0].TokensUsed == nil || *stored.Attempts[0].TokensUsed != run.TokensUsed {
+		t.Fatalf("stored candidate = %#v", stored)
+	}
+	if stored.Attempts[0].CandidateEvidence == nil ||
+		stored.Attempts[0].CandidateEvidence.RepositoryIdentity != validator.evidence.RepositoryIdentity ||
+		stored.Attempts[0].CandidateEvidence.TreeSHA != validator.evidence.TreeSHA ||
+		!bytes.Equal(stored.Attempts[0].CandidateEvidence.Verification, verification) {
+		t.Fatalf("stored candidate evidence = %#v", stored.Attempts[0].CandidateEvidence)
+	}
+}
+
+func TestDeliveryGraphServiceRejectsCandidateWithoutTypedCompletedOutput(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	input := DeliveryGraphInput{
+		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, ChildRunID: "run_task_01", BaseSHA: wave.BaseHeadSHA,
+		CommitSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd", Verification: verification,
+		VerificationDigest: digestValue(string(verification)),
+	}
+	run := deliveryRun{
+		ID: input.ChildRunID, WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task",
+		Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now,
+		TokensUsed: 10, TokensUsedPresent: true, Inputs: graphTaskRunInputs(delivery, wave, task, 1),
+	}
+	service := deliveryGraphService{
+		Store: fixture.store, Runs: &fakeGraphRunReader{statuses: map[string]deliveryRunDetail{run.ID: {Run: run}}},
+		Candidates: &fakeGraphCandidateValidator{}, Now: func() time.Time { return fixture.now },
+	}
+
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("record_candidate without completed output error = %v, want ErrDeliveryConflict", err)
+	}
+}
+
+func TestDeliveryGraphServiceSettlesCandidateThroughCrashSafeIntegratorOnce(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	verificationDigest := digestValue(string(verification))
+	candidateSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		_, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: verificationDigest, TokensUsed: 900,
+			Evidence: &routing.TaskCandidateEvidence{
+				Slug: delivery.Slug, RepositoryIdentity: digestValue("repository"), Branch: "batuta/task/demo",
+				TreeSHA: "1234512345123451234512345123451234512345", Verification: verification,
+				OwnedTrackingPaths: []string{}, Tracking: []routing.TaskTrackingFile{},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	integratedSHA := "9876598765987659876598765987659876598765"
+	crash := errors.New("simulated crash after durable settlement intent")
+	integrator := &fakeGraphIntegrator{integratedSHA: integratedSHA, failOnce: crash}
+	integrator.before = func(request integration.IntegrationRequest) error {
+		journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+		if err != nil || !exists {
+			return fmt.Errorf("load settlement intent: exists=%v error=%v", exists, err)
+		}
+		matches := 0
+		for _, payload := range journal.IntegrationStates {
+			var intent graphSettlementIntent
+			if json.Unmarshal(payload, &intent) == nil && intent.Kind == graphSettlementIntentKind {
+				if !reflect.DeepEqual(intent.Request, request) || intent.Wave != wave.Number {
+					return fmt.Errorf("settlement intent = %#v, request=%#v", intent, request)
+				}
+				matches++
+			}
+		}
+		if matches != 1 {
+			return fmt.Errorf("settlement intents = %d, want 1", matches)
+		}
+		return nil
+	}
+	service := deliveryGraphService{Store: fixture.store, Integrator: integrator, Now: func() time.Time { return fixture.now }}
+	input := DeliveryGraphInput{Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: wave.Number}
+
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, crash) || integrator.calls != 1 {
+		t.Fatalf("settle_wave crash error=%v calls=%d", err, integrator.calls)
+	}
+	first, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || first.Disposition != GraphDispositionAllIntegrated ||
+		!routingDigestPattern.MatchString(first.IntegrationOperationID) || integrator.calls != 2 {
+		t.Fatalf("settle_wave = %#v, error=%v calls=%d", first, err, integrator.calls)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || !reflect.DeepEqual(replay, first) || integrator.calls != 2 {
+		t.Fatalf("settle_wave replay = %#v, error=%v calls=%d", replay, err, integrator.calls)
+	}
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	stored, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if stored.State != routing.GraphTaskIntegrated || stored.IntegratedCommitSHA != integratedSHA ||
+		len(journal.Deliveries[fixture.deliveryID].Graph.Integrations) != 1 {
+		t.Fatalf("settled graph task=%#v operations=%#v", stored, journal.Deliveries[fixture.deliveryID].Graph.Integrations)
+	}
+	if pending, found, err := pendingGraphSettlementRequest(
+		journal, fixture.scope, journal.Deliveries[fixture.deliveryID],
+		routing.DeliveryWave{Number: 2, BaseHeadSHA: integratedSHA, TaskIDs: []string{"task_01"}},
+	); err != nil || found {
+		t.Fatalf("pending intent from completed older wave = %#v, found=%v error=%v", pending, found, err)
+	}
+	replayRuns := &fakeGraphRunReader{}
+	replayValidator := &fakeGraphCandidateValidator{}
+	candidateReplay, err := (&deliveryGraphService{
+		Store: fixture.store, Runs: replayRuns, Candidates: replayValidator, Now: func() time.Time { return fixture.now },
+	}).Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1, ChildRunID: "run_task_01", BaseSHA: wave.BaseHeadSHA,
+		CommitSHA: candidateSHA, Verification: verification, VerificationDigest: verificationDigest,
+	})
+	if err != nil || candidateReplay.Disposition != GraphDispositionCandidateRecorded ||
+		replayRuns.statusCalls != 0 || replayValidator.calls != 0 {
+		t.Fatalf("record_candidate after integration = %#v, error=%v status=%d validator=%d", candidateReplay, err, replayRuns.statusCalls, replayValidator.calls)
+	}
+}
+
+func TestWaveSettlementSelectsIndependentCandidatesButFencesConflictSuffix(t *testing.T) {
+	t.Parallel()
+
+	base := "0123456789abcdef0123456789abcdef01234567"
+	candidate := func(taskID, commit string) routing.GraphTask {
+		verification := json.RawMessage(fmt.Sprintf(`{"checks":["test"],"status":"passed","task_id":%q}`, taskID))
+		return routing.GraphTask{TaskID: taskID, State: routing.GraphTaskCandidate, Attempts: []routing.GraphTaskAttempt{{
+			Execution: 1, State: routing.GraphTaskCandidate, BaseHeadSHA: base,
+			WorktreeID: "wt_" + taskID, WorktreeRoot: "/managed/" + taskID, ChildRunID: "run_" + taskID,
+			CandidateCommitSHA: commit, VerificationDigest: digestValue(string(verification)), TokensUsed: int64Pointer(10),
+			CandidateEvidence: &routing.TaskCandidateEvidence{
+				Slug: "demo", RepositoryIdentity: digestValue("repo"), Branch: "batuta/task/" + taskID,
+				TreeSHA: "1234512345123451234512345123451234512345", Verification: verification,
+				OwnedTrackingPaths: []string{}, Tracking: []routing.TaskTrackingFile{},
+			},
+		}}}
+	}
+	first := candidate("task_01", "1111111111111111111111111111111111111111")
+	waiting := routing.GraphTask{TaskID: "task_02", State: routing.GraphTaskWaitingInput, Attempts: []routing.GraphTaskAttempt{{
+		Execution: 1, State: routing.GraphTaskWaitingInput, BaseHeadSHA: base,
+	}}}
+	third := candidate("task_03", "3333333333333333333333333333333333333333")
+	wave := routing.DeliveryWave{Number: 1, BaseHeadSHA: base, TaskIDs: []string{"task_01", "task_02", "task_03"}}
+	delivery := routing.DeliveryRecord{Graph: &routing.DeliveryGraph{
+		Tasks: []routing.GraphTask{first, waiting, third}, Waves: []routing.DeliveryWave{wave},
+		Integrations: []routing.IntegrationOperation{}, Pauses: []routing.HumanPause{}, Cleanups: []routing.CleanupOperation{},
+	}}
+
+	candidates, replayOperation, err := waveSettlementCandidates(delivery, wave)
+	if err != nil || replayOperation != "" || len(candidates) != 2 ||
+		candidates[0].TaskID != "task_01" || candidates[1].TaskID != "task_03" {
+		t.Fatalf("independent candidates = %#v replay=%q error=%v", candidates, replayOperation, err)
+	}
+
+	conflictOperation := digestValue("middle-conflict")
+	delivery.Graph.Tasks[0].State = routing.GraphTaskIntegrated
+	delivery.Graph.Tasks[1] = routing.GraphTask{
+		TaskID: "task_02", State: routing.GraphTaskPreparing,
+		Attempts: []routing.GraphTaskAttempt{
+			{Execution: 1, State: routing.GraphTaskCandidate, BaseHeadSHA: base, Conflict: &routing.ConflictProof{
+				IntegrationOperationID: conflictOperation, IntegrationHeadSHA: base,
+				CandidateCommitSHA: "2222222222222222222222222222222222222222", EvidenceDigest: digestValue("conflict"),
+			}},
+			{Execution: 2, State: routing.GraphTaskPreparing, BaseHeadSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+	}
+	delivery.Graph.Integrations = []routing.IntegrationOperation{{
+		OperationID: conflictOperation, Wave: 1, ConflictingTaskID: "task_02",
+	}}
+	candidates, replayOperation, err = waveSettlementCandidates(delivery, wave)
+	if err != nil || len(candidates) != 0 || replayOperation != conflictOperation {
+		t.Fatalf("conflict fence candidates = %#v replay=%q error=%v", candidates, replayOperation, err)
+	}
+
+	delivery.Graph.Tasks[1].State = routing.GraphTaskIntegrated
+	candidates, replayOperation, err = waveSettlementCandidates(delivery, wave)
+	if err != nil || replayOperation != "" || len(candidates) != 1 || candidates[0].TaskID != "task_03" {
+		t.Fatalf("released suffix candidates = %#v replay=%q error=%v", candidates, replayOperation, err)
+	}
+}
+
+func TestRoutingIntegrationJournalPersistsCASAndProjectsUnderOwnershipLock(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	candidateSHA := "1111111111111111111111111111111111111111"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue("tracking-verification"), TokensUsed: 10,
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	locker := routingIntegrationLocker{StoreForCall: func() (*routing.OwnershipStore, error) {
+		return fixture.store, nil
+	}}
+	operationID := digestValue("adapter-operation")
+	requestDigest := digestValue("adapter-request")
+	state := integration.OperationState{
+		WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID,
+		OperationID: operationID, RequestDigest: requestDigest,
+	}
+	if err := locker.WithLocked(context.Background(), fixture.scope.WorkspaceID, func(journal integration.Journal) error {
+		if _, exists, err := journal.Load(context.Background(), fixture.scope.WorkspaceID, fixture.deliveryID, operationID); err != nil || exists {
+			t.Fatalf("Load(before) exists=%v error=%v", exists, err)
+		}
+		projection, err := journal.ProjectTracking(context.Background(), integration.TrackingProjectionRequest{
+			WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID,
+			OperationID: operationID, RequestDigest: requestDigest,
+			AcceptedTaskIDs:      []string{"task_01"},
+			AcceptedCommitSHAs:   []string{candidateSHA},
+			IntegratedCommitSHAs: []string{"2222222222222222222222222222222222222222"},
+		})
+		if err != nil || !routingDigestPattern.MatchString(projection.Revision) ||
+			projection.RequestDigest != requestDigest || len(projection.Files) != 1 ||
+			projection.Files[0].Path != ".compozy/tasks/demo/_index.json" ||
+			!routingDigestPattern.MatchString(projection.Files[0].Digest) ||
+			!bytes.Contains(projection.Files[0].Content, []byte(`"task_id":"task_01","state":"integrated"`)) ||
+			!bytes.Contains(projection.Files[0].Content, []byte(`"integrated_commit_sha":"2222222222222222222222222222222222222222"`)) {
+			t.Fatalf("ProjectTracking() = %#v, error=%v", projection, err)
+		}
+		return journal.CompareAndSwap(context.Background(), nil, state)
+	}); err != nil {
+		t.Fatalf("WithLocked(write) error = %v", err)
+	}
+	if err := locker.WithLocked(context.Background(), fixture.scope.WorkspaceID, func(journal integration.Journal) error {
+		loaded, exists, err := journal.Load(context.Background(), fixture.scope.WorkspaceID, fixture.deliveryID, operationID)
+		if err != nil || !exists || !reflect.DeepEqual(loaded, state) {
+			t.Fatalf("Load(after) = %#v, exists=%v error=%v", loaded, exists, err)
+		}
+		if err := journal.CompareAndSwap(context.Background(), nil, state); !errors.Is(err, integration.ErrJournalConflict) {
+			t.Fatalf("CompareAndSwap(stale) error = %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WithLocked(read) error = %v", err)
+	}
+}
+
+func TestDeliveryGraphServiceCleansOnlyIntegratedOwnedWorktreeOnce(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	candidateSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue("cleanup-verification"), TokensUsed: 500,
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		_, err := delivery.Graph.SettleWave(routing.WaveSettlement{
+			OperationID: digestValue("cleanup-settle-operation"), RequestDigest: digestValue("cleanup-settle-request"),
+			Wave: wave.Number, StartingHeadSHA: wave.BaseHeadSHA, OrderedTaskIDs: []string{"task_01"},
+			CandidateCommitSHAs: []string{candidateSHA}, AcceptedTaskIDs: []string{"task_01"},
+			AcceptedCommitSHAs: []string{candidateSHA}, IntegratedCommitSHAs: []string{candidateSHA}, FinalHeadSHA: candidateSHA,
+		}, generation)
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist integrated task: %v", err)
+	}
+	identity, err := worktreeops.DeriveIdentity(worktreeops.IdentityInput{
+		WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		Slug: "demo", TaskID: "task_01", Execution: 1, BaseSHA: wave.BaseHeadSHA,
+	})
+	if err != nil {
+		t.Fatalf("DeriveIdentity() error = %v", err)
+	}
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", allowRemove: true, byID: map[string]worktreeops.Worktree{
+		"wt_task_01": {
+			ID: "wt_task_01", Name: identity.Name, Root: taskRoot, WorkspaceID: fixture.scope.WorkspaceID,
+			RepositoryRoot: fixture.scope.WorkspaceRoot, RepositoryIdentity: digestValue("repository"),
+			Branch: identity.Branch, BaseRef: wave.BaseHeadSHA, BaseSHA: wave.BaseHeadSHA,
+			State: "ready", Setup: worktreeops.SetupResult{State: "ok"},
+		},
+	}}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{HeadSHA: candidateSHA, PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest()}, nil
+		},
+	}
+	input := DeliveryGraphInput{Operation: GraphOpCleanup, DeliveryID: fixture.deliveryID}
+
+	first, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || first.Disposition != GraphDispositionCleaned || len(first.CleanupResults) != 1 ||
+		first.CleanupResults[0].State != string(routing.CleanupRemoved) || worktrees.removeCalls != 1 {
+		t.Fatalf("cleanup = %#v, error=%v remove_calls=%d", first, err, worktrees.removeCalls)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, input)
+	if err != nil || !reflect.DeepEqual(replay, first) || worktrees.removeCalls != 1 {
+		t.Fatalf("cleanup replay = %#v, error=%v remove_calls=%d", replay, err, worktrees.removeCalls)
+	}
+}
+
+func TestDeliveryGraphServiceCleansAnsweredContinuationUsingLatestCandidateEvidence(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	questionID := digestValue("cleanup-question")
+	candidateSHA := "fedcbafedcbafedcbafedcbafedcbafedcbafedc"
+	persistTransition := func(label string, transition func(*routing.DeliveryRecord, routing.RoutingGeneration) error) {
+		t.Helper()
+		if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+			delivery := tx.Journal.Deliveries[fixture.deliveryID]
+			generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+			if err := transition(&delivery, generation); err != nil {
+				return err
+			}
+			tx.Journal.Deliveries[fixture.deliveryID] = delivery
+			return tx.Persist()
+		}); err != nil {
+			t.Fatalf("persist %s: %v", label, err)
+		}
+	}
+	persistTransition("question", func(delivery *routing.DeliveryRecord, _ routing.RoutingGeneration) error {
+		_, err := delivery.Graph.RecordQuestion("task_01", 1, "run_task_01", routing.TaskQuestion{
+			RequestID: questionID, Prompt: "Choose the compatible behavior",
+			ContextDigest: digestValue("cleanup-question-context"), Choices: []string{"compatible"},
+		}, fixture.now)
+		return err
+	})
+	persistTransition("answer", func(delivery *routing.DeliveryRecord, _ routing.RoutingGeneration) error {
+		_, _, err := delivery.Graph.RecordAnswer("task_01", 1, routing.TaskAnswer{
+			QuestionOperationID: questionID, LoopRunID: "run_task_01", Generation: 1,
+			NodeID: "ask_operator", ItemIndex: 0, Value: "compatible",
+		}, fixture.now.Add(time.Minute))
+		return err
+	})
+	persistTransition("candidate", func(delivery *routing.DeliveryRecord, _ routing.RoutingGeneration) error {
+		_, err := delivery.Graph.RecordCandidate("task_01", 2, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue("cleanup-continuation-verification"), TokensUsed: 500,
+		})
+		return err
+	})
+	persistTransition("settlement", func(delivery *routing.DeliveryRecord, generation routing.RoutingGeneration) error {
+		_, err := delivery.Graph.SettleWave(routing.WaveSettlement{
+			OperationID: digestValue("cleanup-continuation-settle"), RequestDigest: digestValue("cleanup-continuation-request"),
+			Wave: wave.Number, StartingHeadSHA: wave.BaseHeadSHA, OrderedTaskIDs: []string{"task_01"},
+			CandidateCommitSHAs: []string{candidateSHA}, AcceptedTaskIDs: []string{"task_01"},
+			AcceptedCommitSHAs: []string{candidateSHA}, IntegratedCommitSHAs: []string{candidateSHA}, FinalHeadSHA: candidateSHA,
+		}, generation)
+		return err
+	})
+	identity, err := worktreeops.DeriveIdentity(worktreeops.IdentityInput{
+		WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		Slug: "demo", TaskID: "task_01", Execution: 1, BaseSHA: wave.BaseHeadSHA,
+	})
+	if err != nil {
+		t.Fatalf("DeriveIdentity() error = %v", err)
+	}
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", allowRemove: true, byID: map[string]worktreeops.Worktree{
+		"wt_task_01": {
+			ID: "wt_task_01", Name: identity.Name, Root: taskRoot, WorkspaceID: fixture.scope.WorkspaceID,
+			RepositoryRoot: fixture.scope.WorkspaceRoot, RepositoryIdentity: digestValue("repository"),
+			Branch: identity.Branch, BaseRef: wave.BaseHeadSHA, BaseSHA: wave.BaseHeadSHA,
+			State: "ready", Setup: worktreeops.SetupResult{State: "ok"},
+		},
+	}}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now.Add(2 * time.Minute) },
+		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{HeadSHA: candidateSHA, PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest()}, nil
+		},
+	}
+
+	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpCleanup, DeliveryID: fixture.deliveryID,
+	})
+	if err != nil || output.Disposition != GraphDispositionCleaned || len(output.CleanupResults) != 1 ||
+		output.CleanupResults[0].Execution != 1 || output.CleanupResults[0].State != string(routing.CleanupRemoved) ||
+		worktrees.removeCalls != 1 {
+		t.Fatalf("cleanup continuation = %#v, error=%v remove_calls=%d", output, err, worktrees.removeCalls)
+	}
+}
+
+func graphTaskRunInputs(
+	delivery routing.DeliveryRecord,
+	wave routing.DeliveryWave,
+	task routing.GraphTask,
+	execution int,
+) map[string]any {
+	attempt := task.Attempts[execution-1]
+	return map[string]any{
+		"delivery_id": delivery.DeliveryID, "wave": wave.Number, "task_id": task.TaskID,
+		"execution": execution, "routing_generation": delivery.RoutingGenerationDigest,
+		"runtime": map[string]any{
+			"provider": attempt.Runtime.Provider, "model": attempt.Runtime.Model, "reasoning": attempt.Runtime.Reasoning,
+		},
+		"worktree_ref": attempt.WorktreeID, "base_sha": attempt.BaseHeadSHA,
+	}
+}
+
+func completedTaskOutputRef(
+	t *testing.T,
+	taskID string,
+	execution int,
+	commitSHA string,
+	verification json.RawMessage,
+	verificationDigest string,
+) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"status": "completed", "task_id": taskID, "execution": execution,
+		"commit_sha":          commitSHA,
+		"verification_digest": verificationDigest,
+	})
+	if err != nil {
+		t.Fatalf("marshal completed task output: %v", err)
+	}
+	return string(payload)
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
+}
+
+func int64Pointer(value int64) *int64 {
+	return &value
+}
+
+type fakeGraphRunReader struct {
+	recent      []deliveryRun
+	statuses    map[string]deliveryRunDetail
+	recentCalls int
+	statusCalls int
+}
+
+type fakeGraphCandidateValidator struct {
+	evidence integration.CandidateEvidence
+	calls    int
+	last     integration.CandidateRequest
+}
+
+type fakeGraphIntegrator struct {
+	calls         int
+	integratedSHA string
+	last          integration.IntegrationRequest
+	before        func(integration.IntegrationRequest) error
+	failOnce      error
+}
+
+func (i *fakeGraphIntegrator) Integrate(_ context.Context, request integration.IntegrationRequest) (integration.IntegrationResult, error) {
+	i.calls++
+	i.last = request
+	if i.before != nil {
+		if err := i.before(request); err != nil {
+			return integration.IntegrationResult{}, err
+		}
+	}
+	if i.failOnce != nil {
+		err := i.failOnce
+		i.failOnce = nil
+		return integration.IntegrationResult{}, err
+	}
+	acceptedTaskIDs := make([]string, len(request.Candidates))
+	acceptedCommitSHAs := make([]string, len(request.Candidates))
+	integratedCommitSHAs := make([]string, len(request.Candidates))
+	for index, candidate := range request.Candidates {
+		acceptedTaskIDs[index] = candidate.TaskID
+		acceptedCommitSHAs[index] = candidate.CommitSHA
+		integratedCommitSHAs[index] = i.integratedSHA
+	}
+	return integration.IntegrationResult{
+		OperationID: request.OperationID, RequestDigest: request.RequestDigest,
+		AcceptedTaskIDs: acceptedTaskIDs, AcceptedCommitSHAs: acceptedCommitSHAs,
+		IntegratedCommitSHAs: integratedCommitSHAs, ResultingHeadSHA: i.integratedSHA, Complete: true,
+	}, nil
+}
+
+func (v *fakeGraphCandidateValidator) Candidate(_ context.Context, request integration.CandidateRequest) (integration.CandidateEvidence, error) {
+	v.calls++
+	v.last = request
+	evidence := v.evidence
+	evidence.TaskID = request.TaskID
+	evidence.Slug = request.Slug
+	evidence.WorktreeRoot = request.WorktreeRoot
+	evidence.Branch = request.ExpectedBranch
+	evidence.BaseSHA = request.BaseSHA
+	evidence.VerificationDigest = request.VerificationDigest
+	return evidence, nil
+}
+
+func (r *fakeGraphRunReader) RecentTasks(context.Context, string, int) ([]deliveryRun, error) {
+	r.recentCalls++
+	return append([]deliveryRun(nil), r.recent...), nil
+}
+
+func (r *fakeGraphRunReader) Status(_ context.Context, _ string, runID string) (deliveryRunDetail, error) {
+	r.statusCalls++
+	status, exists := r.statuses[runID]
+	if !exists {
+		return deliveryRunDetail{}, fmt.Errorf("unexpected status for %s", runID)
+	}
+	return status, nil
+}
+
+func prepareGraphTaskForTest(t *testing.T, fixture deliveryServiceFixture, taskRoot string) routing.DeliveryWave {
+	t.Helper()
+	var wave routing.DeliveryWave
+	err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		record := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[record.RoutingGenerationDigest]
+		var err error
+		wave, err = record.Graph.AdmitReadyWave(routing.ReadyWaveInput{
+			IntegrationHeadSHA: record.InitialWorktreeFingerprint.HeadSHA,
+			RemainingSlots:     1,
+			ReachableCommits:   map[string]bool{},
+		})
+		if err != nil {
+			return err
+		}
+		if err := record.Graph.BeginWaveAttempts(wave.Number, generation); err != nil {
+			return err
+		}
+		identity, err := worktreeops.DeriveIdentity(worktreeops.IdentityInput{
+			WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+			Slug: record.Slug, TaskID: "task_01", Execution: 1, BaseSHA: wave.BaseHeadSHA,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := record.Graph.PlanWorktree("task_01", 1, routing.TaskWorktreeIntent{
+			OperationID: identity.OperationID, RequestDigest: identity.RequestDigest,
+			Name: identity.Name, Branch: identity.Branch,
+		}); err != nil {
+			return err
+		}
+		available, err := record.Graph.AvailableTokenBudget(record.TokenCeiling)
+		if err != nil {
+			return err
+		}
+		if err := record.Graph.ReserveWaveTokens(wave.Number, available); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = record
+		return tx.Persist()
+	})
+	if err != nil {
+		t.Fatalf("prepare graph task: %v", err)
+	}
+	err = fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		record := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := record.Graph.AttachWorktree("task_01", 1, routing.GraphWorktree{
+			ID: "wt_task_01", Root: taskRoot, Ready: true,
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = record
+		return tx.Persist()
+	})
+	if err != nil {
+		t.Fatalf("attach graph worktree: %v", err)
+	}
+	return wave
+}
+
+type fakeGraphWorktreeClient struct {
+	scope                 publication.TrustedScope
+	state                 string
+	createCalls           int
+	inspectCalls          int
+	removeCalls           int
+	findCalls             int
+	allowRemove           bool
+	createErrAfterPersist error
+	byID                  map[string]worktreeops.Worktree
+}
+
+func (c *fakeGraphWorktreeClient) Create(
+	_ context.Context,
+	scope publication.TrustedScope,
+	request worktreeops.CreateRequest,
+) (worktreeops.Worktree, error) {
+	c.createCalls++
+	if scope != c.scope {
+		return worktreeops.Worktree{}, fmt.Errorf("scope mismatch: %#v", scope)
+	}
+	if c.byID == nil {
+		c.byID = map[string]worktreeops.Worktree{}
+	}
+	id := "wt_" + request.Name
+	worktree := worktreeops.Worktree{
+		ID: id, Name: request.Name, Root: filepath.Join("/managed", request.Name),
+		WorkspaceID: scope.WorkspaceID, RepositoryRoot: scope.WorkspaceRoot,
+		RepositoryIdentity: digestValue("repo-" + scope.WorkspaceID), Branch: request.Branch,
+		BaseRef: request.BaseSHA, BaseSHA: request.BaseSHA, State: c.state,
+		Setup: worktreeops.SetupResult{State: map[string]string{"ready": "ok", "pending": "none"}[c.state]},
+	}
+	c.byID[id] = worktree
+	if c.createErrAfterPersist != nil {
+		return worktreeops.Worktree{}, c.createErrAfterPersist
+	}
+	return worktree, nil
+}
+
+func (c *fakeGraphWorktreeClient) FindByName(
+	_ context.Context,
+	_ publication.TrustedScope,
+	name string,
+) (worktreeops.Worktree, bool, error) {
+	c.findCalls++
+	for _, worktree := range c.byID {
+		if worktree.Name == name {
+			return worktree, true, nil
+		}
+	}
+	return worktreeops.Worktree{}, false, nil
+}
+
+func (c *fakeGraphWorktreeClient) Inspect(
+	_ context.Context,
+	_ publication.TrustedScope,
+	worktreeID string,
+) (worktreeops.Worktree, error) {
+	c.inspectCalls++
+	worktree, exists := c.byID[worktreeID]
+	if !exists {
+		return worktreeops.Worktree{}, worktreeops.ErrInvalidWorktreeIdentity
+	}
+	worktree.State = c.state
+	worktree.Setup.State = map[string]string{"ready": "ok", "pending": "none"}[c.state]
+	c.byID[worktreeID] = worktree
+	return worktree, nil
+}
+
+func (c *fakeGraphWorktreeClient) Remove(
+	_ context.Context,
+	_ publication.TrustedScope,
+	worktreeID string,
+) (worktreeops.Worktree, error) {
+	c.removeCalls++
+	if !c.allowRemove {
+		return worktreeops.Worktree{}, fmt.Errorf("unexpected remove")
+	}
+	worktree, exists := c.byID[worktreeID]
+	if !exists {
+		return worktreeops.Worktree{}, worktreeops.ErrInvalidWorktreeIdentity
+	}
+	worktree.State = "removed"
+	c.byID[worktreeID] = worktree
+	return worktree, nil
+}

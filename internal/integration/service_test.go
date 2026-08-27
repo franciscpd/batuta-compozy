@@ -35,6 +35,7 @@ func TestServicePersistsIntentBeforeMutationAndReplaysCompleteResult(t *testing.
 
 	result, err := service.Integrate(context.Background(), request)
 	if err != nil || !result.Complete || !reflect.DeepEqual(result.AcceptedTaskIDs, []string{"task_01", "task_02"}) ||
+		!reflect.DeepEqual(result.IntegratedCommitSHAs, []string{strings.Repeat("5", 40), strings.Repeat("6", 40)}) ||
 		git.applyCalls != 2 || tracking.calls != 1 {
 		t.Fatalf("Integrate(replay) = %#v, error %v, apply %d, tracking %d", result, err, git.applyCalls, tracking.calls)
 	}
@@ -160,7 +161,7 @@ func TestServiceSerializesCompareBeforeMutateThroughLockedJournal(t *testing.T) 
 	}
 }
 
-func TestServiceDerivesTrackingProjectionFromCurrentLockedJournal(t *testing.T) {
+func TestServiceFreezesTrackingProjectionFromPlannedLockedJournal(t *testing.T) {
 	t.Parallel()
 
 	request := integrationRequestFixture()
@@ -177,10 +178,15 @@ func TestServiceDerivesTrackingProjectionFromCurrentLockedJournal(t *testing.T) 
 	service := Service{Git: newFakeIntegrationGit(request), Locker: locker, Tracking: tracking}
 
 	result, err := service.Integrate(context.Background(), request)
-	if err != nil || !result.Complete || journal.projectionCalls < 2 ||
+	if err != nil || !result.Complete || journal.projectionCalls != 2 ||
 		tracking.last.ProjectionRevision != journal.projectionRevision ||
 		!reflect.DeepEqual(tracking.last.SharedTracking, projection) {
 		t.Fatalf("Integrate() = %#v, error %v; projection calls %d, tracking %#v", result, err, journal.projectionCalls, tracking.last)
+	}
+	if !reflect.DeepEqual(journal.lastProjectionRequest.AcceptedTaskIDs, []string{"task_01", "task_02"}) ||
+		!reflect.DeepEqual(journal.lastProjectionRequest.AcceptedCommitSHAs, []string{strings.Repeat("b", 40), strings.Repeat("d", 40)}) ||
+		!reflect.DeepEqual(journal.lastProjectionRequest.IntegratedCommitSHAs, []string{strings.Repeat("5", 40), strings.Repeat("6", 40)}) {
+		t.Fatalf("projection request = %#v", journal.lastProjectionRequest)
 	}
 	journal.mu.Lock()
 	journal.projectionRevision = integrationDigest([]byte("stale-projection"))
@@ -188,8 +194,9 @@ func TestServiceDerivesTrackingProjectionFromCurrentLockedJournal(t *testing.T) 
 		Path: ".compozy/tasks/demo/_index.json", Digest: integrationDigest([]byte("stale\n")), Content: []byte("stale\n"),
 	}}
 	journal.mu.Unlock()
-	if _, err := service.Integrate(context.Background(), request); !errors.Is(err, ErrJournalConflict) {
-		t.Fatalf("Integrate(stale projection) error = %v, want ErrJournalConflict", err)
+	replayed, err := service.Integrate(context.Background(), request)
+	if err != nil || !reflect.DeepEqual(replayed, result) || journal.projectionCalls != 2 {
+		t.Fatalf("Integrate(replay after journal advance) = %#v, error=%v projection_calls=%d", replayed, err, journal.projectionCalls)
 	}
 }
 
@@ -301,6 +308,7 @@ type memoryIntegrationJournal struct {
 	projectionRevision      string
 	projectionRequestDigest string
 	projectionCalls         int
+	lastProjectionRequest   TrackingProjectionRequest
 	locked                  func() bool
 }
 
@@ -314,6 +322,7 @@ func (j *memoryIntegrationJournal) ProjectTracking(
 		return TrackingProjection{}, errors.New("projection outside locked journal")
 	}
 	j.projectionCalls++
+	j.lastProjectionRequest = request
 	revision := j.projectionRevision
 	if revision == "" {
 		revision = integrationDigest([]byte("projection"))

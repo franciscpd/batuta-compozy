@@ -150,6 +150,23 @@ func (c GitClient) CommitsAheadOfBase(ctx context.Context, worktreePath, base st
 	return count, nil
 }
 
+func (c GitClient) IsAncestor(ctx context.Context, worktreePath, ancestor, descendant string) (bool, error) {
+	if err := c.validate(worktreePath); err != nil || !gitSHA.MatchString(ancestor) || !gitSHA.MatchString(descendant) {
+		if err != nil {
+			return false, err
+		}
+		return false, errors.New("publication: invalid Git ancestry identity")
+	}
+	result, err := c.run(ctx, worktreePath, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err == nil {
+		return true, nil
+	}
+	if result.ExitCode == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("publication: inspect Git ancestry: %w", err)
+}
+
 func (c GitClient) validate(worktreePath string) error {
 	if strings.TrimSpace(c.Executable) == "" || !filepath.IsAbs(c.Executable) {
 		return errors.New("publication: git executable must be absolute")
