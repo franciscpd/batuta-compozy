@@ -14,6 +14,7 @@ import (
 	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
 type planFunc func(context.Context, publication.TrustedScope, publication.PlanInput) (publication.PlanOutput, error)
@@ -34,6 +35,7 @@ type serviceSet struct {
 	routingApply          routingApplyFunc
 	routingContext        routingContextFunc
 	deliveryBudgetContext deliveryBudgetContextFunc
+	worktrees             worktreeops.Client
 }
 
 type application struct {
@@ -49,6 +51,7 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 	}
 	runner := publication.ExecRunner{}
 	client := publication.CLIClient{Executable: compozyExecutable, Runner: runner}
+	taskWorktrees := newTaskWorktreeClient(compozyExecutable, runner)
 	git := publication.GitClient{Executable: gitExecutable, Runner: runner}
 	planner := publication.PublicationPlanner{Compozy: client, Git: git}
 	publisher := publication.Publisher{Planner: planner, Compozy: client, Git: git}
@@ -123,7 +126,12 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 		plan: planner.Plan, publish: publisher.Publish, verify: verifier.Verify,
 		inventory: inventoryService, routingPlan: engine.Plan, routingApply: engine.Apply,
 		routingContext: contextService.Routing, deliveryBudgetContext: contextService.Budget,
+		worktrees: taskWorktrees,
 	})
+}
+
+func newTaskWorktreeClient(compozyExecutable string, runner publication.CommandRunner) worktreeops.Client {
+	return worktreeops.CLIClient{Executable: compozyExecutable, Runner: runner}
 }
 
 type inventoryExecutables struct {

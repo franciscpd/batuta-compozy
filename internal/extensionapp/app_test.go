@@ -10,7 +10,31 @@ import (
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
+
+func TestApplicationWiringUsesManagedWorktreeClientWithoutAddingTool(t *testing.T) {
+	t.Parallel()
+
+	runner := &applicationWiringRunner{}
+	client, ok := newTaskWorktreeClient("/controlled/compozy", runner).(worktreeops.CLIClient)
+	if !ok || client.Executable != "/controlled/compozy" || client.Runner != runner {
+		t.Fatalf("newTaskWorktreeClient() = %#v", client)
+	}
+	extension, err := newWithServices(serviceSet{worktrees: client})
+	if err != nil {
+		t.Fatalf("newWithServices() error = %v", err)
+	}
+	if got := len(extension.GetToolDescriptors()); got != 8 {
+		t.Fatalf("tool descriptor count = %d, want unchanged 8", got)
+	}
+}
+
+type applicationWiringRunner struct{}
+
+func (*applicationWiringRunner) Run(context.Context, publication.Command) (publication.CommandResult, error) {
+	return publication.CommandResult{}, errors.New("unexpected command")
+}
 
 func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	t.Parallel()
