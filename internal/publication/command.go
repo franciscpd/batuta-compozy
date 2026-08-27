@@ -1,9 +1,11 @@
 package publication
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,8 @@ type Command struct {
 	Executable  string
 	Args        []string
 	Directory   string
+	Stdin       []byte
+	Environment []string
 	StdoutLimit int64
 	StderrLimit int64
 }
@@ -43,6 +47,12 @@ func (ExecRunner) Run(ctx context.Context, command Command) (CommandResult, erro
 	if command.StdoutLimit < 0 || command.StderrLimit < 0 {
 		return CommandResult{ExitCode: -1}, errors.New("publication: output limits must not be negative")
 	}
+	for _, entry := range command.Environment {
+		name, _, found := strings.Cut(entry, "=")
+		if !found || name == "" || strings.ContainsAny(name, "\x00=") || strings.ContainsRune(entry, '\x00') {
+			return CommandResult{ExitCode: -1}, errors.New("publication: invalid environment override")
+		}
+	}
 
 	stdoutLimit := command.StdoutLimit
 	if stdoutLimit == 0 {
@@ -57,6 +67,8 @@ func (ExecRunner) Run(ctx context.Context, command Command) (CommandResult, erro
 	stderr := newBoundedWriter(stderrLimit)
 	cmd := exec.CommandContext(ctx, command.Executable, command.Args...)
 	cmd.Dir = command.Directory
+	cmd.Stdin = bytes.NewReader(command.Stdin)
+	cmd.Env = append(os.Environ(), command.Environment...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 

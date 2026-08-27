@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,21 @@ func TestExecRunnerUsesExactExecutableArgvAndDirectory(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", result.ExitCode)
+	}
+}
+
+func TestExecRunnerPassesBoundedStdinAndEnvironmentOverrides(t *testing.T) {
+	t.Parallel()
+
+	command := helperCommand(t, t.TempDir(), "stdin-environment")
+	command.Stdin = []byte("deterministic input\n")
+	command.Environment = []string{"BATUTA_TEST_VALUE=deterministic environment"}
+	result, err := (ExecRunner{}).Run(context.Background(), command)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if string(result.Stdout) != "deterministic input\ndeterministic environment" {
+		t.Fatalf("stdout = %q", result.Stdout)
 	}
 }
 
@@ -172,6 +188,7 @@ func TestExecRunnerRejectsUnsafeCommandConfiguration(t *testing.T) {
 		{name: "relative executable", command: Command{Executable: "git"}},
 		{name: "negative stdout limit", command: Command{Executable: filepath.Join(string(filepath.Separator), "controlled", "git"), StdoutLimit: -1}},
 		{name: "negative stderr limit", command: Command{Executable: filepath.Join(string(filepath.Separator), "controlled", "git"), StderrLimit: -1}},
+		{name: "invalid environment", command: Command{Executable: filepath.Join(string(filepath.Separator), "controlled", "git"), Environment: []string{"BROKEN"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -226,6 +243,13 @@ func TestExecRunnerHelper(t *testing.T) {
 		os.Exit(23)
 	case "block":
 		time.Sleep(30 * time.Second)
+	case "stdin-environment":
+		payload, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Fprintf(os.Stdout, "%s%s", payload, os.Getenv("BATUTA_TEST_VALUE"))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown helper action %q\n", os.Args[marker+1])
 		os.Exit(2)

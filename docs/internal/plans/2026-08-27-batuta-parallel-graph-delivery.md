@@ -20,7 +20,7 @@
 - Keep the existing integration worktree and one-PR-per-phase publication boundary. Never publish task worktrees.
 - Maximum ready tasks per wave and active task worktrees: `4`; maximum authored tasks: `64`; maximum executions per task: `4`; maximum fresh parent runs: `4`; cumulative tokens: `1_000_000`; cumulative active work: `4h`.
 - A human clarification pauses only its task cell. Persisted human-wait intervals do not consume Batuta's active-wall accounting, but tokens and execution counts never reset.
-- A task candidate is exactly one commit ahead of its recorded base. Do not squash, rewrite, force-push, auto-merge conflicts, or mutate operator-owned branches.
+- A task candidate is exactly one Conventional Commit ahead of its recorded base. Validate `<type>[optional scope][!]: <description>` before integration. Do not squash, rewrite, force-push, auto-merge conflicts, or mutate operator-owned branches.
 - `review-and-fix` runs once after all task candidates are integrated. Task cells perform only focused verification and self-review.
 - Every external side effect uses a deterministic operation ID and request digest. A replay with a different digest is a conflict.
 - Do not use sleeps or polling in shell code. Product reconciliation uses bounded structured reads; test waits use the repository's event/status helpers.
@@ -362,6 +362,7 @@ Candidate tests require:
 
 - expected worktree/root/base/branch and clean product state;
 - `git rev-list --reverse --ancestry-path <base>..HEAD` returns exactly one commit;
+- the commit subject follows Conventional Commits and remains unchanged during integration;
 - commit/tree SHA and task identity are valid;
 - task-local tracking changes stay under `.compozy/tasks/<slug>/`;
 - no ignored/untracked product mutation is silently accepted;

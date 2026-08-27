@@ -212,6 +212,7 @@ task it verifies:
 - the worktree is the expected ready Compozy worktree;
 - its recorded base equals the wave base;
 - exactly one candidate implementation commit is ahead of that base;
+- the candidate subject follows `<type>[optional scope][!]: <description>` from Conventional Commits;
 - the commit, tree, task identity, and routing attempt match the result;
 - no uncommitted product-code mutation remains;
 - allowed task-tracking changes are bounded to the approved SDD directory;
