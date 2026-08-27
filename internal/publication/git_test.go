@@ -2,6 +2,8 @@ package publication
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -10,6 +12,118 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestGitClientWorktreeStateUsesExactBoundedCommands(t *testing.T) {
+	t.Parallel()
+
+	head := "0123456789abcdef0123456789abcdef01234567"
+	status := []byte("?? pending.txt\x00")
+	diff := []byte("diff --git a/tracked.txt b/tracked.txt\n")
+	runner := &recordingCommandRunner{results: []CommandResult{
+		{Stdout: []byte(head + "\n")}, {Stdout: status}, {Stdout: diff}, {Stdout: nil},
+	}}
+	client := GitClient{Executable: "/controlled/git", Runner: runner}
+	got, err := client.WorktreeState(context.Background(), "/trusted/worktree")
+	if err != nil {
+		t.Fatalf("WorktreeState() error = %v", err)
+	}
+	if got.HeadSHA != head || got.PorcelainSHA256 != prefixedSHA256(status) || got.ContentSHA256 != prefixedSHA256(diff) {
+		t.Fatalf("WorktreeState() = %#v", got)
+	}
+	want := []Command{
+		{Executable: "/controlled/git", Args: []string{"rev-parse", "HEAD"}, Directory: "/trusted/worktree", StdoutLimit: 16 << 20, StderrLimit: 64 << 10},
+		{Executable: "/controlled/git", Args: []string{"status", "--porcelain=v1", "-z", "--untracked-files=all"}, Directory: "/trusted/worktree", StdoutLimit: 16 << 20, StderrLimit: 64 << 10},
+		{Executable: "/controlled/git", Args: []string{"diff", "--binary", "--no-ext-diff", "HEAD"}, Directory: "/trusted/worktree", StdoutLimit: 16 << 20, StderrLimit: 64 << 10},
+		{Executable: "/controlled/git", Args: []string{"ls-files", "--others", "--exclude-standard", "-z"}, Directory: "/trusted/worktree", StdoutLimit: 16 << 20, StderrLimit: 64 << 10},
+	}
+	if !reflect.DeepEqual(runner.commands, want) {
+		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+}
+
+func TestGitClientWorktreeStateDetectsUntrackedContentChanges(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository(t)
+	untracked := filepath.Join(repository.path, "pending.txt")
+	if err := os.WriteFile(untracked, []byte("first\n"), 0o644); err != nil {
+		t.Fatalf("write first untracked content: %v", err)
+	}
+	client := GitClient{Executable: repository.git, Runner: ExecRunner{}}
+	first, err := client.WorktreeState(context.Background(), repository.path)
+	if err != nil {
+		t.Fatalf("WorktreeState(first) error = %v", err)
+	}
+	if err := os.WriteFile(untracked, []byte("second\n"), 0o644); err != nil {
+		t.Fatalf("write second untracked content: %v", err)
+	}
+	second, err := client.WorktreeState(context.Background(), repository.path)
+	if err != nil {
+		t.Fatalf("WorktreeState(second) error = %v", err)
+	}
+	if first.HeadSHA != second.HeadSHA || first.PorcelainSHA256 != second.PorcelainSHA256 || first.ContentSHA256 == second.ContentSHA256 {
+		t.Fatalf("states = first:%#v second:%#v", first, second)
+	}
+	third, err := client.WorktreeState(context.Background(), repository.path)
+	if err != nil || third != second {
+		t.Fatalf("WorktreeState(stable replay) = %#v, error:%v, want %#v", third, err, second)
+	}
+}
+
+func TestGitClientWorktreeStateHashesSymlinkTargetWithoutFollowing(t *testing.T) {
+	t.Parallel()
+
+	repository := newTestRepository(t)
+	link := filepath.Join(repository.path, "pending-link")
+	if err := os.Symlink("missing-first", link); err != nil {
+		t.Fatalf("create first symlink: %v", err)
+	}
+	client := GitClient{Executable: repository.git, Runner: ExecRunner{}}
+	first, err := client.WorktreeState(context.Background(), repository.path)
+	if err != nil {
+		t.Fatalf("WorktreeState(first link) error = %v", err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatalf("remove first symlink: %v", err)
+	}
+	if err := os.Symlink("missing-second", link); err != nil {
+		t.Fatalf("create second symlink: %v", err)
+	}
+	second, err := client.WorktreeState(context.Background(), repository.path)
+	if err != nil {
+		t.Fatalf("WorktreeState(second link) error = %v", err)
+	}
+	if first.PorcelainSHA256 != second.PorcelainSHA256 || first.ContentSHA256 == second.ContentSHA256 {
+		t.Fatalf("symlink states = first:%#v second:%#v", first, second)
+	}
+}
+
+func TestGitClientWorktreeStateRejectsUnsafeOrTruncatedEvidence(t *testing.T) {
+	t.Parallel()
+
+	head := []byte("0123456789abcdef0123456789abcdef01234567\n")
+	tests := []struct {
+		name    string
+		results []CommandResult
+	}{
+		{name: "malformed head", results: []CommandResult{{Stdout: []byte("bad\n")}}},
+		{name: "truncated diff", results: []CommandResult{{Stdout: head}, {}, {StdoutTruncated: true}}},
+		{name: "path escape", results: []CommandResult{{Stdout: head}, {}, {}, {Stdout: []byte("../outside\x00")}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := GitClient{Executable: "/controlled/git", Runner: &recordingCommandRunner{results: test.results}}
+			if _, err := client.WorktreeState(context.Background(), "/trusted/worktree"); err == nil {
+				t.Fatal("WorktreeState() error = nil, want safe rejection")
+			}
+		})
+	}
+}
+
+func prefixedSHA256(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
 
 func TestGitClientSnapshotReturnsExactCleanBranchAndHead(t *testing.T) {
 	t.Parallel()

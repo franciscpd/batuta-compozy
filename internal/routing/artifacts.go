@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -69,6 +70,101 @@ type TaskSet struct {
 	Digest string
 }
 
+type DeliveryTaskSnapshotEntry struct {
+	ID           string     `json:"task_id"`
+	Digest       string     `json:"digest"`
+	Dependencies []string   `json:"dependencies"`
+	Domain       Domain     `json:"domain"`
+	Complexity   Complexity `json:"complexity"`
+	Status       string     `json:"status"`
+}
+
+type DeliveryTaskSnapshot struct {
+	Digest            string                      `json:"digest"`
+	Tasks             []DeliveryTaskSnapshotEntry `json:"tasks"`
+	IncompleteTaskIDs []string                    `json:"incomplete_task_ids"`
+	ItemTaskIDs       map[int]string              `json:"item_task_ids"`
+}
+
+type DeliveryTaskProgress struct {
+	IncompleteTaskIDs []string       `json:"incomplete_task_ids"`
+	ItemTaskIDs       map[int]string `json:"item_task_ids"`
+}
+
+func (initial DeliveryTaskSnapshot) Reconcile(current DeliveryTaskSnapshot) (DeliveryTaskProgress, error) {
+	if err := validateStandaloneTaskSnapshot(initial); err != nil {
+		return DeliveryTaskProgress{}, err
+	}
+	if err := validateStandaloneTaskSnapshot(current); err != nil {
+		return DeliveryTaskProgress{}, err
+	}
+	if len(initial.Tasks) != len(current.Tasks) || len(initial.ItemTaskIDs) != len(current.ItemTaskIDs) {
+		return DeliveryTaskProgress{}, ErrReauthoringRequired
+	}
+	for index := range initial.Tasks {
+		before, after := initial.Tasks[index], current.Tasks[index]
+		if before.ID != after.ID || before.Domain != after.Domain || before.Complexity != after.Complexity ||
+			!slices.Equal(before.Dependencies, after.Dependencies) || initial.ItemTaskIDs[index] != before.ID || current.ItemTaskIDs[index] != before.ID {
+			return DeliveryTaskProgress{}, ErrReauthoringRequired
+		}
+		switch before.Status {
+		case "pending":
+			if after.Status != "pending" && after.Status != "completed" {
+				return DeliveryTaskProgress{}, ErrReauthoringRequired
+			}
+			if after.Status == "pending" && before.Digest != after.Digest {
+				return DeliveryTaskProgress{}, ErrReauthoringRequired
+			}
+		case "completed":
+			if after.Status != "completed" {
+				return DeliveryTaskProgress{}, ErrReauthoringRequired
+			}
+		default:
+			return DeliveryTaskProgress{}, ErrReauthoringRequired
+		}
+	}
+	return DeliveryTaskProgress{
+		IncompleteTaskIDs: append([]string(nil), current.IncompleteTaskIDs...),
+		ItemTaskIDs:       cloneItemTaskIDs(initial.ItemTaskIDs),
+	}, nil
+}
+
+func validateStandaloneTaskSnapshot(snapshot DeliveryTaskSnapshot) error {
+	set := TaskSet{Slug: "snapshot", Tasks: make([]TaskArtifact, 0, len(snapshot.Tasks))}
+	for _, task := range snapshot.Tasks {
+		set.Tasks = append(set.Tasks, TaskArtifact{
+			ID: task.ID, Status: task.Status, Domain: task.Domain, Complexity: task.Complexity,
+			Dependencies: append([]string(nil), task.Dependencies...), Digest: task.Digest,
+		})
+	}
+	recomputed, err := set.DeliverySnapshot()
+	if err != nil || recomputed.Digest != snapshot.Digest || !slices.Equal(recomputed.IncompleteTaskIDs, snapshot.IncompleteTaskIDs) ||
+		!mapsEqualItemTaskIDs(recomputed.ItemTaskIDs, snapshot.ItemTaskIDs) {
+		return ErrReauthoringRequired
+	}
+	return nil
+}
+
+func cloneItemTaskIDs(values map[int]string) map[int]string {
+	cloned := make(map[int]string, len(values))
+	for index, taskID := range values {
+		cloned[index] = taskID
+	}
+	return cloned
+}
+
+func mapsEqualItemTaskIDs(left, right map[int]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index, taskID := range left {
+		if right[index] != taskID {
+			return false
+		}
+	}
+	return true
+}
+
 type ArtifactLoader struct {
 	root string
 }
@@ -107,11 +203,14 @@ func (l *ArtifactLoader) Load(slug string) (TaskSet, error) {
 	if len(names) == 0 {
 		return TaskSet{}, fmt.Errorf("%w: task set has no authored tasks", ErrReauthoringRequired)
 	}
+	manifest, err := l.loadTaskManifest(slug, names)
+	if err != nil {
+		return TaskSet{}, err
+	}
 
 	tasks := make([]TaskArtifact, 0, len(names))
-	setHash := sha256.New()
-	totalBytes := int64(0)
-	for _, name := range names {
+	totalBytes := int64(len(manifest.payload))
+	for _, name := range manifest.orderedFiles {
 		path, err := l.resolveContained(filepath.Join(".compozy", "tasks", slug, name))
 		if err != nil {
 			return TaskSet{}, err
@@ -128,16 +227,56 @@ func (l *ArtifactLoader) Load(slug string) (TaskSet, error) {
 		if err != nil {
 			return TaskSet{}, fmt.Errorf("routing: invalid %s: %w", name, err)
 		}
+		task.Dependencies = append([]string(nil), manifest.dependencies[task.ID]...)
 		tasks = append(tasks, task)
-		writeDigestPart(setHash, name)
-		writeDigestPart(setHash, string(payload))
 	}
 
-	return TaskSet{
-		Slug:   slug,
-		Tasks:  tasks,
-		Digest: hex.EncodeToString(setHash.Sum(nil)),
-	}, nil
+	set := TaskSet{Slug: slug, Tasks: tasks}
+	snapshot, err := set.DeliverySnapshot()
+	if err != nil {
+		return TaskSet{}, err
+	}
+	set.Digest = snapshot.Digest
+	return set, nil
+}
+
+func (set TaskSet) DeliverySnapshot() (DeliveryTaskSnapshot, error) {
+	if !canonicalSlug.MatchString(set.Slug) || len(set.Tasks) == 0 {
+		return DeliveryTaskSnapshot{}, ErrReauthoringRequired
+	}
+	snapshot := DeliveryTaskSnapshot{
+		Tasks:             make([]DeliveryTaskSnapshotEntry, 0, len(set.Tasks)),
+		IncompleteTaskIDs: make([]string, 0, len(set.Tasks)), ItemTaskIDs: make(map[int]string, len(set.Tasks)),
+	}
+	seen := make(map[string]struct{}, len(set.Tasks))
+	for index, task := range set.Tasks {
+		if _, duplicate := seen[task.ID]; duplicate || !taskIDPattern.MatchString(task.ID) || !canonicalHexHash.MatchString(task.Digest) ||
+			!task.Domain.Valid() || !task.Complexity.Valid() || (task.Status != "pending" && task.Status != "completed") {
+			return DeliveryTaskSnapshot{}, ErrReauthoringRequired
+		}
+		seen[task.ID] = struct{}{}
+		entry := DeliveryTaskSnapshotEntry{
+			ID: task.ID, Digest: task.Digest, Dependencies: append([]string(nil), task.Dependencies...),
+			Domain: task.Domain, Complexity: task.Complexity, Status: task.Status,
+		}
+		for _, dependency := range entry.Dependencies {
+			if _, exists := seen[dependency]; !exists {
+				return DeliveryTaskSnapshot{}, ErrReauthoringRequired
+			}
+		}
+		snapshot.Tasks = append(snapshot.Tasks, entry)
+		snapshot.ItemTaskIDs[index] = task.ID
+		if task.Status != "completed" {
+			snapshot.IncompleteTaskIDs = append(snapshot.IncompleteTaskIDs, task.ID)
+		}
+	}
+	payload, err := json.Marshal(snapshot.Tasks)
+	if err != nil {
+		return DeliveryTaskSnapshot{}, errors.New("routing: encode task snapshot failed")
+	}
+	digest := sha256.Sum256(payload)
+	snapshot.Digest = hex.EncodeToString(digest[:])
+	return snapshot, nil
 }
 
 func (l *ArtifactLoader) resolveContained(relative string) (string, error) {
@@ -188,7 +327,7 @@ func parseTaskArtifact(id string, payload []byte) (TaskArtifact, error) {
 	}
 	domain := Domain(frontmatter.domain)
 	complexity := Complexity(frontmatter.complexity)
-	if !domain.Valid() || !complexity.Valid() || frontmatter.status == "" || frontmatter.title == "" {
+	if !domain.Valid() || !complexity.Valid() || (frontmatter.status != "pending" && frontmatter.status != "completed") || frontmatter.title == "" {
 		return TaskArtifact{}, ErrReauthoringRequired
 	}
 	for _, dependency := range frontmatter.dependencies {
@@ -232,7 +371,7 @@ func parseTaskFrontmatter(payload []byte) (taskFrontmatter, error) {
 			return taskFrontmatter{}, ErrReauthoringRequired
 		}
 		switch key {
-		case "status", "title", "type", "complexity", "dependencies":
+		case "status", "title", "type", "complexity":
 		default:
 			return taskFrontmatter{}, ErrReauthoringRequired
 		}

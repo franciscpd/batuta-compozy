@@ -6,15 +6,19 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
+	"syscall"
 )
 
-const journalSchemaVersion = 1
+const (
+	journalSchemaVersion   = 2
+	maxRoutingJournalBytes = 16 << 20
+)
 
 var (
 	ErrOwnershipUnproven       = errors.New("routing: matrix ownership cannot be proven")
@@ -28,6 +32,18 @@ type OwnedRuntimeRule struct {
 }
 
 type RoutingJournal struct {
+	SchemaVersion     int                          `json:"schema_version"`
+	CurrentGeneration string                       `json:"current_generation"`
+	Generations       map[string]RoutingGeneration `json:"generations"`
+	Deliveries        map[string]DeliveryRecord    `json:"deliveries"`
+
+	// Compatibility-only fields for unreleased v1 callers. Schema v2 never
+	// encodes them, and the v1 reader intentionally discards them.
+	DeliveryBindings map[string]string  `json:"-"`
+	OwnedRules       []OwnedRuntimeRule `json:"-"`
+}
+
+type routingJournalV1 struct {
 	SchemaVersion     int                          `json:"schema_version"`
 	CurrentGeneration string                       `json:"current_generation,omitempty"`
 	Generations       map[string]RoutingGeneration `json:"generations"`
@@ -46,6 +62,18 @@ const (
 type OwnershipStore struct {
 	root string
 	mu   sync.Mutex
+}
+
+type JournalTx struct {
+	Journal *RoutingJournal
+	persist func() error
+}
+
+func (tx *JournalTx) Persist() error {
+	if tx == nil || tx.Journal == nil || tx.persist == nil {
+		return ErrOwnershipUnproven
+	}
+	return tx.persist()
 }
 
 func NewOwnershipStore(root string) (*OwnershipStore, error) {
@@ -75,102 +103,78 @@ func (s *OwnershipStore) pathFor(workspaceID string) string {
 }
 
 func (s *OwnershipStore) Load(workspaceID string) (RoutingJournal, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.load(workspaceID)
+	var journal RoutingJournal
+	var exists bool
+	err := s.withWorkspaceLock(workspaceID, func() error {
+		var err error
+		journal, exists, err = s.load(workspaceID)
+		return err
+	})
+	return journal, exists, err
 }
 
+func (s *OwnershipStore) WithLockedJournal(workspaceID string, fn func(*JournalTx) error) error {
+	if fn == nil {
+		return errors.New("routing: journal action is required")
+	}
+	return s.withWorkspaceLock(workspaceID, func() error {
+		journal, exists, err := s.load(workspaceID)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			journal = emptyRoutingJournal()
+		}
+		original, err := cloneJournal(journal)
+		if err != nil {
+			return err
+		}
+		tx := &JournalTx{Journal: &journal}
+		tx.persist = func() error {
+			if err := validateJournalTransition(original, journal); err != nil {
+				return err
+			}
+			if err := s.save(workspaceID, journal); err != nil {
+				return err
+			}
+			original, err = cloneJournal(journal)
+			return err
+		}
+		return fn(tx)
+	})
+}
+
+// Save remains temporarily for callers being replaced by the migration-free
+// matrix and recovery tasks. New code mutates through WithLockedJournal.
 func (s *OwnershipStore) Save(workspaceID string, journal RoutingJournal) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.save(workspaceID, journal)
+	return s.withWorkspaceLock(workspaceID, func() error { return s.save(workspaceID, journal) })
 }
 
-func (s *OwnershipStore) BindDelivery(workspaceID, runID, generationDigest string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	journal, exists, err := s.load(workspaceID)
-	if err != nil || !exists {
-		if err != nil {
-			return err
-		}
-		return ErrOwnershipUnproven
-	}
-	if strings.TrimSpace(runID) == "" || strings.TrimSpace(generationDigest) == "" {
-		return ErrDeliveryBindingConflict
-	}
-	if _, exists := journal.Generations[generationDigest]; !exists {
-		return ErrDeliveryBindingConflict
-	}
-	if current := journal.DeliveryBindings[runID]; current != "" && current != generationDigest {
-		return ErrDeliveryBindingConflict
-	}
-	journal.DeliveryBindings[runID] = generationDigest
-	return s.save(workspaceID, journal)
+// GenerationForDelivery remains temporarily for the old same-lineage recovery
+// owner. The migration-free recovery task replaces this caller.
+func (s *OwnershipStore) GenerationForDelivery(_, _, _ string) (RoutingGeneration, error) {
+	return RoutingGeneration{}, ErrDeliveryBindingConflict
 }
 
-func (s *OwnershipStore) GenerationForDelivery(workspaceID, runID, authoritativeDigest string) (RoutingGeneration, error) {
+func (s *OwnershipStore) withWorkspaceLock(workspaceID string, action func() error) error {
+	if !boundedArgument(workspaceID) || action == nil {
+		return errors.New("routing: trusted workspace ID and journal action are required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	journal, exists, err := s.load(workspaceID)
-	if err != nil || !exists {
-		if err != nil {
-			return RoutingGeneration{}, err
-		}
-		return RoutingGeneration{}, ErrOwnershipUnproven
+	lockFile, err := os.OpenFile(s.pathFor(workspaceID)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return errors.New("routing: open ownership journal lock failed")
 	}
-	generation, exists := journal.Generations[authoritativeDigest]
-	if strings.TrimSpace(runID) == "" || strings.TrimSpace(authoritativeDigest) == "" || !exists {
-		return RoutingGeneration{}, ErrDeliveryBindingConflict
+	defer lockFile.Close()
+	if err := lockFile.Chmod(0o600); err != nil {
+		return errors.New("routing: secure ownership journal lock failed")
 	}
-	bound := journal.DeliveryBindings[runID]
-	if bound != "" && bound != authoritativeDigest {
-		return RoutingGeneration{}, ErrDeliveryBindingConflict
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		return errors.New("routing: lock ownership journal failed")
 	}
-	if bound == "" {
-		journal.DeliveryBindings[runID] = authoritativeDigest
-		if err := s.save(workspaceID, journal); err != nil {
-			return RoutingGeneration{}, err
-		}
-	}
-	return generation, nil
-}
-
-func (s *OwnershipStore) Prune(workspaceID string, states map[string]DeliveryLiveness) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	journal, exists, err := s.load(workspaceID)
-	if err != nil || !exists {
-		if err != nil {
-			return err
-		}
-		return ErrOwnershipUnproven
-	}
-	for runID := range journal.DeliveryBindings {
-		state, exists := states[runID]
-		if !exists || state == DeliveryUnknown {
-			return ErrDeliveryLivenessUnknown
-		}
-		if state != DeliveryLive && state != DeliveryTerminal {
-			return ErrDeliveryLivenessUnknown
-		}
-	}
-	for runID := range journal.DeliveryBindings {
-		if states[runID] == DeliveryTerminal {
-			delete(journal.DeliveryBindings, runID)
-		}
-	}
-	referenced := make(map[string]struct{}, len(journal.DeliveryBindings)+1)
-	referenced[journal.CurrentGeneration] = struct{}{}
-	for _, digest := range journal.DeliveryBindings {
-		referenced[digest] = struct{}{}
-	}
-	for digest := range journal.Generations {
-		if _, keep := referenced[digest]; !keep {
-			delete(journal.Generations, digest)
-		}
-	}
-	return s.save(workspaceID, journal)
+	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }()
+	return action()
 }
 
 func (s *OwnershipStore) load(workspaceID string) (RoutingJournal, bool, error) {
@@ -185,23 +189,83 @@ func (s *OwnershipStore) load(workspaceID string) (RoutingJournal, bool, error) 
 		return RoutingJournal{}, false, errors.New("routing: read ownership journal failed")
 	}
 	defer file.Close()
-	payload, err := io.ReadAll(io.LimitReader(file, 16*1024*1024+1))
-	if err != nil || len(payload) > 16*1024*1024 {
-		return RoutingJournal{}, false, errors.New("routing: ownership journal is unavailable")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	var journal RoutingJournal
-	if err := decoder.Decode(&journal); err != nil {
+	payload, err := io.ReadAll(io.LimitReader(file, maxRoutingJournalBytes+1))
+	if err != nil || len(payload) > maxRoutingJournalBytes {
 		return RoutingJournal{}, false, ErrOwnershipUnproven
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+	var envelope struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return RoutingJournal{}, false, ErrOwnershipUnproven
+	}
+	var journal RoutingJournal
+	switch envelope.SchemaVersion {
+	case 1:
+		legacy, err := decodeJournalV1(payload)
+		if err != nil {
+			return RoutingJournal{}, false, err
+		}
+		journal = RoutingJournal{
+			SchemaVersion: journalSchemaVersion, CurrentGeneration: legacy.CurrentGeneration,
+			Generations: legacy.Generations, Deliveries: map[string]DeliveryRecord{},
+		}
+	case journalSchemaVersion:
+		if err := decodeStrictJSON(payload, &journal); err != nil {
+			return RoutingJournal{}, false, ErrOwnershipUnproven
+		}
+	default:
 		return RoutingJournal{}, false, ErrOwnershipUnproven
 	}
 	if err := validateJournal(journal); err != nil {
 		return RoutingJournal{}, false, err
 	}
 	return journal, true, nil
+}
+
+func decodeJournalV1(payload []byte) (routingJournalV1, error) {
+	var legacy routingJournalV1
+	if err := decodeStrictJSON(payload, &legacy); err != nil || legacy.SchemaVersion != 1 || legacy.Generations == nil || legacy.DeliveryBindings == nil {
+		return routingJournalV1{}, ErrOwnershipUnproven
+	}
+	if err := validateGenerationArchive(legacy.CurrentGeneration, legacy.Generations); err != nil {
+		return routingJournalV1{}, err
+	}
+	for runID, digest := range legacy.DeliveryBindings {
+		if !boundedArgument(runID) {
+			return routingJournalV1{}, ErrOwnershipUnproven
+		}
+		if _, exists := legacy.Generations[digest]; !exists {
+			return routingJournalV1{}, ErrOwnershipUnproven
+		}
+	}
+	for _, owned := range legacy.OwnedRules {
+		fingerprint, err := ruleFingerprint(owned.Rule)
+		if err != nil || owned.Fingerprint != fingerprint {
+			return routingJournalV1{}, ErrOwnershipUnproven
+		}
+	}
+	return legacy, nil
+}
+
+func decodeStrictJSON(payload []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return ErrOwnershipUnproven
+	}
+	return nil
+}
+
+func ruleFingerprint(rule RuntimeRule) (string, error) {
+	payload, err := json.Marshal(rule)
+	if err != nil {
+		return "", errors.New("routing: fingerprint runtime rule failed")
+	}
+	return string(payload), nil
 }
 
 func (s *OwnershipStore) save(workspaceID string, journal RoutingJournal) error {
@@ -212,8 +276,8 @@ func (s *OwnershipStore) save(workspaceID string, journal RoutingJournal) error 
 		return err
 	}
 	payload, err := json.Marshal(journal)
-	if err != nil {
-		return errors.New("routing: encode ownership journal failed")
+	if err != nil || len(payload) > maxRoutingJournalBytes {
+		return ErrOwnershipUnproven
 	}
 	file, err := os.CreateTemp(s.root, ".routing-journal-*.tmp")
 	if err != nil {
@@ -236,42 +300,93 @@ func (s *OwnershipStore) save(workspaceID string, journal RoutingJournal) error 
 	if err := file.Close(); err != nil {
 		return errors.New("routing: close ownership journal failed")
 	}
-	if err := os.Rename(temporary, s.pathFor(workspaceID)); err != nil {
+	path := s.pathFor(workspaceID)
+	if err := os.Rename(temporary, path); err != nil {
 		return errors.New("routing: replace ownership journal failed")
 	}
-	if err := os.Chmod(s.pathFor(workspaceID), 0o600); err != nil {
+	if err := os.Chmod(path, 0o600); err != nil {
 		return errors.New("routing: secure ownership journal failed")
+	}
+	directory, err := os.Open(s.root)
+	if err != nil {
+		return errors.New("routing: open ownership directory failed")
+	}
+	defer directory.Close()
+	if err := directory.Sync(); err != nil {
+		return errors.New("routing: sync ownership directory failed")
 	}
 	return nil
 }
 
 func validateJournal(journal RoutingJournal) error {
-	if journal.SchemaVersion != journalSchemaVersion || journal.Generations == nil || journal.DeliveryBindings == nil {
+	if journal.SchemaVersion != journalSchemaVersion || journal.Generations == nil || journal.Deliveries == nil {
 		return ErrOwnershipUnproven
 	}
-	if journal.CurrentGeneration != "" {
-		if generation, exists := journal.Generations[journal.CurrentGeneration]; !exists || generation.Digest != journal.CurrentGeneration {
-			return ErrOwnershipUnproven
-		}
+	if err := validateGenerationArchive(journal.CurrentGeneration, journal.Generations); err != nil {
+		return err
 	}
-	for digest, generation := range journal.Generations {
-		if strings.TrimSpace(digest) == "" || generation.Digest != digest {
+	for deliveryID, delivery := range journal.Deliveries {
+		if deliveryID != delivery.DeliveryID {
 			return ErrOwnershipUnproven
 		}
-	}
-	for runID, digest := range journal.DeliveryBindings {
-		if strings.TrimSpace(runID) == "" {
-			return ErrOwnershipUnproven
-		}
-		if _, exists := journal.Generations[digest]; !exists {
-			return ErrOwnershipUnproven
-		}
-	}
-	for _, owned := range journal.OwnedRules {
-		fingerprint, err := ruleFingerprint(owned.Rule)
-		if err != nil || owned.Fingerprint != fingerprint {
-			return fmt.Errorf("%w: owned rule fingerprint mismatch", ErrOwnershipUnproven)
+		if err := validateDelivery(delivery, journal.Generations); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validateGenerationArchive(current string, generations map[string]RoutingGeneration) error {
+	if current != "" {
+		if generation, exists := generations[current]; !exists || generation.Digest != current {
+			return ErrOwnershipUnproven
+		}
+	}
+	for digest, generation := range generations {
+		if !canonicalSHA256.MatchString(digest) || generation.Digest != digest {
+			return ErrOwnershipUnproven
+		}
+		recomputed, err := finalizeGeneration(generation)
+		if err != nil || recomputed.Digest != digest {
+			return ErrOwnershipUnproven
+		}
+	}
+	return nil
+}
+
+func validateJournalTransition(before, after RoutingJournal) error {
+	if err := validateJournal(after); err != nil {
+		return err
+	}
+	for digest, generation := range before.Generations {
+		if candidate, exists := after.Generations[digest]; !exists || !reflect.DeepEqual(generation, candidate) {
+			return ErrDeliveryConflict
+		}
+	}
+	for deliveryID, delivery := range before.Deliveries {
+		candidate, exists := after.Deliveries[deliveryID]
+		if !exists {
+			return ErrDeliveryConflict
+		}
+		if err := validateDeliveryTransition(delivery, candidate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func emptyRoutingJournal() RoutingJournal {
+	return RoutingJournal{SchemaVersion: journalSchemaVersion, Generations: map[string]RoutingGeneration{}, Deliveries: map[string]DeliveryRecord{}}
+}
+
+func cloneJournal(journal RoutingJournal) (RoutingJournal, error) {
+	payload, err := json.Marshal(journal)
+	if err != nil {
+		return RoutingJournal{}, ErrOwnershipUnproven
+	}
+	var cloned RoutingJournal
+	if err := json.Unmarshal(payload, &cloned); err != nil {
+		return RoutingJournal{}, ErrOwnershipUnproven
+	}
+	return cloned, nil
 }
