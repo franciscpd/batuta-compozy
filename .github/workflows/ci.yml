@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: compozy/compozy
-          ref: a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+          ref: 382976d4b43274630a4b67445812fd4a0216dbcc
           path: ${{ github.workspace }}/compozy-source
           fetch-depth: 0
           fetch-tags: true
@@ -55,7 +55,7 @@ jobs:
         working-directory: ${{ github.workspace }}/compozy-source
         run: |
           set -euo pipefail
-          expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
+          expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"
           actual_source_commit=$(git rev-parse HEAD)
           [[ $actual_source_commit == "$expected_source_commit" ]]
 
@@ -98,6 +98,7 @@ jobs:
       - name: Run contract suite
         env:
           COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home
+          COMPOZY_SOURCE_ROOT: ${{ github.workspace }}/compozy-source
         run: tests/contract/run.sh
 
       - name: Check tracked workspace cleanliness

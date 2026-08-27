@@ -9,7 +9,7 @@ RELEASE_NOTES=docs/releases/0.1.0-beta.3.md
 CHECKOUT_SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 SETUP_GO_SHA=924ae3a1cded613372ab5595356fb5720e22ba16
 UPLOAD_SHA=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-COMPOZY_COMMIT=a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+COMPOZY_COMMIT=382976d4b43274630a4b67445812fd4a0216dbcc
 
 require() {
   local value=$1
@@ -129,6 +129,7 @@ require 'bash -n scripts/*.sh tests/contract/*.sh'
 require "python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v"
 require '[[ ! -e .compozy && ! -L .compozy ]]'
 require 'COMPOZY_HOME: ${{ runner.temp }}/batuta-compozy-home'
+require 'COMPOZY_SOURCE_ROOT: ${{ github.workspace }}/compozy-source'
 require 'compozy daemon start'
 require 'tests/contract/run.sh'
 require 'git diff --exit-code'
@@ -159,7 +160,7 @@ fi
 source_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify pinned CompozyOS source')
 require_step_sequence 'pinned source identity' "$source_identity_block" \
   '          set -euo pipefail' \
-  '          expected_source_commit="a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"' \
+  '          expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"' \
   '          actual_source_commit=$(git rev-parse HEAD)' \
   '          [[ $actual_source_commit == "$expected_source_commit" ]]'
 
@@ -232,6 +233,9 @@ require_release "uses: actions/setup-go@$SETUP_GO_SHA"
 require_release 'go-version: 1.26.4'
 require_release 'repository: compozy/compozy'
 require_release "ref: $COMPOZY_COMMIT"
+require_release 'expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"'
+require_release 'git fetch origin main'
+require_release 'git merge-base --is-ancestor "$expected_source_commit" origin/main'
 require_release 'make build-go'
 require_release './bin/compozy version -o json'
 require_release 'echo "${{ github.workspace }}/compozy-source/bin" >> "$GITHUB_PATH"'
@@ -346,6 +350,7 @@ require_step_sequence 'release daemon cleanup' "$cleanup_block" \
   '          exit "$stop_status"'
 
 require_release_order '! gh release view "$tag" >/dev/null 2>&1' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
+require_release_order 'git merge-base --is-ancestor "$expected_source_commit" origin/main' 'make build-go'
 require_release_order 'git push origin "refs/tags/${tag}:refs/tags/${tag}"' 'scripts/stage-extension.sh "$package_dir"'
 require_release_order 'scripts/stage-extension.sh "$package_dir"' 'compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json'
 require_release_order 'compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json' 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"'
@@ -359,5 +364,16 @@ if grep -qE -- "--clobber|git push .*--force|git push .*--delete|gh release dele
   printf 'release workflow contains destructive recovery behavior\n' >&2
   exit 1
 fi
+
+for changed_file in "$WORKFLOW" "$RELEASE_WORKFLOW" tests/contract/test_02_parallel_compozy_surface.sh; do
+  if grep -qF -- '/home/francisross/' "$changed_file"; then
+    printf 'developer-local path leaked into compatibility contract: %s\n' "$changed_file" >&2
+    exit 1
+  fi
+done
+[[ -x tests/contract/test_02_parallel_compozy_surface.sh ]] || {
+  printf 'parallel Compozy contract is not executable\n' >&2
+  exit 1
+}
 
 printf 'OK: reusable CI and release workflow contracts are present\n'

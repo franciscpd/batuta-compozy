@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: compozy/compozy
-          ref: a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c
+          ref: 382976d4b43274630a4b67445812fd4a0216dbcc
           path: ${{ github.workspace }}/compozy-source
           fetch-depth: 0
           fetch-tags: true
@@ -63,11 +63,20 @@ jobs:
         with:
           go-version: 1.26.4
 
+      - name: Verify pinned CompozyOS is upstream
+        working-directory: ${{ github.workspace }}/compozy-source
+        run: |
+          set -euo pipefail
+          expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"
+          [[ $(git rev-parse HEAD) == "$expected_source_commit" ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$expected_source_commit" origin/main
+
       - name: Build CompozyOS
         working-directory: ${{ github.workspace }}/compozy-source
         run: |
           set -euo pipefail
-          [[ $(git rev-parse HEAD) == a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c ]]
+          [[ $(git rev-parse HEAD) == 382976d4b43274630a4b67445812fd4a0216dbcc ]]
           make build-go
           expected_embedded_commit=$(git rev-parse --short HEAD)
           version_json=$(./bin/compozy version -o json)
