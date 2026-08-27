@@ -101,6 +101,25 @@ func TestSelectorKeepsProviderSpecificModelIDsVerbatim(t *testing.T) {
 	}
 }
 
+func TestSelectorAcceptsCursorACPModelProvenByLiveCompozyCatalog(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixture()
+	exactModel := "grok-4.6[effort=high,fast=true]"
+	fixture.Catalog.Models[0].ModelID = exactModel
+	fixture.Bindings[0].ModelID = exactModel
+	fixture.Inventory.Executors[0].Capabilities[0].Identifiers = []string{"cursor/cursor-grok-4.6-high"}
+	fixture.Policy = DefaultSelectionPolicy()
+	fixture.Fit[0].Candidates[0].ModelID = exactModel
+	generation, err := fixture.Select()
+	if err != nil {
+		t.Fatalf("Select(exact Cursor ACP model) error = %v", err)
+	}
+	if got := generation.Cells[0].Selected; got.ExecutorID != inventory.ExecutorCursorAgent || got.ProviderID != "cursor" || got.ModelID != exactModel {
+		t.Fatalf("selected = %#v, want Cursor Agent with exact live ACP model", got)
+	}
+}
+
 func TestSelectorAppliesClosedFallbackBudgets(t *testing.T) {
 	t.Parallel()
 
@@ -221,18 +240,41 @@ func TestGenerationProvidesFloorPreservingFallbackOrder(t *testing.T) {
 	}
 }
 
+func TestGenerationBoundsSafeCandidateRejectionsPerCell(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixtureWithCandidates(40)
+	fixture.Graph.Tasks[0].Complexity = ComplexityHigh
+	fixture.Fit[0].Complexity = ComplexityHigh
+	for key := range fixture.Policy.ModelTiers {
+		fixture.Policy.ModelTiers[key] = ModelTierEconomy
+	}
+	selected := fixture.Bindings[0]
+	fixture.Policy.ModelTiers[ModelKey(selected.ProviderID, selected.ModelID)] = ModelTierFrontier
+	fixture.Fit[0].Candidates = []FitCandidate{{
+		ExecutorID: selected.ExecutorID, ProviderID: selected.ProviderID, ModelID: selected.ModelID, Score: 1,
+	}}
+	generation, err := fixture.Select()
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	if got, want := len(generation.Rejections), 16; got != want {
+		t.Fatalf("candidate rejections = %d, want bounded %d", got, want)
+	}
+}
+
 func TestBuildCandidateBindingsUsesOnlyUnambiguousInventoryCatalogPairs(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
-		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "models", State: inventory.ResolutionResolved, Identifiers: []string{"grok-4.6", "shared"}}}},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "models", State: inventory.ResolutionResolved, Identifiers: []string{"cursor/cursor-grok-4.6-high", "shared"}}}},
 		{ID: inventory.ExecutorOpenCode, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "models", State: inventory.ResolutionResolved, Identifiers: []string{"openai/gpt-5.6-terra"}}}},
 	})
 	if err != nil {
 		t.Fatalf("NewSnapshot() error = %v", err)
 	}
 	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
-		{ProviderID: "cursor", ModelID: "grok-4.6", Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", Availability: inventory.AvailabilityAvailable},
 		{ProviderID: "openai", ModelID: "gpt-5.6-terra", Availability: inventory.AvailabilityAvailable},
 		{ProviderID: "first", ModelID: "shared", Availability: inventory.AvailabilityAvailable},
 		{ProviderID: "second", ModelID: "shared", Availability: inventory.AvailabilityAvailable},
@@ -242,7 +284,7 @@ func TestBuildCandidateBindingsUsesOnlyUnambiguousInventoryCatalogPairs(t *testi
 		t.Fatalf("BuildCandidateBindings() error = %v", err)
 	}
 	want := []CandidateBinding{
-		{ExecutorID: inventory.ExecutorCursorAgent, ProviderID: "cursor", ModelID: "grok-4.6", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCursorAgent, ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", PermissionScore: 1},
 		{ExecutorID: inventory.ExecutorOpenCode, ProviderID: "openai", ModelID: "gpt-5.6-terra", PermissionScore: 1},
 	}
 	if !slices.Equal(bindings, want) {
@@ -264,8 +306,8 @@ func TestDefaultSelectionPolicyClassifiesCursorGrok46AsFrontier(t *testing.T) {
 	t.Parallel()
 
 	policy := DefaultSelectionPolicy()
-	if policy.Version == "" || policy.modelTier("cursor", "grok-4.6") != ModelTierFrontier {
-		t.Fatalf("DefaultSelectionPolicy() = %#v, want versioned cursor/grok-4.6 frontier entry", policy)
+	if policy.Version == "" || policy.modelTier("cursor", "grok-4.6[effort=high,fast=true]") != ModelTierFrontier {
+		t.Fatalf("DefaultSelectionPolicy() = %#v, want versioned exact Cursor/Grok 4.6 frontier entry", policy)
 	}
 }
 

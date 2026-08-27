@@ -28,12 +28,13 @@ func DefaultSelectionPolicy() SelectionPolicy {
 	return SelectionPolicy{
 		Version: "2026-08-25.v1",
 		ModelTiers: map[string]ModelTier{
-			ModelKey("cursor", "grok-4.6"):                  ModelTierFrontier,
-			ModelKey("codex", "gpt-5.6-sol"):                ModelTierFrontier,
-			ModelKey("codex", "gpt-5.6-terra"):              ModelTierAdvanced,
-			ModelKey("codex", "gpt-5.6-luna"):               ModelTierAdvanced,
-			ModelKey("opencode", "openai/gpt-5.6-terra"):    ModelTierAdvanced,
-			ModelKey("opencode", "anthropic/claude-opus-5"): ModelTierFrontier,
+			ModelKey("cursor", "grok-4.6"):                        ModelTierFrontier,
+			ModelKey("cursor", "grok-4.6[effort=high,fast=true]"): ModelTierFrontier,
+			ModelKey("codex", "gpt-5.6-sol"):                      ModelTierFrontier,
+			ModelKey("codex", "gpt-5.6-terra"):                    ModelTierAdvanced,
+			ModelKey("codex", "gpt-5.6-luna"):                     ModelTierAdvanced,
+			ModelKey("opencode", "openai/gpt-5.6-terra"):          ModelTierAdvanced,
+			ModelKey("opencode", "anthropic/claude-opus-5"):       ModelTierFrontier,
 		},
 	}
 }

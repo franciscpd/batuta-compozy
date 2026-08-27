@@ -16,6 +16,8 @@ var (
 	ErrCatalogDrift        = errors.New("routing: live catalog changed during selection")
 )
 
+const maxSafeRejectionsPerCell = 16
+
 type CatalogModel struct {
 	ProviderID   string                      `json:"provider_id"`
 	ModelID      string                      `json:"model_id"`
@@ -101,6 +103,17 @@ func BuildCandidateBindings(snapshot inventory.InventorySnapshot, catalog LiveCa
 		if executor.CredentialState == inventory.CredentialConfigured {
 			permissionScore = 2
 		}
+		if executor.ID == inventory.ExecutorCursorAgent {
+			for _, model := range modelsByPair {
+				if model.ProviderID != "cursor" {
+					continue
+				}
+				bindings = append(bindings, CandidateBinding{
+					ExecutorID: executor.ID, ProviderID: model.ProviderID, ModelID: model.ModelID,
+					PermissionScore: permissionScore,
+				})
+			}
+		}
 		for _, evidence := range executor.Capabilities {
 			if evidence.Name != "models" || evidence.State != inventory.ResolutionResolved {
 				continue
@@ -184,16 +197,20 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 			fitScores[bindingKey(candidate.ExecutorID, candidate.ProviderID, candidate.ModelID)] = candidate.Score
 		}
 		eligible := make([]rankedCandidate, 0, len(bindings))
+		recordedRejections := 0
 		for _, binding := range bindings {
 			reason := candidateRejection(binding, key, tasks, executors, catalog, input.Probes, input.Inventory.Digest, s.policy)
 			if reason != "" {
 				if _, recommended := fitScores[bindingKey(binding.ExecutorID, binding.ProviderID, binding.ModelID)]; recommended {
 					return RoutingGeneration{}, fmt.Errorf("%w: recommendation includes %s candidate", ErrSelectionRetryable, reason)
 				}
-				generation.Rejections = append(generation.Rejections, CandidateRejection{
-					Domain: key.domain, Complexity: key.complexity, ExecutorID: binding.ExecutorID,
-					ProviderID: binding.ProviderID, ModelID: binding.ModelID, Code: reason,
-				})
+				if recordedRejections < maxSafeRejectionsPerCell {
+					generation.Rejections = append(generation.Rejections, CandidateRejection{
+						Domain: key.domain, Complexity: key.complexity, ExecutorID: binding.ExecutorID,
+						ProviderID: binding.ProviderID, ModelID: binding.ModelID, Code: reason,
+					})
+					recordedRejections++
+				}
 				continue
 			}
 			executor := executors[binding.ExecutorID]
@@ -214,8 +231,15 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 		selected := runtimeCandidate(eligible[0], reasoning)
 		limit := fallbackLimit(key.complexity)
 		fallbacks := make([]RuntimeCandidate, 0, min(limit, len(eligible)-1))
+		seenRuntimes := map[string]struct{}{selected.ProviderID + "\x00" + selected.ModelID: {}}
 		for i := 1; i < len(eligible) && len(fallbacks) < limit; i++ {
-			fallbacks = append(fallbacks, runtimeCandidate(eligible[i], reasoning))
+			candidate := runtimeCandidate(eligible[i], reasoning)
+			key := candidate.ProviderID + "\x00" + candidate.ModelID
+			if _, duplicate := seenRuntimes[key]; duplicate {
+				continue
+			}
+			seenRuntimes[key] = struct{}{}
+			fallbacks = append(fallbacks, candidate)
 		}
 		taskIDs := make([]string, 0, len(tasks))
 		for _, task := range tasks {
@@ -247,7 +271,7 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 	if !exists || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated {
 		return "catalog_pair_unavailable"
 	}
-	if !executorHasModel(executor, binding.ProviderID, binding.ModelID) {
+	if !executorHasModel(executor, binding.ProviderID, binding.ModelID) && !catalogModelOwnedByExecutor(binding.ExecutorID, binding.ProviderID) {
 		return "executor_model_unproven"
 	}
 	if policy.modelTier(binding.ProviderID, binding.ModelID) < modelFloor(key.complexity) {
@@ -268,6 +292,10 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 		}
 	}
 	return ""
+}
+
+func catalogModelOwnedByExecutor(executorID inventory.ExecutorID, providerID string) bool {
+	return executorID == inventory.ExecutorCursorAgent && providerID == "cursor"
 }
 
 func resolvedCapability(executor inventory.ExecutorSnapshot, requirement CapabilityRequirement) bool {
