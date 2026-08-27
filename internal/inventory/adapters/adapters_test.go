@@ -33,7 +33,7 @@ func TestAdaptersUseOnlyClosedCommandShapes(t *testing.T) {
 				{"config", "show", "--workspace", workspaceID, "-o", "json"},
 				{"agent", "list", "--workspace", workspaceID, "-o", "json"},
 				{"provider", "list", "-o", "json"},
-				{"provider", "models", "list", "-o", "json"},
+				{"provider", "models", "list", "--all", "-o", "json"},
 				{"skill", "list", "--workspace", workspaceID, "-o", "json"},
 				{"toolsets", "list", "-o", "json"},
 				{"tool", "list", "-o", "json"},
@@ -243,6 +243,78 @@ func TestAdaptersDistinguishResolvedDeclaredAndUnknown(t *testing.T) {
 				t.Fatalf("%s evidence %q = %#v, want %q", name, evidence, snapshot.Capabilities, state)
 			}
 		}
+	}
+}
+
+func TestCompozyAdapterIncludesOnlyLiveAvailableModels(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewCompozy(t, "/opt/compozy", "workspace-1")
+	outputs := map[inventory.ProbeID][]byte{
+		adapter.ProbeID("version"): []byte("0.3.0-beta.21"),
+		adapter.ProbeID("models"): []byte(`{"models":[
+			{"provider_id":"cursor","model_id":"grok-4.6[effort=high,fast=true]","availability_state":"available_live"},
+			{"provider_id":"cursor","model_id":"unknown","availability_state":"unknown"},
+			{"provider_id":"cursor","model_id":"stale","availability_state":"available_stale"},
+			{"provider_id":"cursor","model_id":"down","availability_state":"unavailable_live"}
+		]}`),
+	}
+	snapshot := adapter.Normalize(outputs)
+	for _, capability := range snapshot.Capabilities {
+		if capability.Name != "models" {
+			continue
+		}
+		if !slices.Equal(capability.Identifiers, []string{"cursor/grok-4.6[effort=high,fast=true]"}) {
+			t.Fatalf("model identifiers = %#v, want only available_live", capability.Identifiers)
+		}
+		return
+	}
+	t.Fatal("models capability missing")
+}
+
+func TestExecutorAdaptersEmitUnambiguousCompozyRuntimePairs(t *testing.T) {
+	t.Parallel()
+
+	wants := map[string][]string{
+		"codex":    {"codex/gpt-5.6-sol"},
+		"opencode": {"opencode/anthropic/claude-opus-5", "opencode/openai/gpt-5.6-terra"},
+		"cursor":   {"cursor/auto", "cursor/composer-2.5", "cursor/grok-4.6"},
+	}
+	for name, want := range wants {
+		snapshot := fixtureAdapter(t, name).Normalize(fixtureOutputs(t, name))
+		var got []string
+		for _, capability := range snapshot.Capabilities {
+			if capability.Name == "models" {
+				got = capability.Identifiers
+				break
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s model runtime pairs = %#v, want %#v", name, got, want)
+		}
+	}
+}
+
+func TestUnknownEvidenceDoesNotDigestRejectedVolatileOutput(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewOpenCode(t, "/opt/opencode")
+	firstOutputs := fixtureOutputs(t, "opencode")
+	secondOutputs := cloneOutputs(firstOutputs)
+	firstOutputs[adapter.ProbeID("agents")] = []byte("agent table rendered at 10:00")
+	firstOutputs[adapter.ProbeID("skills")] = []byte("skill table rendered at 10:00")
+	secondOutputs[adapter.ProbeID("agents")] = []byte("agent table rendered at 10:01")
+	secondOutputs[adapter.ProbeID("skills")] = []byte("skill table rendered at 10:01")
+	first, err := inventory.NewSnapshot("catalog", []inventory.ExecutorSnapshot{adapter.Normalize(firstOutputs)})
+	if err != nil {
+		t.Fatalf("NewSnapshot(first) error = %v", err)
+	}
+	second, err := inventory.NewSnapshot("catalog", []inventory.ExecutorSnapshot{adapter.Normalize(secondOutputs)})
+	if err != nil {
+		t.Fatalf("NewSnapshot(second) error = %v", err)
+	}
+	if first.Digest != second.Digest {
+		t.Fatalf("unknown evidence digest = %q then %q, want stable", first.Digest, second.Digest)
 	}
 }
 

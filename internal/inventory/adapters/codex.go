@@ -31,7 +31,7 @@ func normalizeCodex(ids map[string]inventory.ProbeID, outputs map[inventory.Prob
 		ids := make([]string, 0, len(models.Models))
 		for _, model := range models.Models {
 			if safePublicIdentifier(model.Slug) {
-				ids = append(ids, model.Slug)
+				ids = append(ids, "codex/"+model.Slug)
 			}
 		}
 		snapshot.Capabilities = append(snapshot.Capabilities, evidence("models", "codex debug models --bundled", inventory.ResolutionResolved, raw, ids))

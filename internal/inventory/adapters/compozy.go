@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 )
@@ -20,7 +21,7 @@ func NewCompozy(executable, workspaceID string) (Adapter, error) {
 		"config":           {"config", "show", "--workspace", workspaceID, "-o", "json"},
 		"agents":           {"agent", "list", "--workspace", workspaceID, "-o", "json"},
 		"providers":        {"provider", "list", "-o", "json"},
-		"models":           {"provider", "models", "list", "-o", "json"},
+		"models":           {"provider", "models", "list", "--all", "-o", "json"},
 		"skills":           {"skill", "list", "--workspace", workspaceID, "-o", "json"},
 		"toolsets":         {"toolsets", "list", "-o", "json"}, "tools": {"tool", "list", "-o", "json"},
 	}
@@ -47,7 +48,8 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 	modelIDs := make([]string, 0)
 	if len(modelRaw) > 0 && json.Unmarshal(modelRaw, &models) == nil {
 		for _, model := range models.Models {
-			if model.Hidden || model.Deprecated || !safePublicIdentifier(model.ProviderID) || !safePublicIdentifier(model.ModelID) {
+			if model.Hidden || model.Deprecated || !liveAvailableModel(model.AvailabilityState) ||
+				!safePublicIdentifier(model.ProviderID) || !safeRuntimeModelIdentifier(model.ModelID) {
 				continue
 			}
 			modelIDs = append(modelIDs, model.ProviderID+"/"+model.ModelID)
@@ -76,4 +78,22 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 	snapshot.CredentialState = inventory.CredentialUnknown
 	appendSkew(&snapshot, schemaSkewed(outputs[ids["status"]]))
 	return snapshot
+}
+
+func liveAvailableModel(state string) bool {
+	return state == "available_live" || state == "available"
+}
+
+func safeRuntimeModelIdentifier(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 256 || containsSensitiveSegment(value) {
+		return false
+	}
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("-._/+[],:=", char) {
+			continue
+		}
+		return false
+	}
+	return true
 }

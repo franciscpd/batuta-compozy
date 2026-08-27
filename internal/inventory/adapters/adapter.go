@@ -199,7 +199,7 @@ func schemaSkewed(raw []byte) bool {
 func evidence(name, source string, state inventory.ResolutionState, raw []byte, identifiers []string) inventory.Evidence {
 	identifiers = cleanIdentifiers(identifiers)
 	result := inventory.Evidence{Name: name, Source: source, State: state, Identifiers: identifiers}
-	if len(raw) > 0 {
+	if state != inventory.ResolutionUnknown && len(raw) > 0 {
 		result.Digest = safeDigest(raw)
 	}
 	return result

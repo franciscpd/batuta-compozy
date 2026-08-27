@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
@@ -27,6 +28,7 @@ type CollectorOptions struct {
 	CodexExecutable    string
 	OpenCodeExecutable string
 	CursorExecutable   string
+	ProbeParallelism   int
 }
 
 type Collector struct {
@@ -36,12 +38,24 @@ type Collector struct {
 	userHome  string
 	codexHome string
 	fileQuota *inventory.SharedFileBudget
+	parallel  int
 }
 
 type configuredAdapter struct {
 	adapter   Adapter
 	available bool
 	readFiles bool
+}
+
+type collectionAdapterState struct {
+	configured configuredAdapter
+	outputs    map[inventory.ProbeID][]byte
+	exhausted  bool
+}
+
+type scheduledProbe struct {
+	adapterIndex int
+	spec         inventory.ProbeSpec
 }
 
 func NewCollector(runner publication.CommandRunner, options CollectorOptions) (*Collector, error) {
@@ -67,6 +81,13 @@ func newCollectorWithRoots(runner publication.CommandRunner, options CollectorOp
 	}
 	if strings.TrimSpace(options.WorkspaceID) == "" {
 		return nil, errors.New("inventory collector: workspace ID is required")
+	}
+	parallel := options.ProbeParallelism
+	if parallel == 0 {
+		parallel = 1
+	}
+	if parallel < 1 || parallel > 16 {
+		return nil, errors.New("inventory collector: probe parallelism must be between 1 and 16")
 	}
 
 	builders := []struct {
@@ -100,7 +121,7 @@ func newCollectorWithRoots(runner publication.CommandRunner, options CollectorOp
 	}
 	return &Collector{
 		runner: runner, workspace: filepath.Clean(options.TrustedWorkspace), adapters: configured,
-		userHome: roots.userHome, codexHome: roots.codexHome, fileQuota: fileQuota,
+		userHome: roots.userHome, codexHome: roots.codexHome, fileQuota: fileQuota, parallel: parallel,
 	}, nil
 }
 
@@ -108,33 +129,56 @@ func (c *Collector) Collect(ctx context.Context) (inventory.InventorySnapshot, e
 	collectionCtx, cancel := context.WithTimeout(ctx, collectionTimeout)
 	defer cancel()
 
-	executors := make([]inventory.ExecutorSnapshot, 0, len(c.adapters))
+	states := make([]collectionAdapterState, len(c.adapters))
 	probeCount := 0
+	staticSchedule := make([]scheduledProbe, 0)
+	for index, configured := range c.adapters {
+		states[index] = collectionAdapterState{configured: configured, outputs: make(map[inventory.ProbeID][]byte)}
+		if !configured.available {
+			continue
+		}
+		selected, exhausted := allocateProbeSpecs(configured.adapter.StaticSpecs(), &probeCount)
+		states[index].exhausted = exhausted
+		for _, spec := range selected {
+			staticSchedule = append(staticSchedule, scheduledProbe{adapterIndex: index, spec: spec})
+		}
+	}
+	c.runScheduledSpecs(collectionCtx, staticSchedule, states)
+
+	dynamicSchedule := make([]scheduledProbe, 0)
+	for index := range states {
+		state := &states[index]
+		if !state.configured.available || state.exhausted {
+			continue
+		}
+		dynamic, err := state.configured.adapter.DynamicSpecs(state.outputs)
+		if err != nil {
+			return inventory.InventorySnapshot{}, fmt.Errorf("inventory collector: expand %s probes: %w", state.configured.adapter.ID(), err)
+		}
+		selected, exhausted := allocateProbeSpecs(dynamic, &probeCount)
+		state.exhausted = exhausted
+		for _, spec := range selected {
+			dynamicSchedule = append(dynamicSchedule, scheduledProbe{adapterIndex: index, spec: spec})
+		}
+	}
+	c.runScheduledSpecs(collectionCtx, dynamicSchedule, states)
+
+	executors := make([]inventory.ExecutorSnapshot, 0, len(c.adapters))
 	recordCount := 0
 	diagnosticCount := 0
 	catalogGeneration := ""
-	for _, configured := range c.adapters {
+	for index := range states {
+		state := &states[index]
+		configured := state.configured
 		if !configured.available {
 			executors = append(executors, configured.adapter.Missing())
 			continue
 		}
-
-		outputs := make(map[inventory.ProbeID][]byte)
-		exhausted := false
-		static := configured.adapter.StaticSpecs()
-		probeCount, exhausted = c.runSpecs(collectionCtx, static, outputs, probeCount)
-		if !exhausted {
-			dynamic, err := configured.adapter.DynamicSpecs(outputs)
-			if err != nil {
-				return inventory.InventorySnapshot{}, fmt.Errorf("inventory collector: expand %s probes: %w", configured.adapter.ID(), err)
-			}
-			probeCount, exhausted = c.runSpecs(collectionCtx, dynamic, outputs, probeCount)
-		}
-		executor := configured.adapter.Normalize(outputs)
+		executor := configured.adapter.Normalize(state.outputs)
 		if configured.readFiles {
 			c.enrichFileEvidence(&executor)
 		}
-		if exhausted {
+		if state.exhausted {
 			executor.Diagnostics = append(executor.Diagnostics, inventory.Diagnostic{Code: "probe_budget_exhausted"})
 		}
 		recordCount = enforceRecordBudget(&executor, recordCount)
@@ -150,6 +194,22 @@ func (c *Collector) Collect(ctx context.Context) (inventory.InventorySnapshot, e
 		executors = append(executors, executor)
 	}
 	return inventory.NewSnapshot(catalogGeneration, executors)
+}
+
+func allocateProbeSpecs(specs []inventory.ProbeSpec, used *int) ([]inventory.ProbeSpec, bool) {
+	if len(specs) == 0 {
+		return nil, false
+	}
+	if *used >= collectionProbeLimit {
+		return nil, true
+	}
+	remaining := collectionProbeLimit - *used
+	selected := specs
+	if len(selected) > remaining {
+		selected = selected[:remaining]
+	}
+	*used += len(selected)
+	return selected, len(selected) < len(specs)
 }
 
 func regularFile(path string) bool {
@@ -298,24 +358,46 @@ func enforceDiagnosticBudget(executor *inventory.ExecutorSnapshot, used int) int
 	return used + len(executor.Diagnostics)
 }
 
-func (c *Collector) runSpecs(ctx context.Context, specs []inventory.ProbeSpec, outputs map[inventory.ProbeID][]byte, count int) (int, bool) {
-	if len(specs) == 0 {
-		return count, false
+func (c *Collector) runScheduledSpecs(ctx context.Context, schedule []scheduledProbe, states []collectionAdapterState) {
+	if len(schedule) == 0 {
+		return
+	}
+	specs := make([]inventory.ProbeSpec, len(schedule))
+	for index := range schedule {
+		specs[index] = schedule[index].spec
 	}
 	runner, err := inventory.NewProbeRunner(c.runner, c.workspace, specs)
 	if err != nil {
-		return count, false
+		return
 	}
-	for _, spec := range specs {
-		if count >= collectionProbeLimit {
-			return count, true
-		}
-		count++
-		result, err := runner.Run(ctx, spec.ID)
-		if err != nil {
-			continue
-		}
-		outputs[spec.ID] = result.Output
+	type probeExecution struct {
+		output []byte
+		ok     bool
 	}
-	return count, false
+	results := make([]probeExecution, len(schedule))
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	workerCount := min(c.parallel, len(schedule))
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				result, runErr := runner.Run(ctx, specs[index].ID)
+				if runErr == nil {
+					results[index] = probeExecution{output: result.Output, ok: true}
+				}
+			}
+		}()
+	}
+	for index := range schedule {
+		jobs <- index
+	}
+	close(jobs)
+	workers.Wait()
+	for index, result := range results {
+		if result.ok {
+			states[schedule[index].adapterIndex].outputs[schedule[index].spec.ID] = result.output
+		}
+	}
 }

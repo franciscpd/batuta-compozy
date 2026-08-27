@@ -50,7 +50,7 @@ func normalizeCursor(ids map[string]inventory.ProbeID, outputs map[inventory.Pro
 	for _, line := range strings.Split(string(modelRaw), "\n") {
 		parts := strings.SplitN(strings.TrimSpace(line), " - ", 2)
 		if len(parts) == 2 && safePublicIdentifier(parts[0]) {
-			models = append(models, strings.TrimSpace(parts[0]))
+			models = append(models, "cursor/"+strings.TrimSpace(parts[0]))
 		}
 	}
 	if len(models) > 0 {

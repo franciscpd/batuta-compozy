@@ -53,7 +53,7 @@ func normalizeOpenCode(ids map[string]inventory.ProbeID, outputs map[inventory.P
 	modelIDs := make([]string, 0)
 	for _, modelID := range nonemptyLines(modelRaw) {
 		if strings.Contains(modelID, "/") && safePublicIdentifier(modelID) {
-			modelIDs = append(modelIDs, modelID)
+			modelIDs = append(modelIDs, "opencode/"+modelID)
 		}
 	}
 	if len(modelIDs) > 0 {

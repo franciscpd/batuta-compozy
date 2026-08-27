@@ -6,12 +6,40 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
 )
+
+func TestCollectorRunsProbesWithExplicitBoundedParallelism(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	runner := &parallelismCollectorRunner{}
+	collector, err := adapters.NewCollector(runner, adapters.CollectorOptions{
+		TrustedWorkspace:   workspace,
+		WorkspaceID:        "ws-fixture",
+		CompozyExecutable:  filepath.Join(workspace, "compozy"),
+		CodexExecutable:    filepath.Join(workspace, "codex"),
+		OpenCodeExecutable: filepath.Join(workspace, "opencode"),
+		CursorExecutable:   filepath.Join(workspace, "agent"),
+		ProbeParallelism:   16,
+	})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	if _, err := collector.Collect(context.Background()); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if got := runner.maximum.Load(); got <= 11 || got > 16 {
+		t.Fatalf("maximum concurrent probes = %d, want 12..16 across executor adapters", got)
+	}
+}
 
 func TestCollectorKeepsHealthyExecutorsWhenOneAdapterIsMalformed(t *testing.T) {
 	t.Parallel()
@@ -137,6 +165,24 @@ type fixtureCollectorRunner struct {
 	manyModels bool
 }
 
+type parallelismCollectorRunner struct {
+	current atomic.Int32
+	maximum atomic.Int32
+	mu      sync.Mutex
+	fixture fixtureCollectorRunner
+}
+
+func (r *parallelismCollectorRunner) Run(ctx context.Context, command publication.Command) (publication.CommandResult, error) {
+	current := r.current.Add(1)
+	defer r.current.Add(-1)
+	for maximum := r.maximum.Load(); current > maximum && !r.maximum.CompareAndSwap(maximum, current); maximum = r.maximum.Load() {
+	}
+	time.Sleep(10 * time.Millisecond)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.fixture.Run(ctx, command)
+}
+
 func (r *fixtureCollectorRunner) Run(_ context.Context, command publication.Command) (publication.CommandResult, error) {
 	r.calls++
 	name := filepath.Base(command.Executable)
@@ -147,7 +193,7 @@ func (r *fixtureCollectorRunner) Run(_ context.Context, command publication.Comm
 		output = `{"Version":"0.3.0-beta.21"}`
 	case "compozy status -o json":
 		output = `{"schema_version":"1","daemon":{"status":"running"}}`
-	case "compozy provider models list -o json":
+	case "compozy provider models list --all -o json":
 		output = `{"models":[{"provider_id":"cursor","model_id":"grok-4.6","availability_state":"available"}]}`
 	case "codex --version":
 		output = `{`
