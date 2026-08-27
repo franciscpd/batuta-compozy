@@ -49,6 +49,9 @@ func (s deliveryAttemptService) start(
 	deliveryID string,
 	priorRunID string,
 ) (RoutingStartResult, error) {
+	if err := ctx.Err(); err != nil {
+		return RoutingStartResult{}, err
+	}
 	if s.Store == nil || s.Client == nil || s.WorktreeState == nil || !routingDigestPattern.MatchString(deliveryID) || !validOpaqueRunID(scope.WorkspaceID) {
 		return RoutingStartResult{}, errors.New("batuta: delivery attempt service is unavailable")
 	}
@@ -68,15 +71,23 @@ func (s deliveryAttemptService) start(
 		}
 		if len(delivery.Attempts) > 0 {
 			last := delivery.Attempts[len(delivery.Attempts)-1]
-			if priorRunID == "" && (last.Attempt != 1 || last.State == routing.AttemptTerminal) {
-				return routing.ErrDeliveryConflict
-			}
-			if priorRunID != "" && (last.State != routing.AttemptTerminal || last.RunID != priorRunID) {
-				return routing.ErrDeliveryConflict
-			}
-			if last.State == routing.AttemptSubmitted {
+			switch last.State {
+			case routing.AttemptSubmitted:
+				if !attemptPredecessorMatches(delivery.Attempts, last.Attempt, priorRunID) {
+					return routing.ErrDeliveryConflict
+				}
 				result = routingStartResult(deliveryID, last, true)
 				return nil
+			case routing.AttemptPlanned:
+				if !attemptPredecessorMatches(delivery.Attempts, last.Attempt, priorRunID) {
+					return routing.ErrDeliveryConflict
+				}
+			case routing.AttemptTerminal:
+				if priorRunID == "" || last.RunID != priorRunID {
+					return routing.ErrDeliveryConflict
+				}
+			default:
+				return routing.ErrDeliveryConflict
 			}
 		}
 		if !now.Before(delivery.AbsoluteDeadline) || len(delivery.Attempts) >= delivery.AttemptCeiling {
@@ -422,6 +433,17 @@ func matchingRecentRuns(runs []deliveryRun, request deliveryStartRequest, planne
 		result = append(result, run)
 	}
 	return result
+}
+
+func attemptPredecessorMatches(attempts []routing.DeliveryAttempt, attempt int, priorRunID string) bool {
+	if attempt != len(attempts) || attempt < 1 {
+		return false
+	}
+	if attempt == 1 {
+		return priorRunID == ""
+	}
+	previous := attempts[attempt-2]
+	return previous.State == routing.AttemptTerminal && previous.RunID == priorRunID && priorRunID != ""
 }
 
 func routingStartResult(deliveryID string, attempt routing.DeliveryAttempt, replayed bool) RoutingStartResult {

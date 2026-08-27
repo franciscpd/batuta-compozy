@@ -72,9 +72,7 @@ def assert_no_healthy_approval(events: list[dict]) -> None:
 
 def validate_published(events: list[dict]) -> ValidationResult:
     assert_no_healthy_approval(events)
-    successes = node_events(events, "node_succeeded", "publish") + node_events(
-        events, "node_succeeded", "publish_after_recovery"
-    )
+    successes = node_events(events, "node_succeeded", "publish")
     assert successes, "missing node_succeeded for publish"
     published = successes[-1]
     evidence = details(published)
@@ -85,9 +83,7 @@ def validate_published(events: list[dict]) -> ValidationResult:
     operation_ids = evidence.get("op_ids")
     assert isinstance(operation_ids, list) and bool(operation_ids), "published result requires operation IDs"
 
-    verifications = node_events(events, "node_succeeded", "publication_verify") + node_events(
-        events, "node_succeeded", "publication_verify_after_recovery"
-    )
+    verifications = node_events(events, "node_succeeded", "publication_verify")
     verifications = [event for event in verifications if sequence(event) > sequence(published)]
     assert verifications, "missing publication_verify after publish"
     verified = details(verifications[-1])
@@ -107,13 +103,11 @@ def validate_nothing(events: list[dict]) -> ValidationResult:
     publish_events = [
         event
         for event in events
-        if node_id(event) in {"publish", "publish_after_recovery"}
+        if node_id(event) == "publish"
         and event.get("type") in {"node_running", "node_succeeded"}
     ]
     assert not publish_events, "nothing_to_publish path ran publisher"
-    verifications = node_events(events, "node_succeeded", "publication_verify_nothing") + node_events(
-        events, "node_succeeded", "publication_verify_nothing_after_recovery"
-    )
+    verifications = node_events(events, "node_succeeded", "publication_verify_nothing")
     assert verifications, "missing nothing_to_publish verification"
     verified = details(verifications[-1])
     assert verified.get("verified") is True and verified.get("status") == "nothing_to_publish", (
@@ -126,20 +120,16 @@ def validate_nothing(events: list[dict]) -> ValidationResult:
 
 def validate_blocked(events: list[dict]) -> ValidationResult:
     approvals = events_of_type(events, "needs_approval")
-    recovery = [event for event in approvals if node_id(event) == "recovery_gate"]
-    assert recovery, "missing needs_approval for recovery_gate"
-    assert len(approvals) == len(recovery), "non-recovery human gate observed"
-    recovery_sequence = sequence(recovery[0])
-    for event in events:
-        if node_id(event) in {"publish", "publish_after_recovery"} and sequence(event) < recovery_sequence:
-            assert event.get("type") not in {"node_running", "node_succeeded"}, (
-                "publish ran before recovery_gate"
-            )
+    assert not approvals, "blocked publication emitted a human gate"
+    publish_events = [event for event in events if node_id(event) == "publish" and event.get("type") in {"node_running", "node_succeeded"}]
+    assert not publish_events, "blocked publication ran publisher"
+    stops = node_events(events, "node_failed", "publication_blocked_stop")
+    assert stops, "blocked publication did not fail through publication_blocked_stop"
     status = final_status(events)
-    assert status in {"needs-approval", "blocked"}, (
+    assert status in {"failed", "blocked"}, (
         f"blocked flow final status = {status!r}"
     )
-    return ValidationResult(final_status=status, recovery_sequence=recovery_sequence)
+    return ValidationResult(final_status=status)
 
 
 def validate_flow(events: list[dict], scenario: str) -> ValidationResult:

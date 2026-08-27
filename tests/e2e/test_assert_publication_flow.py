@@ -97,24 +97,33 @@ class NothingToPublishFlowTests(unittest.TestCase):
 
 
 class BlockedFlowTests(unittest.TestCase):
-    def test_accepts_only_recovery_gate_before_any_mutation(self) -> None:
+    def test_accepts_blocked_stop_without_gate_or_mutation(self) -> None:
         events = [
             event("node_succeeded", 1, node_id="publication_plan"),
-            event("needs_approval", 2, node_id="recovery_gate"),
-            event("status_changed", 3, status="needs-approval"),
+            event("node_failed", 2, node_id="publication_blocked_stop"),
+            event("status_changed", 3, status="failed"),
         ]
 
         result = validator.validate_flow(events, "blocked")
-        self.assertEqual(result.recovery_sequence, 2)
+        self.assertEqual(result.final_status, "failed")
 
-    def test_rejects_mutation_before_recovery_gate(self) -> None:
+    def test_rejects_mutation_on_blocked_path(self) -> None:
         events = [
             event("node_running", 1, node_id="publish"),
-            event("needs_approval", 2, node_id="recovery_gate"),
-            event("status_changed", 3, status="needs-approval"),
+            event("node_failed", 2, node_id="publication_blocked_stop"),
+            event("status_changed", 3, status="failed"),
         ]
 
-        with self.assertRaisesRegex(AssertionError, "publish ran before recovery_gate"):
+        with self.assertRaisesRegex(AssertionError, "ran publisher"):
+            validator.validate_flow(events, "blocked")
+
+    def test_rejects_human_gate_on_blocked_path(self) -> None:
+        events = [
+            event("needs_approval", 1, node_id="recovery_gate"),
+            event("node_failed", 2, node_id="publication_blocked_stop"),
+            event("status_changed", 3, status="failed"),
+        ]
+        with self.assertRaisesRegex(AssertionError, "human gate"):
             validator.validate_flow(events, "blocked")
 
 
