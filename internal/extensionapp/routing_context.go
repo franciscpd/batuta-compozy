@@ -26,9 +26,8 @@ type RoutingContextOutput struct {
 }
 
 type DeliveryBudgetContextInput struct {
-	DeliveryID          string `json:"delivery_id"`
-	Attempt             int    `json:"attempt"`
-	ImplementationRunID string `json:"implementation_run_id"`
+	DeliveryID string `json:"delivery_id"`
+	Attempt    int    `json:"attempt"`
 }
 
 type DeliveryBudgetContextOutput struct {
@@ -151,7 +150,7 @@ func (s *deliveryContextService) Budget(
 		return DeliveryBudgetContextOutput{}, err
 	}
 	if s == nil || s.Client == nil || !routingDigestPattern.MatchString(input.DeliveryID) ||
-		input.Attempt < 1 || !validOpaqueRunID(input.ImplementationRunID) || !validOpaqueRunID(scope.WorkspaceID) {
+		input.Attempt < 1 || !validOpaqueRunID(scope.WorkspaceID) {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
 	}
 	store, err := s.store()
@@ -166,14 +165,26 @@ func (s *deliveryContextService) Budget(
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
 	}
 	delivery, attempt, err := deliveryAttemptForContext(journal, scope.WorkspaceID, input.DeliveryID, input.Attempt)
-	if err != nil || attempt.State != routing.AttemptSubmitted {
+	if err != nil || attempt.State != routing.AttemptSubmitted || !validOpaqueRunID(attempt.RunID) {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
 	}
-	child, err := s.Client.Status(ctx, scope.WorkspaceID, input.ImplementationRunID)
+	parent, err := s.Client.Status(ctx, scope.WorkspaceID, attempt.RunID)
 	if err != nil {
 		return DeliveryBudgetContextOutput{}, err
 	}
-	if child.Run.ID != input.ImplementationRunID || child.Run.WorkspaceID != scope.WorkspaceID ||
+	if parent.Run.ID != attempt.RunID || parent.Run.WorkspaceID != scope.WorkspaceID ||
+		parent.Run.LoopName != "batuta-deliver" || !runMatchesAttempt(parent.Run, delivery, attempt) {
+		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
+	}
+	implementationRunID, err := ownedImplementationRunID(parent)
+	if err != nil {
+		return DeliveryBudgetContextOutput{}, err
+	}
+	child, err := s.Client.Status(ctx, scope.WorkspaceID, implementationRunID)
+	if err != nil {
+		return DeliveryBudgetContextOutput{}, err
+	}
+	if child.Run.ID != implementationRunID || child.Run.WorkspaceID != scope.WorkspaceID ||
 		child.Run.ParentLoopRunID != attempt.RunID || child.Run.LoopName != "implement-tasks" ||
 		(child.Run.Status != "done" && child.Run.Status != "no-op") || !child.Run.TokensUsedPresent || child.Run.TokensUsed < 0 {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
@@ -189,14 +200,14 @@ func (s *deliveryContextService) Budget(
 		s.accounted = map[string]map[string]int64{}
 	}
 	children := s.accounted[key]
-	if prior, exists := children[input.ImplementationRunID]; exists && prior != child.Run.TokensUsed {
+	if prior, exists := children[implementationRunID]; exists && prior != child.Run.TokensUsed {
 		return DeliveryBudgetContextOutput{}, routing.ErrDeliveryConflict
 	}
 	currentTokens := int64(0)
 	for _, tokens := range children {
 		currentTokens += tokens
 	}
-	if _, exists := children[input.ImplementationRunID]; !exists {
+	if _, exists := children[implementationRunID]; !exists {
 		currentTokens += child.Run.TokensUsed
 	}
 	remainingTokens := baseTokens - currentTokens
@@ -207,8 +218,27 @@ func (s *deliveryContextService) Budget(
 		children = map[string]int64{}
 		s.accounted[key] = children
 	}
-	children[input.ImplementationRunID] = child.Run.TokensUsed
+	children[implementationRunID] = child.Run.TokensUsed
 	return DeliveryBudgetContextOutput{RemainingTokens: remainingTokens, RemainingWallSeconds: remainingWall}, nil
+}
+
+func ownedImplementationRunID(parent deliveryRunDetail) (string, error) {
+	childIDs := map[string]struct{}{}
+	for _, generation := range parent.Generations {
+		for _, output := range generation.Outputs {
+			if output.NodeID != "implement" || output.Status != "succeeded" || !validOpaqueRunID(output.ChildLoopRunID) {
+				continue
+			}
+			childIDs[output.ChildLoopRunID] = struct{}{}
+		}
+	}
+	if len(childIDs) != 1 {
+		return "", routing.ErrDeliveryConflict
+	}
+	for childID := range childIDs {
+		return childID, nil
+	}
+	return "", routing.ErrDeliveryConflict
 }
 
 func deliveryAttemptForContext(
@@ -292,10 +322,9 @@ func routingContextOutputSchema() map[string]any {
 }
 
 func deliveryBudgetContextInputSchema() map[string]any {
-	return objectSchema([]string{"delivery_id", "attempt", "implementation_run_id"}, map[string]any{
-		"delivery_id":           sha256OutputSchema(),
-		"attempt":               map[string]any{"type": "integer", "minimum": 1, "maximum": 4},
-		"implementation_run_id": opaqueRunIDSchema(),
+	return objectSchema([]string{"delivery_id", "attempt"}, map[string]any{
+		"delivery_id": sha256OutputSchema(),
+		"attempt":     map[string]any{"type": "integer", "minimum": 1, "maximum": 4},
 	})
 }
 

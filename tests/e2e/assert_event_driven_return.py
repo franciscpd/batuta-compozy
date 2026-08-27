@@ -14,6 +14,8 @@ class ValidationResult:
     dispatch_turn_id: str
     terminal_prompt_sequence: int
     terminal_status_sequence: int
+    terminal_reconcile_sequence: int
+    terminal_recovery_sequence: int | None
 
 
 def content(event: dict) -> dict:
@@ -100,23 +102,32 @@ def result_for_call(events: list[dict], call: dict) -> dict | None:
     return None
 
 
-def accepted_dispatch(events: list[dict], run_id: str) -> tuple[dict, dict]:
+def accepted_dispatch(events: list[dict], run_id: str) -> tuple[dict, dict, str]:
     for call in events:
         if event_type(call) != "tool_call":
             continue
         call_arguments = arguments(call)
-        if tool_name(call) != "compozy__loop_run":
+        if tool_name(call) != "ext__batuta__routing_apply":
             continue
-        if call_arguments.get("name") != "batuta-deliver":
+        if set(call_arguments) != {"operation", "delivery_id"}:
             continue
-        if call_arguments.get("dry", False) is not False:
+        if call_arguments.get("operation") != "start_delivery":
+            continue
+        delivery_id = call_arguments.get("delivery_id")
+        if not isinstance(delivery_id, str):
             continue
         result = result_for_call(events, call)
         if result is None:
             continue
         structured = structured_result(result)
-        if structured and structured.get("run", {}).get("id") == run_id:
-            return call, result
+        start = structured.get("start", {}) if structured else {}
+        if (
+            structured
+            and structured.get("operation") == "start_delivery"
+            and start.get("delivery_id") == delivery_id
+            and start.get("delivery_run_id") == run_id
+        ):
+            return call, result, delivery_id
     raise AssertionError(f"no accepted batuta-deliver result for run {run_id}")
 
 
@@ -125,8 +136,10 @@ def event_type(event: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def terminal_prompts(events: list[dict], run_id: str, dispatch_turn: str, after: int) -> list[tuple[int, str]]:
-    prefix = f"Batuta delivery run {run_id} reached terminal"
+def terminal_prompts(
+    events: list[dict], delivery_id: str, run_id: str, dispatch_turn: str, after: int
+) -> list[tuple[int, str]]:
+    prefix = f"Batuta delivery_id {delivery_id}"
     fragments_by_turn: dict[str, list[dict]] = {}
     for event in events:
         if event_type(event) != "user_message" or sequence(event) <= after:
@@ -140,13 +153,15 @@ def terminal_prompts(events: list[dict], run_id: str, dispatch_turn: str, after:
     matches: list[tuple[int, str]] = []
     for event_turn, fragments in fragments_by_turn.items():
         message = "".join(content(fragment)["text"] for fragment in fragments)
+        if f"parent run\n{run_id} reached trigger" not in message:
+            continue
         matches.extend((sequence(fragments[0]), event_turn) for _ in range(message.count(prefix)))
     return matches
 
 
 def validate_delivery(events: list[dict], run_id: str) -> ValidationResult:
     events = ordered_events(events)
-    dispatch, dispatch_result = accepted_dispatch(events, run_id)
+    dispatch, dispatch_result, delivery_id = accepted_dispatch(events, run_id)
     dispatch_turn = event_turn_id(dispatch)
     assert dispatch_turn is not None, f"dispatch call at sequence {sequence(dispatch)} has no turn_id"
     dispatch_result_sequence = sequence(dispatch_result)
@@ -162,7 +177,7 @@ def validate_delivery(events: list[dict], run_id: str) -> ValidationResult:
                 f"at sequence {sequence(event)} in turn {dispatch_turn}"
             )
 
-    prompts = terminal_prompts(events, run_id, dispatch_turn, dispatch_result_sequence)
+    prompts = terminal_prompts(events, delivery_id, run_id, dispatch_turn, dispatch_result_sequence)
     assert prompts, f"missing terminal prompt for run {run_id}"
     if len(prompts) != 1:
         prompt_sequences = ", ".join(str(prompt[0]) for prompt in prompts)
@@ -190,11 +205,71 @@ def validate_delivery(events: list[dict], run_id: str) -> ValidationResult:
         f"terminal status run_id {status_run_id!r} does not match {run_id!r}"
     )
 
+    assert len(terminal_calls) >= 2, (
+        f"terminal turn {terminal_turn} has no fallback reconciliation call"
+    )
+    reconcile_call = terminal_calls[1]
+    reconcile_arguments = arguments(reconcile_call)
+    assert tool_name(reconcile_call) == "ext__batuta__routing_apply", (
+        f"second terminal tool is {tool_name(reconcile_call)!r}; expected routing_apply"
+    )
+    assert reconcile_arguments == {
+        "operation": "reconcile_fallbacks",
+        "delivery_id": delivery_id,
+        "delivery_run_id": run_id,
+    }, f"invalid fallback reconciliation arguments: {reconcile_arguments!r}"
+    reconcile_result = result_for_call(events, reconcile_call)
+    assert reconcile_result is not None, "fallback reconciliation has no result"
+    reconcile_structured = structured_result(reconcile_result)
+    reconciliation = (
+        reconcile_structured.get("reconciliation", {}) if reconcile_structured else {}
+    )
+    assert (
+        reconcile_structured
+        and reconcile_structured.get("operation") == "reconcile_fallbacks"
+        and reconciliation.get("delivery_id") == delivery_id
+        and reconciliation.get("delivery_run_id") == run_id
+        and isinstance(reconciliation.get("recoverable"), bool)
+    ), f"invalid fallback reconciliation result: {reconcile_structured!r}"
+
+    recovery_sequence = None
+    if reconciliation["recoverable"]:
+        assert len(terminal_calls) == 3, (
+            f"recoverable terminal turn must contain exactly three calls; found {len(terminal_calls)}"
+        )
+        recovery_call = terminal_calls[2]
+        recovery_arguments = arguments(recovery_call)
+        assert tool_name(recovery_call) == "ext__batuta__routing_apply", (
+            f"recovery tool is {tool_name(recovery_call)!r}; expected routing_apply"
+        )
+        assert recovery_arguments == {
+            "operation": "recover_delivery",
+            "delivery_id": delivery_id,
+            "delivery_run_id": run_id,
+        }, f"invalid fallback recovery arguments: {recovery_arguments!r}"
+        recovery_result = result_for_call(events, recovery_call)
+        recovery_structured = structured_result(recovery_result) if recovery_result else None
+        recovery_start = recovery_structured.get("start", {}) if recovery_structured else {}
+        assert (
+            recovery_structured
+            and recovery_structured.get("operation") == "recover_delivery"
+            and recovery_start.get("delivery_id") == delivery_id
+            and isinstance(recovery_start.get("delivery_run_id"), str)
+            and isinstance(recovery_start.get("operation_id"), str)
+        ), f"invalid fallback recovery result: {recovery_structured!r}"
+        recovery_sequence = sequence(recovery_call)
+    else:
+        assert len(terminal_calls) == 2, (
+            f"settled terminal turn must contain exactly two calls; found {len(terminal_calls)}"
+        )
+
     return ValidationResult(
         dispatch_sequence=dispatch_result_sequence,
         dispatch_turn_id=dispatch_turn,
         terminal_prompt_sequence=terminal_prompt_sequence,
         terminal_status_sequence=sequence(first_call),
+        terminal_reconcile_sequence=sequence(reconcile_call),
+        terminal_recovery_sequence=recovery_sequence,
     )
 
 
@@ -236,7 +311,10 @@ def main() -> int:
         f"dispatch_turn={result.dispatch_turn_id} "
         f"terminal_prompt_sequence={result.terminal_prompt_sequence} "
         f"terminal_status_sequence={result.terminal_status_sequence}"
+        f" terminal_reconcile_sequence={result.terminal_reconcile_sequence}"
     )
+    if result.terminal_recovery_sequence is not None:
+        output += f" terminal_recovery_sequence={result.terminal_recovery_sequence}"
     if args.progress_turn:
         output += (
             f" progress_sequence={validate_progress_turn(events, args.run_id, args.progress_turn)}"

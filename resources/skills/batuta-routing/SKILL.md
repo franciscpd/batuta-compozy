@@ -1,92 +1,129 @@
 ---
 name: batuta-routing
-description: Domain-by-complexity routing contract for the batuta conductor. Read at bootstrap, validated against the live provider catalog, then stored as the per-workspace loop configuration; the stored workspace override is authoritative afterwards.
+description: Automatic executor inventory, domain-by-complexity selection, immutable delivery routing, and bounded fresh-run fallback for the Batuta conductor.
 ---
 
-# Batuta Routing Table
+# Batuta Routing
 
-Batuta's core opinion: route every task to the cheapest executor that can
-handle its domain and risk. A lane is the conjunction `type × complexity`.
-The canonical task domains are `backend`, `frontend`, `mobile`, `data`,
-`infra`, `security`, `testing`, `docs`, `general`, and `fullstack`.
-Complexity is exactly `low`, `medium`, `high`, or `critical`. Reject or
-reauthor a task with a noncanonical `type`; do not silently map it to another
-domain.
+Batuta routes every approved task through a closed, evidence-backed pipeline:
 
-## Complexity semantics inside every domain
+`inventory → classify → select → apply → dispatch → reconcile`
 
-| Lane       | Intent                                | Selection rule                                            |
-| ---------- | ------------------------------------- | --------------------------------------------------------- |
-| `low`      | Contained change, well-trodden paths  | Cheapest coding-capable model in the catalog              |
-| `medium`   | New interfaces, moderate coordination | Mid-tier coding model; raise reasoning before raising cost |
-| `high`     | New subsystem, heavy reasoning        | Strong coding model, premium tier acceptable              |
-| `critical` | Cross-cutting, high regression risk   | The operator's most trusted frontier model                |
+No operator chooses the routine executor or model. The operator is involved
+only when product requirements are ambiguous or an external credential or
+capability is genuinely unavailable.
 
-## How batuta derives the concrete table (never copy an example)
+## Evidence
 
-1. Read provider presence and health, then call
-   `compozy__provider_models_list` for exact model IDs and costs. These are
-   separate evidence: a provider may be present while authentication is not
-   usable, and a catalog model may be unavailable to the current account.
-   Never copy credentials, tokens, or raw provider configuration into routing
-   artifacts.
-2. Map each lane's selection rule onto the catalog using the cost fields
-   (`input_per_million` / `output_per_million`) as evidence.
-3. Build the useful domain cells first, then add single-axis `type` or
-   `complexity` fallback rules only when their behavior is intentional.
-4. Model enablement is account-side and may be invisible to the daemon —
-   present the redacted evidence and derived table to the operator for
-   confirmation before storing it.
+Inventory evidence has exactly three resolution states:
 
-### Example only — model IDs must come from the current live catalog
+`resolved | declared | unknown`
 
-An installation might route `backend/low` to a fast Codex model,
-`frontend/medium` to a stronger Cursor model, `infra/high` to a high-reasoning
-OpenCode model, and `security/critical` to its most trusted frontier model.
-Those names are roles, not identifiers: derive exact provider/model IDs from
-the live catalog on every installation.
+- `resolved` means the fixed probe or authoritative live catalog proved it.
+- `declared` means configuration or instructions mention it but execution is
+  not proven.
+- `unknown` means Batuta could not safely establish it.
 
-## Canonical rule shape
+For a hard capability, declared and unknown are ineligible. Availability
+unknown is ineligible; Batuta never treats uncertainty as a fallback.
+Credentials, tokens, raw command output, raw configuration, environment values,
+and task bodies never enter the public inventory or routing journal.
 
-This is the exact JSON SHAPE batuta writes with `compozy__loop_configure`
-(stored per-workspace override for `implement-tasks`) after deriving the
-values from the catalog — the model/provider strings below are illustrative
-and MUST be replaced by live IDs. The stored override is what `run-loop`
-children resolve at execution — batuta never
-sends per-run rules on dispatch, because per-run rules freeze into the run
-and are not inherited by `run-loop` children anyway. Rule matching
-precedence inside the stored layer:
-`id > type + complexity > type > complexity`.
+The supported executor IDs are `compozy`, `codex`, `opencode`, and
+`cursor-agent`. Their configuration informs capability fit, but runtime
+provider/model pairs must also exist exactly in the live Compozy catalog;
+Compozy remains the execution authority.
 
-```json runtime_rules
-[
-  {"match": {"type": "backend",  "complexity": "low"},      "runtime": {"provider": "codex",    "model": "gpt-5.6-luna"}},
-  {"match": {"type": "frontend", "complexity": "medium"},   "runtime": {"provider": "cursor",   "model": "catalog-model-id"}},
-  {"match": {"type": "infra",    "complexity": "high"},     "runtime": {"provider": "opencode", "model": "opencode/catalog-model-id", "reasoning": "high"}},
-  {"match": {"type": "security", "complexity": "critical"}, "runtime": {"provider": "codex",    "model": "gpt-5.6-sol"}}
-]
+## Taxonomy
+
+Task `type` is its routing domain and must be one of:
+
+`backend`, `frontend`, `mobile`, `data`, `infra`, `security`, `testing`,
+`docs`, `general`, `fullstack`.
+
+Complexity is exactly `low`, `medium`, `high`, or `critical`:
+
+| Complexity | Minimum posture | Verification |
+| --- | --- | --- |
+| `low` | standard coding model | focused |
+| `medium` | advanced coding model | focused and broad |
+| `high` | frontier coding model | full, strict |
+| `critical` | frontier model | full and independent |
+
+Explicit valid task metadata is authoritative. LLM proposals must reference
+every loaded task ID exactly once, preserve authored dependencies, and provide
+confidence of at least `0.70`. Fullstack requires concrete indivisibility and
+acceptance-criterion evidence. Invalid coverage or taxonomy requires reauthoring;
+low confidence or malformed semantic evidence requires one fresh proposal.
+
+## Selection
+
+Every populated `domain × complexity` cell carries the exact task IDs it owns.
+Fit candidates must belong to the inventoried and live-catalog universe. Reject
+a candidate when its executor or catalog pair is unavailable, its credential
+is missing, its model is hidden, deprecated, or below the complexity floor, or
+a hard capability remains unresolved.
+
+Rank eligible candidates deterministically by validated fit, resolved health,
+model quality, compatible permission posture, cost, then stable
+`executor_id/provider_id/model_id`. Provider and model IDs are copied verbatim
+from the live catalog; never normalize provider-specific model prefixes.
+
+Each cell stores one selected runtime and a floor-preserving fallback chain:
+low has at most one fallback, medium two, high and critical three. The complete
+result is an immutable routing generation containing task-set, inventory,
+catalog, workspace, policy, budget, and canonical generation digests.
+
+## Immutable routing generation
+
+Batuta derives one rule per populated cell:
+
+```json
+{
+  "match": {"type": "frontend", "complexity": "high"},
+  "runtime": {"provider": "<live-provider>", "model": "<live-model>", "reasoning": "high"}
+}
 ```
 
-## Provider quirks
+Matching precedence is `id > type + complexity > type > complexity`; later
+equal-specificity rules merge per field. Matrix apply always reloads the task
+set and inventory, recomputes the immutable routing generation, and accepts it
+only when the fresh digest equals the expected digest.
 
-- Some providers multiplex upstreams and require the model field to carry a
-  prefix — e.g. `opencode` only binds `opencode/kimi-k2.5`, never bare
-  `kimi-k2.5`. The catalog's exact `model_id` is authoritative; copy it
-  verbatim into the rule.
-- A model can exist in the catalog and still be disabled for the operator's
-  account at the provider (invisible to the daemon). When a lane fails its
-  bind with zero tokens, ask the operator what their account enables.
+The journal archives that generation together with the trusted worktree,
+task-set snapshot, global deadline, token ceiling, and stable `delivery_id`.
+It does not write Compozy Loop configuration, replace operator rules, or rely
+on a workspace-wide configuration mutation. No plan-only call persists hidden
+state.
 
-## Escalation and reclassification
+## Dispatch and recovery
 
-- Repeated failure in a lane: write a surgical `id` rule one lane up into
-  the STORED override (`compozy__loop_configure` on `implement-tasks`, e.g.
-  `{"match":{"id":"task_NN"},"runtime":{...}}` prepended to the rules), then
-  re-dispatch `batuta-deliver`. `id` beats `complexity`; remove the rule
-  after the task lands. The `id` rule overrides both conjunctive and
-  single-axis rules.
-- Operator reclassification in conversation ("use luna for this one")
-  becomes the same stored `id` rule before the next dispatch.
-- The daemon persists `resolved_runtime` with per-field provenance on every
-  generation — routing decisions are auditable via `compozy__loop_status`,
-  never narrated.
+After `apply_matrix`, Batuta calls `start_delivery` with only the returned
+stable `delivery_id`. The guarded tool loads the archived generation and starts
+attempt 1 as a fresh Compozy parent run with typed ephemeral routing, worktree,
+and budget overrides. The run receives the exact applied digest as required
+input `routing_generation`, binding it to the archive even after inventory
+refresh or extension restart.
+
+On failure, Batuta first calls `reconcile_fallbacks` with the stable delivery
+ID and exact terminal parent run ID. The guarded tool validates parent and child
+ownership, direct task failures, usage, worktree continuity, and publication
+state. If recoverable, `recover_delivery` chooses only the next candidate from
+the immutable generation and starts a fresh Compozy parent run in the same
+worktree. Completed tasks and literal commits carry forward; the next attempt
+imports only incomplete tasks and applies their next exact runtime ephemerally.
+
+Recovery stops at the lowest applicable boundary:
+
+- remaining candidates in the task cell;
+- the cell fallback limit;
+- the delivery-wide limit of three fallbacks;
+- the delivery-wide ceiling of four fresh parent runs;
+- original token and wall-clock budget;
+- pause or cancellation state.
+
+The extension verifies prior recovery runtimes against the archive before
+offering another candidate. Missing provenance, generation mismatch, changed
+runtime evidence, ambiguous status, or exhausted budget blocks safely. Batuta
+never accepts caller-authored task IDs, node IDs, item indexes, failure evidence,
+runtime objects, rules, paths, or owners on the recovery surface.

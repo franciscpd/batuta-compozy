@@ -26,7 +26,7 @@ func TestDeliveryContextDescriptorsAreClosedReadOnlyTools(t *testing.T) {
 		properties []string
 	}{
 		{handler: "routing_context", required: []string{"delivery_id", "attempt", "slug", "routing_generation"}, properties: []string{"delivery_id", "attempt", "slug", "routing_generation"}},
-		{handler: "delivery_budget_context", required: []string{"delivery_id", "attempt", "implementation_run_id"}, properties: []string{"delivery_id", "attempt", "implementation_run_id"}},
+		{handler: "delivery_budget_context", required: []string{"delivery_id", "attempt"}, properties: []string{"delivery_id", "attempt"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.handler, func(t *testing.T) {
@@ -119,6 +119,7 @@ func TestDeliveryBudgetContextCountsOneOwnedImplementationChildOnce(t *testing.T
 		t.Fatalf("Start() error = %v", err)
 	}
 	fixture.client.statuses = map[string]deliveryRunDetail{
+		started.DeliveryRunID: deliveryParentWithImplementation(fixture, started, "run_implement"),
 		"run_implement": {Run: deliveryRun{
 			ID: "run_implement", WorkspaceID: fixture.scope.WorkspaceID, ParentLoopRunID: started.DeliveryRunID,
 			LoopName: "implement-tasks", Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now,
@@ -127,7 +128,7 @@ func TestDeliveryBudgetContextCountsOneOwnedImplementationChildOnce(t *testing.T
 	}
 	before, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
 	service := &deliveryContextService{Store: fixture.store, Client: fixture.client, Now: func() time.Time { return fixture.now }}
-	input := DeliveryBudgetContextInput{DeliveryID: fixture.deliveryID, Attempt: 1, ImplementationRunID: "run_implement"}
+	input := DeliveryBudgetContextInput{DeliveryID: fixture.deliveryID, Attempt: 1}
 
 	first, err := service.Budget(context.Background(), fixture.scope, input)
 	if err != nil {
@@ -137,7 +138,7 @@ func TestDeliveryBudgetContextCountsOneOwnedImplementationChildOnce(t *testing.T
 	if err != nil {
 		t.Fatalf("Budget(replay) error = %v", err)
 	}
-	if first.RemainingTokens != 998750 || second.RemainingTokens != first.RemainingTokens || fixture.client.statusCalls != 2 {
+	if first.RemainingTokens != 998750 || second.RemainingTokens != first.RemainingTokens || fixture.client.statusCalls != 4 {
 		t.Fatalf("budget = first:%#v second:%#v status_calls=%d", first, second, fixture.client.statusCalls)
 	}
 	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
@@ -171,11 +172,14 @@ func TestDeliveryBudgetContextRejectsForeignNonterminalFailedAndMissingUsageChil
 				TokensUsed: 1250, TokensUsedPresent: true, Inputs: map[string]any{"slug": "demo"},
 			}
 			tt.mutate(&child)
-			fixture.client.statuses = map[string]deliveryRunDetail{"run_implement": {Run: child}}
+			fixture.client.statuses = map[string]deliveryRunDetail{
+				started.DeliveryRunID: deliveryParentWithImplementation(fixture, started, "run_implement"),
+				"run_implement":       {Run: child},
+			}
 			service := &deliveryContextService{Store: fixture.store, Client: fixture.client, Now: func() time.Time { return fixture.now }}
 
 			_, err = service.Budget(context.Background(), fixture.scope, DeliveryBudgetContextInput{
-				DeliveryID: fixture.deliveryID, Attempt: 1, ImplementationRunID: "run_implement",
+				DeliveryID: fixture.deliveryID, Attempt: 1,
 			})
 			if !errors.Is(err, routing.ErrDeliveryConflict) {
 				t.Fatalf("Budget() error = %v, want ErrDeliveryConflict", err)
@@ -196,9 +200,12 @@ func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 		LoopName: "implement-tasks", Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now,
 		TokensUsed: 1_000_000, TokensUsedPresent: true, Inputs: map[string]any{"slug": "demo"},
 	}
-	fixture.client.statuses = map[string]deliveryRunDetail{"run_implement": {Run: child}}
+	fixture.client.statuses = map[string]deliveryRunDetail{
+		started.DeliveryRunID: deliveryParentWithImplementation(fixture, started, "run_implement"),
+		"run_implement":       {Run: child},
+	}
 	service := &deliveryContextService{Store: fixture.store, Client: fixture.client, Now: func() time.Time { return fixture.now }}
-	input := DeliveryBudgetContextInput{DeliveryID: fixture.deliveryID, Attempt: 1, ImplementationRunID: "run_implement"}
+	input := DeliveryBudgetContextInput{DeliveryID: fixture.deliveryID, Attempt: 1}
 
 	if _, err := service.Budget(context.Background(), fixture.scope, input); !errors.Is(err, routing.ErrNoEligibleCandidate) {
 		t.Fatalf("Budget(exhausted) error = %v, want ErrNoEligibleCandidate", err)
@@ -211,5 +218,22 @@ func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 	}
 	if output.RemainingTokens != 999999 {
 		t.Fatalf("Budget(after rejected child) = %#v", output)
+	}
+}
+
+func deliveryParentWithImplementation(
+	fixture deliveryServiceFixture,
+	started RoutingStartResult,
+	implementationRunID string,
+) deliveryRunDetail {
+	return deliveryRunDetail{
+		Run: deliveryRun{
+			ID: started.DeliveryRunID, WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-deliver",
+			Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now,
+			TokensUsedPresent: true, Inputs: deliveryInputs(fixture.client.lastRequest),
+		},
+		Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
+			NodeID: "implement", Status: "succeeded", ChildLoopRunID: implementationRunID,
+		}}}},
 	}
 }
