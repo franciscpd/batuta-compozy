@@ -14,6 +14,7 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 	t.Parallel()
 
 	runner := &scriptedCommandRunner{results: []CommandResult{
+		{Stdout: []byte(statusFixtureJSON)},
 		{Stdout: []byte(inspectFixtureJSON)},
 		{Stdout: []byte(exitFixtureJSON)},
 		{Stdout: []byte(`{"op_id":"op_push"}`)},
@@ -62,6 +63,7 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 	}
 
 	want := []Command{
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "status", "--workspace", "ws_trusted", "--refresh", "-o", "json", "--", "wt_delivery"}},
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "exit", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "push", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
@@ -80,7 +82,10 @@ func TestCLIClientKeepsFlagLikeRefsPositional(t *testing.T) {
 		ref := ref
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
-			runner := &scriptedCommandRunner{results: []CommandResult{{Stdout: []byte(strings.Replace(inspectFixtureJSON, "wt_delivery", ref, 1))}}}
+			runner := &scriptedCommandRunner{results: []CommandResult{
+				{Stdout: []byte(strings.Replace(statusFixtureJSON, "wt_delivery", ref, 1))},
+				{Stdout: []byte(strings.Replace(inspectFixtureJSON, "wt_delivery", ref, 1))},
+			}}
 			client := CLIClient{Executable: "/controlled/compozy", Runner: runner}
 			inspection, err := client.Inspect(context.Background(), TrustedScope{WorkspaceID: "ws_trusted"}, ref)
 			if err != nil {
@@ -89,9 +94,13 @@ func TestCLIClientKeepsFlagLikeRefsPositional(t *testing.T) {
 			if inspection.Worktree.ID != ref {
 				t.Fatalf("worktree id = %q, want %q", inspection.Worktree.ID, ref)
 			}
-			wantArgs := []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", ref}
+			wantArgs := []string{"worktree", "status", "--workspace", "ws_trusted", "--refresh", "-o", "json", "--", ref}
 			if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 				t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
+			}
+			wantInspectArgs := []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", ref}
+			if !reflect.DeepEqual(runner.commands[1].Args, wantInspectArgs) {
+				t.Fatalf("inspect args = %#v, want %#v", runner.commands[1].Args, wantInspectArgs)
 			}
 		})
 	}
@@ -133,6 +142,9 @@ func TestCLIClientRejectsMalformedResponsesAndMismatchedIDs(t *testing.T) {
 		method string
 		stdout string
 	}{
+		{name: "malformed refreshed status", method: "inspect", stdout: "{"},
+		{name: "mismatched refreshed status id", method: "inspect", stdout: strings.Replace(statusFixtureJSON, "wt_delivery", "wt_foreign", 1)},
+		{name: "empty refreshed status", method: "inspect", stdout: `{"worktree_id":"wt_delivery","status":null}`},
 		{name: "malformed inspection", method: "inspect", stdout: "{"},
 		{name: "empty inspection id", method: "inspect", stdout: strings.Replace(inspectFixtureJSON, `"id": "wt_delivery"`, `"id": ""`, 1)},
 		{name: "mismatched inspection id", method: "inspect", stdout: strings.Replace(inspectFixtureJSON, "wt_delivery", "wt_foreign", 1)},
@@ -143,7 +155,11 @@ func TestCLIClientRejectsMalformedResponsesAndMismatchedIDs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			client := CLIClient{Executable: "/controlled/compozy", Runner: &scriptedCommandRunner{results: []CommandResult{{Stdout: []byte(tt.stdout)}}}}
+			results := []CommandResult{{Stdout: []byte(tt.stdout)}}
+			if tt.method == "inspect" && !strings.Contains(tt.name, "refreshed status") {
+				results = []CommandResult{{Stdout: []byte(statusFixtureJSON)}, {Stdout: []byte(tt.stdout)}}
+			}
+			client := CLIClient{Executable: "/controlled/compozy", Runner: &scriptedCommandRunner{results: results}}
 			scope := TrustedScope{WorkspaceID: "ws_trusted"}
 			var err error
 			switch tt.method {
@@ -224,6 +240,20 @@ func absoluteTestPath(parts ...string) string {
 }
 
 const testHeadSHA = "0123456789abcdef0123456789abcdef01234567"
+
+const statusFixtureJSON = `{
+  "worktree_id": "wt_delivery",
+  "status": {
+    "branch": "feature/delivery",
+    "detached": false,
+    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+    "dirty_files": 0,
+    "has_upstream": false,
+    "ahead": null,
+    "ahead_of_base": 1,
+    "behind": null
+  }
+}`
 
 const inspectFixtureJSON = `{
   "worktree": {

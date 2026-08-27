@@ -23,15 +23,29 @@ func (c CLIClient) Inspect(
 	if err != nil {
 		return WorktreeInspection{}, err
 	}
+	workspaceID := strings.TrimSpace(scope.WorkspaceID)
+	var refreshed struct {
+		WorktreeID string          `json:"worktree_id"`
+		Status     *WorktreeStatus `json:"status"`
+	}
+	if err := c.runJSON(ctx, []string{
+		"worktree", "status", "--workspace", workspaceID, "--refresh", "-o", "json", "--", ref,
+	}, &refreshed); err != nil {
+		return WorktreeInspection{}, fmt.Errorf("publication: refresh worktree status: %w", err)
+	}
+	if strings.TrimSpace(refreshed.WorktreeID) == "" || refreshed.WorktreeID != ref || refreshed.Status == nil {
+		return WorktreeInspection{}, errors.New("publication: status refresh returned a mismatched worktree ID or empty status")
+	}
 	var inspection WorktreeInspection
 	if err := c.runJSON(ctx, []string{
-		"worktree", "inspect", "--workspace", strings.TrimSpace(scope.WorkspaceID), "-o", "json", "--", ref,
+		"worktree", "inspect", "--workspace", workspaceID, "-o", "json", "--", ref,
 	}, &inspection); err != nil {
 		return WorktreeInspection{}, fmt.Errorf("publication: inspect worktree: %w", err)
 	}
 	if strings.TrimSpace(inspection.Worktree.ID) == "" || inspection.Worktree.ID != ref {
 		return WorktreeInspection{}, errors.New("publication: inspection returned a mismatched worktree ID")
 	}
+	inspection.Status = refreshed.Status
 	return inspection, nil
 }
 
