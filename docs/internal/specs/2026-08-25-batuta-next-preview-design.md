@@ -63,17 +63,28 @@ The presentation must have durable evidence for:
 - Stop implementation when the demo slice is green. Only then may remaining
   time be used for an additional increment.
 
+## Delivered by the migration-free continuation
+
+- A Batuta-owned routing/delivery journal with a stable delivery ID.
+- Fresh-run fallback for incomplete tasks with ephemeral runtime overrides and
+  inherited absolute budgets.
+- Review/remediation after implementation settles.
+- Automatic exact-HEAD push, PR opening, and independent verification.
+
 ## Deferred increments
 
 1. Create one isolated worktree per independent task.
 2. Execute conflict-free task nodes concurrently with bounded lane/global
    concurrency.
-3. Persist a Batuta-owned routing and recovery journal.
-4. Retry only incomplete tasks through fresh runs with ephemeral runtime
-   overrides and inherited absolute budgets.
-5. Integrate task commits in deterministic dependency order.
-6. Run review/remediation on the integrated head.
-7. Push the exact verified head and open a pull request autonomously.
+3. Integrate task commits in deterministic dependency order.
+4. Add graph engineering that maps dependency lanes to those worktrees and
+   controls their concurrency.
+5. Explore Batuta-authored interactive clarification through CompozyOS
+   `compozy__clarify`: park only when a material ambiguity cannot be resolved
+   safely, expose the durable `waiting-for-input` interaction in the UI, and
+   resume from the user's selected choice or free-text answer. Clarification
+   remains distinct from approval and must not introduce a routine human gate
+   into delivery or publication.
 
 These increments require no Batuta-specific database migration in Compozy.
 Any additional generic Compozy API seam discovered later must be proposed and

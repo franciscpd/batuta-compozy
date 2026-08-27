@@ -9,10 +9,11 @@ import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
 for required in (
-    "type × complexity",
+    "domain × complexity",
     "id > type + complexity > type > complexity",
-    "compozy__provider_models_list",
-    "provider may be present while authentication is not",
+    "immutable routing generation",
+    "live Compozy catalog",
+    "unknown is ineligible",
 ):
     assert required in text, required
 for domain in (

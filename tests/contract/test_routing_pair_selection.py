@@ -27,7 +27,7 @@ class SelectRoutingPairTest(unittest.TestCase):
 
         self.assertEqual(select_pair(self.providers, models), ("usable", "z-live"))
 
-    def test_falls_back_to_unknown_availability(self):
+    def test_rejects_unknown_availability(self):
         models = [
             {
                 "provider_id": "usable",
@@ -37,7 +37,8 @@ class SelectRoutingPairTest(unittest.TestCase):
             }
         ]
 
-        self.assertEqual(select_pair(self.providers, models), ("usable", "fallback"))
+        with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
+            select_pair(self.providers, models)
 
     def test_excludes_explicitly_unavailable_and_missing_provider(self):
         models = [

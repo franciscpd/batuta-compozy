@@ -1,5 +1,13 @@
 # Verifying and installing Batuta
 
+The GitHub instructions below describe the current published
+`v0.1.0-beta.4`. The `v0.1.0-beta.5` candidate changes the package to a
+code-backed Linux/amd64 generation and uses the official Compozy Go SDK
+`v0.3.0-beta.21` directly. It has no `replace`, pseudo-version, or fork-only
+dependency. Public beta.5 promotion still waits for an official Compozy binary
+release containing child `run-loop` `config_overrides`; current end-to-end
+validation uses an isolated compatible preview.
+
 ## What `--allow-unverified` means
 
 CompozyOS installs extensions from a curated catalog, from GitHub, from a git
@@ -62,9 +70,16 @@ compozy extension remove batuta --global
 
 ## Local development install
 
-From a checkout, `scripts/republish.sh` checks the CompozyOS version, stages
-the six package files into a temporary directory, validates them,
-reinstalls and enables the extension, and checks the live inventory. See
-`CONTRIBUTING.md`. A local install records the temporary staging path as its
-source, so `compozy extension update` does not apply to it — run
-`scripts/republish.sh` again instead.
+For beta.5, `scripts/republish.sh` checks the beta.21 runtime floor, stages
+only production Go source plus the declared agent/skill/Loop resources, runs
+`compozy extension build`, validates that immutable generated directory, and
+installs the same generation it validated. Its live inventory must contain
+the agent, Loop, skill, and all eight hosted Batuta tools. The source directory
+is never installed as a resource-only fallback.
+
+The script deliberately builds with `GOWORK=off` against the official SDK.
+For the current local lab, run it with the compatible preview binary, validate
+the returned `generation_dir`, and install that exact directory. See
+`CONTRIBUTING.md`.
+A local install records a local path, so `compozy extension update` does not
+apply to it — rebuild and reinstall instead.

@@ -21,6 +21,7 @@ require_text() {
 require_file docs/architecture.md
 require_file docs/case-studies/version-subcommand.md
 require_file CONTRIBUTING.md
+require_file docs/releases/0.1.0-beta.5.md
 
 for text in \
   'independent community project' \
@@ -31,7 +32,13 @@ for text in \
   'docs/how-it-works.md' \
   'docs/verify.md' \
   'https://www.compozy.com/docs/' \
-  'https://github.com/compozy/compozy'; do
+  'https://github.com/compozy/compozy' \
+  'automatic executor inventory' \
+  'domain × complexity' \
+  '`auto_commit=true`' \
+  'bounded fresh-run fallback' \
+  'no human publication gate' \
+  'merge remains manual'; do
   require_text README.md "$text"
 done
 
@@ -44,8 +51,23 @@ for text in \
   'docs/how-it-works.md' \
   'docs/verify.md' \
   'https://www.compozy.com/docs/' \
-  'https://github.com/compozy/compozy'; do
+  'https://github.com/compozy/compozy' \
+  'inventário automático de executores' \
+  'domínio × complexidade' \
+  '`auto_commit=true`' \
+  'fallback limitado em novo run' \
+  'sem gate humano de publicação' \
+  'merge continua manual'; do
   require_text README.pt-BR.md "$text"
+done
+
+for document in README.md README.pt-BR.md; do
+  for obsolete in 'waits behind a human publication gate' 'gate humano de publicação que você aprova' 'Should I enable automatic commits' 'Devo habilitar commits automáticos'; do
+    if grep -Fq -- "$obsolete" "$document"; then
+      printf '%s ainda descreve comportamento beta.4 removido: %s\n' "$document" "$obsolete" >&2
+      exit 1
+    fi
+  done
 done
 
 for text in \
@@ -58,57 +80,105 @@ for text in \
   'review-and-fix' \
   'compozy__session_prompt' \
   'Resource and authority boundaries' \
-  'batuta-publisher'; do
+  'ext__batuta__publish_worktree' \
+  'delivery_id' \
+  'fresh-run recovery' \
+  'one PR per delivery phase'; do
   require_text docs/architecture.md "$text"
 done
+
+if grep -Fq -- 'batuta-publisher' docs/architecture.md; then
+  printf 'docs/architecture.md ainda descreve o agente publicador removido\n' >&2
+  exit 1
+fi
 
 require_file agents/batuta/AGENT.md
 
 for text in \
-  'The delivery-path calls are exactly:' \
-  'the `ext__spec_cycle__import_tasks` preflight, delivery worktree creation,' \
-  'a `batuta-deliver` dry-run, and a real dispatch.' \
-  'effective_config.budget_wall_sec' \
-  'config_overrides.budget_wall_sec' \
-  'budget_wall_sec: 14400, budget_on_exceeded: halt' \
+  'full Compozy tool scope' \
+  'write the SDD artifacts' \
+  'Never implement feature code' \
+  '`cy-create-spec`' \
+  '`cy-create-tasks`' \
+  '`ext__batuta__executor_inventory`' \
+  '`ext__batuta__routing_plan`' \
+  '`ext__batuta__routing_apply`' \
+  '`ext__spec_cycle__import_tasks`' \
+  '`batuta-deliver`' \
+  'one PR per delivery phase' \
   'domain × complexity' \
-  'backend' \
-  'frontend' \
-  'compozy__provider_models_list' \
-  'resolved_runtime' \
-  'Provider presence, model catalog membership, and credential state are separate evidence.' \
-  'Secrets and raw provider configuration never enter routing artifacts.' \
   'Never run concurrent writers in one worktree.' \
-  '`failed`, `exhausted`, `stalled`, `canceled`, and `blocked` alike'; do
+  'merge remains manual'; do
   require_text agents/batuta/AGENT.md "$text"
 done
 
 require_file docs/how-it-works.md
 require_file docs/verify.md
+require_file tests/e2e/SMOKE.md
 
 for text in \
-  'loops.inputs.batuta-deliver.auto_commit' \
-  'config_path_not_found' \
-  'compozy__provider_models_list' \
-  'compozy__loop_configure' \
   'cy-create-spec' \
   'cy-create-tasks' \
+  'full workspace' \
+  'SDD' \
+  'ext__batuta__executor_inventory' \
+  'ext__batuta__routing_plan' \
+  'ext__batuta__routing_apply' \
   'ext__spec_cycle__import_tasks' \
   'batuta-deliver' \
   'origin_session_id' \
   'compozy__loop_status' \
   'agents/batuta/AGENT.md' \
   'resources/skills/batuta-routing/SKILL.md' \
-  'publication gate' \
+  'ext__batuta__publish_worktree' \
+  'publication_verify' \
   'batuta/<slug>' \
   'wall-clock budget' \
   'domain × complexity' \
   'backend/low' \
   'frontend/medium' \
-  'resolved_runtime' \
-  'Never run concurrent writers in one worktree.' \
-  'auto_commit=false'; do
+  'delivery_id' \
+  'fresh parent run' \
+  'stored Compozy Loop configuration is never mutated' \
+  'one commit per task' \
+  'one PR per delivery phase' \
+  'merge remains manual'; do
   require_text docs/how-it-works.md "$text"
+done
+
+for document in docs/how-it-works.md tests/e2e/SMOKE.md; do
+  if grep -Fq -- 'batuta-publisher' "$document"; then
+    printf '%s ainda descreve o agente publicador removido\n' "$document" >&2
+    exit 1
+  fi
+  if grep -Fq -- 'auto_commit=false' "$document"; then
+    printf '%s ainda descreve auto_commit como preferencia do operador\n' "$document" >&2
+    exit 1
+  fi
+done
+
+for text in \
+  'cy-create-spec' \
+  'cy-create-tasks' \
+  'executor_inventory' \
+  'routing_plan' \
+  'routing_apply' \
+  'start_delivery' \
+  'delivery_id' \
+  'one commit per task' \
+  'one PR per delivery phase' \
+  'no human publication gate' \
+  'merge remains manual'; do
+  require_text tests/e2e/SMOKE.md "$text"
+done
+
+for document in README.md README.pt-BR.md docs/architecture.md docs/how-it-works.md tests/e2e/SMOKE.md; do
+  for obsolete in 'same-lineage fallback' 'fallback limitado na mesma linhagem' 'revisioned CAS' 'read-back revisionado'; do
+    if grep -Fq -- "$obsolete" "$document"; then
+      printf '%s ainda descreve o desenho substituido: %s\n' "$document" "$obsolete" >&2
+      exit 1
+    fi
+  done
 done
 
 for text in \
@@ -125,6 +195,7 @@ for text in \
   'scripts/republish.sh'; do
   require_text docs/verify.md "$text"
 done
+require_text docs/verify.md 'all eight hosted Batuta tools'
 
 for text in \
   'bash -n scripts/*.sh tests/contract/*.sh' \
@@ -160,7 +231,8 @@ done
 
 python3 - README.md README.pt-BR.md docs/architecture.md CONTRIBUTING.md \
   docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md \
-  docs/releases/0.1.0-beta.3.md docs/releases/0.1.0-beta.4.md <<'PY'
+  docs/releases/0.1.0-beta.3.md docs/releases/0.1.0-beta.4.md \
+  docs/releases/0.1.0-beta.5.md <<'PY'
 import re
 import sys
 

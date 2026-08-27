@@ -1,322 +1,86 @@
-# Smoke E2E — feature pequena de ponta a ponta
+# Smoke E2E — Batuta Next
 
-Pré-condições: extensão `batuta` instalada+habilitada; inventário redigido de
-providers e modelos das lanes; um repo cobaia registrado como workspace
-(qualquer projeto pequeno com suite de testes real). Provider presente,
-modelo catalogado e credencial utilizável são evidências distintas; nunca
-registre secrets ou configuração bruta do provider.
+Este roteiro valida a nova versão de ponta a ponta em um workspace descartável.
+O objetivo é observar o Batuta criar o SDD e as tasks, classificar as lanes,
+executar a entrega e abrir um PR sem ações manuais no caminho saudável.
 
-## Roteiro
+## Pré-condições
 
-1. **Sessão**: crie uma sessão no workspace cobaia com o agente `batuta`.
-2. **Fase PM, sem gate**: na primeira mensagem, peça uma feature pequena
-   (ex.: "adicione um subcomando --version usando literalmente todo
-   1.0.0"). Nada nesta fase é caminho de entrega, então nenhum
-   `compozy__config_get` de preferência é exigido ainda: o Batuta conduz
-   `cy-create-spec` diretamente, inclusive para uma feature pequena. Aceite:
-   o grill pode ser curto, mas não é pulado; o operador aprova `_spec.md`,
-   `_user_stories.md`, `_dx.md` e `_tests.md`, com `_uiux.md` somente se
-   houver mudança Web. Depois o Batuta conduz `cy-create-tasks`;
-   `.compozy/tasks/<slug>/` contém `_tasks.md` + `task_NN.md`, cada task com
-   `type` canônico e `complexity`, e o breakdown é apresentado para aprovação
-   em conversa. Para este smoke, use duas tasks disjuntas: `backend/low` e
-   `frontend/medium`.
-   Aceite negativo: nenhuma chamada de `compozy__config_get` para
-   `loops.inputs.batuta-deliver.auto_commit` ocorre durante esta fase.
-3. **Gate antes do primeiro caminho de entrega**: as chamadas de caminho de
-   entrega são exatamente o preflight `ext__spec_cycle__import_tasks`, a
-   criação do worktree de entrega (`compozy__worktree_create`), o dry-run de
-   `batuta-deliver` e o despacho real — nenhuma delas pode ocorrer antes do
-   gate. Aceite: a primeira chamada de ferramenta depois da fase PM, ao
-   entrar nesta etapa, é `compozy__config_get` para a chave exata do
-   workspace, antes de qualquer uma das chamadas de caminho de entrega
-   acima. Quando ausente, o Batuta pergunta auto-commit sem fazer discovery,
-   routing, preflight, dry-run ou inspeção de Loop.
-4. **Bootstrap**: somente após o gate confirmar um booleano, o Batuta aplica a
-   matriz `domain × complexity` (confira depois com dry-run:
-   `effective_config.run_runtime_rules` contém as células `backend/low` e
-   `frontend/medium`). A leitura de status deve provar `resolved_runtime`
-   distinto para cada lane configurada.
-5. **Despacho composto**: o Batuta chama diretamente o
-   `ext__spec_cycle__import_tasks` somente leitura e confirma `count > 0`;
-   depois roda dry-run, mostra o plano e
-   submete exatamente um `batuta-deliver` com `slug`, `origin_session_id` da
-   sessão atual e `auto_commit` resolvido. O dry-run apenas planeja nós e não
-   executa o import. Aceite: o run composto fica visível em `compozy loop
-   runs`; o daemon executa `implement-tasks` e depois `review-and-fix` como
-   filhos desse run. Aceite também: no mesmo dry-run, `effective_config.
-   budget_wall_sec` está presente e diferente de zero antes da submissão
-   real — esse campo, não o `contract.budget.wall_clock_sec` do
-   `materialized_contract`, é o que o daemon efetivamente aplica; um zero
-   significa que o override de workspace do backstop do Bootstrap está
-   ausente ou foi sobrescrito, e o Batuta deve parar e repará-lo antes de
-   submeter o run real.
-6. **Transporte dos artefatos de task**: antes de o filho `implement-tasks`
-   começar a rodar (assim que o worktree gerenciado `batuta-<slug>` estiver
-   `ready`), leia diretamente no caminho do worktree — nunca no checkout
-   principal — e confirme que `.compozy/tasks/<slug>/` existe com os mesmos
-   `task_NN.md` aprovados na fase PM. Aceite: o conteúdo está presente no
-   worktree antes do primeiro node do filho terminar; se estiver ausente, o
-   Batuta deve ter recusado o despacho antes de criar o worktree (ver
-   `worktrees.copy_list` em `compozy config get`), nunca deixar o
-   `load_check` do Loop falhar sozinho. Um smoke que pula esta checagem não
-   prova que a feature funciona.
-7. **Commits atômicos**: ao terminar, `git log` no cobaia mostra exatamente um
-   commit por task implementada (`auto_commit=true`), em execução sequencial.
-   Never run concurrent writers in one worktree. Nenhum push.
-8. **Inspeção composta**: sob o run de `batuta-deliver`, inspecione os IDs e
-   terminais dos filhos, seus `resolved_runtime` e as rodadas em
-   `.compozy/tasks/<slug>/reviews-NNN/`. Aceite: review termina `done` (rodada
-   limpa) ou reporta `exhausted` literalmente.
-9. **Retorno e reporte final**: registre a sequência de resultados de
-   ferramentas do despacho real e o ID daquele turno. O resultado aceito de
-   `batuta-deliver` retorna `run_id` e, quando disponível, `web_url`; não pode
-   haver outra chamada de ferramenta nesse turno. O efeito terminal inicia um
-   turno posterior na sessão original, com a identidade exata desse run. Nesse
-   turno posterior, `loop_status` com o pai exato é a primeira ferramenta
-   operacional; só então o Batuta reporta o terminal exato do composto,
-   terminais dos filhos, commits e blocker.
+- CompozyOS compatível em execução.
+- Extensões `spec-cycle` e `batuta` instaladas e habilitadas.
+- Providers desejados autenticados; nenhuma credencial entra no roteiro.
+- Repositório cobaia pequeno, registrado como workspace, com `origin` e forge
+  disponíveis.
+- `.compozy/tasks` coberto por `worktrees.copy_list`.
 
-## Casos comportamentais de aceitação
+## Roteiro pela interface do CompozyOS
 
-Execute estes casos somente após republicar a extensão local. Eles são prova
-de comportamento do daemon e do agente consumidor; ainda não foram executados
-por esta alteração.
+1. Abra o workspace cobaia e crie uma sessão usando o agente `batuta`.
+2. Peça uma feature pequena com duas partes independentes, uma de backend e
+   outra de frontend. Não crie task files manualmente.
+3. Observe o Batuta conduzir `cy-create-spec`, escrever o SDD e pedir apenas as
+   decisões de produto realmente ambíguas. Aprove os documentos quando eles
+   expressarem o pedido corretamente.
+4. Observe `cy-create-tasks` criar `_tasks.md` e `task_NN.md`, com domínio e
+   complexidade canônicos em cada task.
+5. Confirme pela timeline que o agente chama `executor_inventory`,
+   `routing_plan` e `routing_apply` (`apply_matrix`, depois `start_delivery`).
+   O snapshot deve ser redigido, a matriz deve cobrir cada task exatamente uma
+   vez e nenhuma config armazenada de Loop deve ser alterada.
+6. Confira no resultado de routing que a task frontend usa o executor/modelo
+   configurado para sua lane e que a task backend usa sua própria lane.
+7. O Batuta cria o worktree `batuta-<slug>` na branch `batuta/<slug>`, importa
+   as tasks e inicia a tentativa 1 de `batuta-deliver` com cap 4, token ceiling
+   e deadline absolutos.
+8. Após a submissão real, o daemon executa implementação e review. A evidência
+   esperada é one commit per task, seguida de eventuais commits de correção do
+   review.
+9. No caminho saudável existe no human publication gate. O Loop chama
+   diretamente a ferramenta determinística de publicação, verifica o HEAD
+   remoto e abre ou reutiliza o pull request.
+10. O retorno terminal chega à sessão original. O Batuta informa outcomes,
+    commits, HEAD revisado, operação de publicação e URL do PR. A fronteira é
+    one PR per delivery phase e merge remains manual.
 
-Para a aceitação do retorno dirigido a eventos, registre o despacho real, a
-sequência de resultados de ferramentas e seu ID de turno; confirme que não há
-chamada posterior de ferramenta nesse turno. Registre também o prompt terminal
-posterior com a identidade exata do run e confirme que `loop_status` do pai
-exato é sua primeira ferramenta operacional. Se um turno de solicitação
-explícita de progresso for exercitado separadamente, ele deve fazer exatamente
-uma chamada de status, sem polling. Não use `sleep`, espera, watcher, prompt
-lógico terminal extra, push ou código autorado pelo Batuta. Valide a evidência
-registrada com:
+## Evidências obrigatórias
 
-```bash
-COMPOZY_BIN=/absolute/path/to/compozy
-SESSION_ID=sess-example
-DELIVERY_RUN_ID=looprun-example
-python3 tests/e2e/assert_event_driven_return.py \
-  --compozy "$COMPOZY_BIN" \
-  --session "$SESSION_ID" \
-  --run-id "$DELIVERY_RUN_ID"
-```
+- Os arquivos do SDD e das tasks foram criados pelo Batuta no workspace.
+- Nenhum feature code foi escrito pela sessão do agente principal.
+- O inventário contém apenas capacidades redigidas; nenhum secret ou config
+  bruta aparece na conversa.
+- A classificação usa a matriz fechada de domínio × complexidade.
+- O runtime aplicado a cada task corresponde ao plano e ao generation digest.
+- O journal mostra um `delivery_id` estável e um `run_id` diferente por
+  tentativa; replay não cria run adicional.
+- Os writers são sequenciais no worktree compartilhado.
+- O HEAD verificado é o mesmo publicado no remote e associado ao PR.
+- Nenhum agente publicador, LLM de publicação ou aprovação saudável aparece na
+  timeline.
 
-Somente quando esse caso explícito de progresso tiver sido efetivamente
-exercitado, repita o validador com `--progress-turn "$PROGRESS_TURN_ID"`.
+## Casos negativos mínimos
 
-- Configure `loops.inputs.batuta-deliver.auto_commit=false`, faça o despacho
-  pelo Batuta e confirme que ambos os filhos persistem
-  `inputs.auto_commit=false`. Nenhum commit de implementação ou review pode
-  ser criado nesse caso.
-- Remova somente o valor workspace de
-  `loops.inputs.batuta-deliver.auto_commit`, abra uma sessão nova e confirme
-  que `compozy__config_get` retorna `config_path_not_found`. O Batuta deve
-  perguntar a preferência sem nenhuma outra chamada de caminho de entrega,
-  gravá-la com `compozy__config_set` em escopo workspace e usar
-  `compozy__config_get` como a chamada imediatamente seguinte; registre a
-  leitura estruturada confirmando o booleano escolhido antes de
-  `ext__spec_cycle__import_tasks`, criação de worktree, dry-run ou
-  despacho (PM/`cy-create-spec`/`cy-create-tasks` podem ter ocorrido antes,
-  sem exigir o gate). Valide a ordem diretamente com:
+Execute separadamente, sem misturar com a demonstração saudável:
 
-  ```bash
-  python3 tests/e2e/assert_preference_gate.py \
-    --compozy /caminho/para/compozy \
-    --session <session-id> --expected false
-  ```
-- Repita o bootstrap com uma falha de configuração diferente de
-  `config_path_not_found`. O Batuta deve parar e apresentar o erro estruturado
-  exato, sem consultar defaults globais, os Loops filhos, o default da
-  definição ou um dry-run para inventar `auto_commit`.
-- Peça uma feature que exija literalmente `todo 1.0.0`. Confirme que
-  `_spec.md`, `_user_stories.md`, `_dx.md`, `_tests.md`, `_tasks.md`, cada
-  `task_NN.md` e os prompts de execução aplicáveis preservam `todo 1.0.0` sem
-  upgrade, normalização ou paráfrase. Para mudança Web, inclua `_uiux.md` na
-  mesma verificação.
-- Peça ao Batuta para despachar um `slug` inexistente. O preflight direto de
-  `import_tasks` deve falhar antes do dry-run e nenhum run real de
-  `batuta-deliver` pode ser criado. Em seguida, envie uma submissão direta
-  deliberadamente inválida e confirme que o terminal nunca é `done`.
-- Após uma entrega terminal, a sessão original do Batuta deve receber
-  exatamente um novo turno enfileirado ou direto. Registre o ID do run de
-  entrega, o ID da sessão de origem, o gatilho do efeito e o resultado de
-  entrega/replay da admissão do prompt.
-- Reproduza a mesma identidade de efeito terminal e confirme que ela não cria
-  outro turno na sessão original.
-- Confirme que o inventário da extensão contém exatamente `batuta`,
-  `batuta-publisher`, `batuta-routing` e `batuta-deliver`. Não pode haver
-  recurso `batuta-watch`, watcher em execução ou agente de reporte.
-- Confirme que o detalhe do run de entrega não contém `session_id` nem
-  `resolved_runtime` de agente de reporte. Registre a contagem relevante de
-  tokens e confirme que o retorno terminal não consumiu tokens de modelo de
-  agente de reporte.
+- Altere o inventário entre plan e apply: o generation digest antigo deve ser
+  rejeitado sem mudar a matriz.
+- Torne o worktree sujo antes da publicação: o planner deve bloquear antes de
+  push ou criação de PR.
+- Faça uma lane falhar com runtime recuperável: o Batuta deve assentar o run,
+  iniciar outro parent run no mesmo worktree e submeter somente tasks
+  incompletas; commits bem-sucedidos permanecem.
+- Esgote a cadeia de fallback ou o orçamento: o Loop deve parar e retornar a
+  evidência, sem geração adicional.
+- Remova a credencial/forge: a entrega deve retornar o prerequisite externo
+  ausente sem pedir uma ação de publicação saudável nem tentar merge.
 
-## Gate de publicação — laboratório ao vivo
+## Critérios de reprovação
 
-Pré-condição adicional: workspace cobaia com repo remoto configurado (push
-autorizado) e, se aplicável, provider de forge autenticado para PR. Execute
-sempre em worktree descartável, nunca no checkout principal do batuta.
-
-1. **Despacho real**: no laboratório descartável, despache uma
-   `batuta-deliver` real com commits publicáveis (ao menos uma task
-   implementada e revisão limpa). `publish_check` é `condition: "true"` —
-   roteia incondicionalmente para `publish_gate` em toda entrega, não só
-   nesta com commits (ver caso "nada a publicar" abaixo). Aguarde o park
-   `needs-approval` — sem `sleep`, sem watcher, sem polling: a leitura
-   estruturada (`compozy__loop_status` ou o prompt de efeito do node) é o
-   único observável aceito.
-2. **`ahead_of_base` como evidência, não como roteamento**: após o filho
-   `implement-tasks` commitar, e antes de `publish_gate` ser alcançado,
-   leia o output do node `worktree_state` do run (`compozy__loop_status`)
-   e confirme `status.ahead_of_base > 0`. `ahead_of_base` vem do registro
-   do worktree e pode ficar obsoleto sem um refresh explícito — esta versão
-   do daemon não expõe parâmetro de refresh na superfície do node
-   `compozy__worktree_inspect`, e o CEL de branch condition não tem `now()`
-   (ver
-   `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`,
-   seção "Publication graph"). É exatamente por isso que `publish_check` não
-   tenta decidir a partir dessa leitura: nenhuma expressão nesta gramática
-   consegue provar que a leitura está fresca, então o node sempre gateia, e
-   é o operador no gate — nunca o predicado — quem decide "nada a
-   publicar". Este passo confirma que a leitura reportada ao operador está
-   de fato fresca (`> 0`) neste caminho exercitado.
-3. **Nada a publicar ainda gateia**: em um laboratório separado, despache
-   uma `batuta-deliver` cujo review termine limpo sem nenhum commit
-   publicável (por exemplo `auto_commit=false`, ou um branch já idêntico à
-   base). Aceite: o run pára em `needs-approval` em `publish_gate` do mesmo
-   jeito — `publish_check` não desvia dessa entrega. Aprove como operador e
-   confirme que `publish` ainda termina `node_succeeded`/`done`, mas com
-   evidência de publicação "nothing to publish" (sem `op_id` de push) em vez
-   de SHA + URL de PR. Uma entrega sem commits que termina `done` **sem**
-   passar por `needs-approval` é uma falha do smoke (ver "Falhas que
-   reprovam").
-4. **Aprovação — caminho approve**: aprove o gate **como identidade do
-   operador**, nunca como o agente `batuta` que despachou o run (o daemon
-   nega auto-aprovação, mas o laboratório deve provar que a aprovação
-   também não é feita pela mesma sessão/identidade de despacho). Exporte os
-   eventos públicos do run (`compozy loop events`/`compozy session events`
-   -o json, conforme disponível no daemon) para um arquivo JSON. Rode:
-
-   ```bash
-   python3 tests/e2e/assert_publication_gate.py \
-     --events /caminho/para/publish-gate-approve-events.json \
-     --decision approve
-   ```
-
-   Aceite: `publish` termina `node_succeeded`, o run termina `done`, e a
-   evidência de publicação carrega o SHA de `HEAD` revisado mais a URL do PR
-   (ou "pushed, PR manual" com URL de compare quando o forge não serve).
-5. **Rejeição — caminho reject**: repita o despacho (ou reuse um novo run
-   publicável) até o mesmo park `needs-approval`, desta vez rejeite o gate
-   como o operador. Exporte os eventos e rode:
-
-   ```bash
-   python3 tests/e2e/assert_publication_gate.py \
-     --events /caminho/para/publish-gate-reject-events.json \
-     --decision reject
-   ```
-
-   Aceite: o node `publish` nunca executa (nenhum `node_running` para
-   `publish`), o run termina `blocked`, e os commits permanecem intactos em
-   `batuta/<slug>`.
-6. **Aborto por worktree suja**: repita o despacho até o park
-   `needs-approval`. Antes de aprovar, `touch` um arquivo não commitado
-   diretamente na worktree gerenciada (fora da sessão do batuta — simulando
-   uma mudança externa entre o park e a decisão). Aprove o gate como
-   operador e confirme que `publish` falha no seu próprio judge de HEAD
-   limpo (`git status --porcelain` não vazio) sem nenhum push. Exporte os
-   eventos e confirme manualmente (o validador acima assume o caminho
-   `approve` bem-sucedido, então este caso é conferido por inspeção do
-   `loop_status`/eventos): `needs_approval` para `publish_gate`,
-   `gate_verdict` com `verdict=approve`, e em seguida `node_failed` — nunca
-   `node_succeeded` — para `publish`. Aceite exige ausência positiva de
-   evidência de push: o ref remoto do branch permanece inalterado (compare
-   `git ls-remote` do compare antes/depois do abort, ou o `head_sha` do PR
-   remoto) e nenhum `op_id` de push aparece no output do node — não basta o
-   node ter falhado, a falha precisa ser confirmada como "nunca tentou
-   publicar", não apenas "terminou mal".
-7. **Verificação em runtime do `approve-reads`**: o agente `batuta-publisher`
-   roda com `permissions: approve-reads` no seu AGENT.md — não mais
-   `deny-all`. A troca foi decidida por uma prova ao vivo (ver
-   `docs/internal/specs/2026-08-21-batuta-worktree-and-gated-publication-design.md`):
-   com `deny-all`, o próprio provider rejeita (`reject-once`) qualquer passo
-   de shell/CLI do publicador antes de rodar, inclusive `git rev-parse HEAD`
-   e `compozy worktree exit`, o que bloqueava o node inteiro. `approve-reads`
-   preserva a mesma trava estrutural (nunca aprova o próprio gate, nunca
-   edita fora do escopo do worktree, nunca commita) mas deixa os passos de
-   leitura seguirem mediante aprovação, em vez de recusa automática. O
-   laboratório deve confirmar que, sob `approve-reads`, o node de publicação
-   **executa de fato** os passos de shell/CLI (`compozy worktree exit`,
-   `push`, `pr`) no caminho `approve` acima: a evidência de push (op_id, SHA,
-   URL de PR ou compare) precisa aparecer no output do node `publish`, não
-   apenas um prompt de aprovação parado. Se o run travar pedindo aprovação
-   adicional em vez de executar os verbos de saída da worktree, isso é um
-   achado a registrar explicitamente no resultado do smoke — não deve ser
-   ocultado nem tratado como sucesso parcial.
-
-   **MERGE GATE**: se um Loop `goal` node consegue de fato rodar os passos
-   de CLI do publicador sem interação humana sob `permissions: approve-reads`
-   é, até este ponto, NÃO PROVADO — uma sonda anterior mostrou que cada passo
-   ainda exigia aprovação manual, e `deny-all` rejeitava tudo
-   automaticamente (`reject-once`) antes mesmo de rodar. Este smoke de
-   caminho `approve` ao vivo é a única prova aceita: esta branch não pode
-   fazer merge até que ele demonstre o node `publish` completando sem
-   interação humana (exit, push, evidência de PR/compare no output do node,
-   sem prompt de aprovação adicional parado). Se o run travar pedindo
-   aprovação em vez de executar, a correção é revisitar este design de
-   publicação — nunca elevar a permissão para `approve-all`, que deixaria o
-   publicador agir sem interação em qualquer workspace, não apenas no que
-   ele foi vinculado.
-
-## Falhas que reprovam
-
-- Qualquer entrega — com ou sem commits publicáveis — completar `done` sem
-  nunca passar por `needs-approval` em `publish_gate`. `publish_check` é
-  incondicional (`condition: "true"`); "nada a publicar" só pode ser
-  reportado pelo `publish` node depois da aprovação, nunca como um desvio
-  do node de branch.
-- O batuta editar/commitar código diretamente na sessão.
-- Qualquer terminal != `done` reportado como sucesso.
-- Mais de um commit para uma task, ou um commit cobrindo duas tasks.
-- Push automático.
-- O batuta aprovar o próprio gate (`needs-approval`).
-- O `publish` ficar parado pedindo aprovação adicional em vez de executar
-  os verbos `compozy worktree exit`/`push`/`pr` sob `approve-reads` no
-  caminho `approve`, ou o push ocorrer no caminho `reject`/worktree suja.
-- `effective_config.budget_wall_sec` mostrar `0` no dry-run imediatamente
-  antes da submissão real, e o Batuta submeter o run real mesmo assim
-  (delivery sem backstop de orçamento efetivo).
-
----
-
-## Resultado histórico — 2026-08-11 (workspace ~/Projects/smoke-cobaia)
-
-Este resultado descreve a arquitetura anterior e não prova os efeitos
-terminais, a deduplicação ou o inventário atuais.
-
-**Veredito: APROVADO com ressalvas.** Ciclo completo fechou: PM → 1 task (`low`) →
-`implement-tasks` `done` (gen 1, `resolved_runtime: codex/gpt-5.6-luna`, proveniência
-`config`, 1 commit atômico `017fc0b` com testes 10/10) → `review-and-fix` `done`
-(rodada 1: 1 issue válida → fix + commit `b8ebe27` → finalizer `resolved`; rodada 2
-limpa). Nenhum critério reprovador ocorreu (batuta não editou código, nenhum terminal
-arredondado, 1 commit por unidade, sem push, sem auto-aprovação).
-
-Ressalvas e achados:
-
-- **3 bugs de plataforma contornados** (CompozyOS 0.3.0-beta.13 / providers): agentes
-  publicados por extensão invisíveis ao catálogo de skills (500 no prompt; workaround:
-  agentes autorados globais); model IDs do opencode exigem prefixo `opencode/...`;
-  integração opencode 1.18.16 incompatível (upstream `channel_id/mode/channel_strategy`).
-- **2 falhas do batuta, corrigidas no AGENT.md**: não persistiu o "sim" do auto-commit
-  (1º run saiu `auto_commit=false`); aplicou a tabela de lanes sem validar contra o
-  catálogo vivo (1º run queimou 12 gerações em bind inválido). Agora o bootstrap valida
-  catálogo/habilitação/custo, confirma com o operador, e re-lê o override antes de cada
-  despacho (regras per-run congelam no run).
-- **1 gap estrutural → v1.1**: Loops não se encadeiam e a sessão não acorda no terminal —
-  o review precisou de cutucada do operador. Design v1.1: Loop composto `batuta-deliver`
-  (`run-loop`) + automation triggers para wake decisório.
-- Lanes finais confirmadas pelo operador: low→`codex/gpt-5.6-luna`,
-  medium→`codex/gpt-5.6-terra@high`, high→`codex/gpt-5.6-sol`,
-  critical→`claude/claude-opus-4-8` (sincronizar na skill `batuta-routing`).
+- O Batuta implementa feature code em vez de limitar-se ao SDD e à orquestração.
+- Uma task fica sem classificação ou é classificada fora do vocabulário.
+- Um executor/modelo inexistente no inventário é aplicado.
+- Duas tentativas mutam o mesmo worktree simultaneamente.
+- Um fallback altera config armazenada, reutiliza o mesmo run ou ultrapassa os
+  limites globais da entrega.
+- Push ou PR usa um HEAD diferente do congelado após o review.
+- O caminho saudável pede escolha de executor, commit, fallback ou publicação.
+- O Batuta faz merge do PR.

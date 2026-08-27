@@ -10,6 +10,8 @@ overlap another change.
 Run these repository checks:
 
 ```bash
+go test -race ./... -count=1
+go vet ./...
 bash -n scripts/*.sh tests/contract/*.sh
 python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v
 tests/contract/run.sh
@@ -24,8 +26,13 @@ foreign state and is preserved. Contract ownership spans the
 `test_00_*` through `test_07_*` families; update the owning contract when
 changing its public behavior.
 
-For a local development install, run `scripts/republish.sh` (see
-`docs/verify.md`).
+Beta.5 is code-backed: staging contains production Go source and resources,
+then `compozy extension build` produces the only directory that may be
+validated or installed. `scripts/republish.sh` automates that path (see
+`docs/verify.md`) with the official beta.21 SDK. Do not add a local `replace`,
+pseudo-version, or fork-only dependency to make release packaging appear
+reproducible. Use a compatible preview binary only for the child-override lab
+until that generic Compozy contract is officially released.
 
 Design specs and implementation plans live in `docs/internal/specs` and
 `docs/internal/plans`. New ones go there. Nothing under `docs/internal/` is

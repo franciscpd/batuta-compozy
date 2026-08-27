@@ -3,94 +3,96 @@
 > 🇧🇷 [Versão em português](README.pt-BR.md)
 
 Batuta is a conductor agent for [CompozyOS](https://www.compozy.com/docs/).
-You describe a change in conversation; Batuta turns it into a spec and tasks
-(via the bundled `spec-cycle`), routes each task to the cheapest capable
-model, dispatches one durable delivery Loop, and reports the exact outcome
-back in the same conversation. It never writes code itself. Delivery runs in
-an isolated worktree and, once review is clean, publishing waits behind a
-human publication gate you approve before anything is pushed.
+You describe the outcome; Batuta writes the SDD through the bundled
+`spec-cycle`, creates tasks, performs automatic executor inventory, classifies
+each task by domain × complexity, archives an immutable runtime matrix, and
+owns a bounded delivery across fresh Compozy runs. It never implements feature
+code itself.
+
+Delivery uses `auto_commit=true`, bounded fresh-run fallback, independent
+review, and automatic exact-HEAD publication with no human publication gate on
+the healthy path. Push and PR creation are automatic; merge remains manual.
+The operator is involved only when product requirements are missing or an
+external prerequisite such as credentials or a remote is genuinely blocked.
 
 Batuta is an independent community project, not an official or endorsed
-CompozyOS component. CompozyOS itself lives at
+CompozyOS component. CompozyOS lives at
 [github.com/compozy/compozy](https://github.com/compozy/compozy).
 
+![Batuta in CompozyOS](docs/images/batuta-no-compozy.png)
+
 ```text
-you  ─▶ batuta session ─▶ cy-create-spec ─▶ cy-create-tasks
-                                                  │
-                                                  ▼
-             terminal report ◀── batuta-deliver ──▶ implement-tasks ─▶ review-and-fix
-                                                            ─▶ publish gate (human) ─▶ publish (push + PR)
+conversation → SDD → tasks → inventory → domain × complexity matrix
+                                      ↓
+report ← verify PR ← publish ← review ← attempt 1 in isolated worktree
+                                      ↓ failed task only
+                                  attempt 2 (fresh run)
 ```
 
 ## Install
 
+The published `v0.1.0-beta.4` remains the current GitHub release. This branch
+targets `v0.1.0-beta.5`. The official `v0.3.0-beta.21` Go SDK is used directly,
+with no `replace` or fork dependency. Public beta.5 promotion still waits for
+an official Compozy binary release containing child `run-loop`
+`config_overrides`; the compatible local preview is supported for development.
+
 Prerequisites:
 
-- CompozyOS `v0.3.0-beta.14` or later with the daemon running (verified on
-  `v0.3.0-beta.16`).
-- The bundled `spec-cycle` extension enabled (`compozy extension list`).
-- At least one provider authenticated: `compozy provider models list` shows
-  models.
+- a compatible CompozyOS daemon;
+- the bundled `spec-cycle` extension enabled;
+- at least one authenticated model in `compozy provider models list`.
 
 ```bash
 compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 
-`--allow-unverified` is CompozyOS's consent for community (non-catalog)
-sources; the daemon still verifies the release archive against its
-`.sha256` sidecar. Details, the manual path, and provenance checks are in
-[docs/verify.md](docs/verify.md).
+`--allow-unverified` is explicit consent for a community source; archive
+integrity verification still applies. See [docs/verify.md](docs/verify.md).
 
 Update: `compozy extension update batuta --allow-unverified --yes` ·
 Remove: `compozy extension remove batuta --global`
 
-Current release: `v0.1.0-beta.4` —
-[release notes](docs/releases/0.1.0-beta.4.md).
+Current published release: [`v0.1.0-beta.4`](docs/releases/0.1.0-beta.4.md).
+Next candidate: [`v0.1.0-beta.5`](docs/releases/0.1.0-beta.5.md).
 
 ## Use
 
-Create a session with the `batuta` agent in your project's workspace and
-describe what you want. A first session looks like this:
+Open a Compozy session with the `batuta` agent in your project workspace and
+describe the change. Batuta asks only requirement questions, then:
 
-```text
-you     Add a --version subcommand that prints literally "todo 1.0.0".
-batuta  Should I enable automatic commits for deliveries in this workspace? (yes/no)
-you     no
-batuta  Routing derived from your provider catalog: low → …, medium → …,
-        high → …, critical → … (costs shown). Store it?
-you     yes
-batuta  [runs cy-create-spec] Please review _spec.md, _user_stories.md, _dx.md, _tests.md.
-you     approved
-batuta  [runs cy-create-tasks] 1 task, complexity low. Preflight OK, dry-run OK.
-        Dispatched batuta-deliver run <id>. I'll report here when it finishes.
-batuta  Delivery <id>: implement-tasks done, review-and-fix done, 9/9 tests
-        passing, no commit (auto_commit=false). Parked on the publication
-        gate — every delivery does, since nothing can prove the branch has
-        nothing to publish without asking you. Approve or reject at <url>.
-you     approve
-batuta  Delivery <id> reached done: gate approved, publisher reports nothing
-        to publish (no commit was made).
-```
+1. runs `cy-create-spec` and waits for approval of the product contract;
+2. runs `cy-create-tasks` and validates canonical task metadata;
+3. inventories Compozy, Codex, OpenCode, and Cursor Agent without exposing
+   secrets;
+4. chooses exact provider/model IDs present in the live Compozy catalog;
+5. archives exact `type + complexity` rules without mutating stored Loop config;
+6. starts `batuta-deliver` attempt 1 with cap 4 and one 14,400-second deadline;
+7. implements, reviews, retries failed tasks in a fresh run within the original budget, commits, and
+   opens one PR for the delivery phase.
 
-Routing comes from your live provider catalog and is stored per workspace;
-ask Batuta in conversation to change it. Batuta provisions a 4-hour
-wall-clock budget per workspace for deliveries it dispatches, raised per
-dispatch when a delivery is legitimately long; a direct `batuta-deliver`
-submission outside Batuta's own dispatch path is unbounded until that
-workspace override exists. The full contract — gate, bootstrap, preflight,
-dry-run, event-driven return, escalation — is in
-[docs/how-it-works.md](docs/how-it-works.md).
+For example, a frontend cell can select Cursor Agent with the exact live ACP
+ID `cursor/grok-4.6[effort=high,fast=true]`, while a backend cell selects a
+different executor/model. Foreign executor configuration informs capability
+selection, but only exact bindings reported by Compozy can execute.
+
+The complete contracts are in [docs/how-it-works.md](docs/how-it-works.md) and
+[docs/architecture.md](docs/architecture.md). The presentation roadmap is
+[docs/images/batuta-next-roadmap.png](docs/images/batuta-next-roadmap.png).
 
 ## Known limitations
 
-Two upstream CompozyOS limitations remain: executor sessions are not
-visually nested, and they remain active/idle after normal terminal
-completion.
+- Public beta.5 promotion awaits an official Compozy binary containing child
+  `run-loop` `config_overrides`; local validation uses a compatible preview.
+- executor sessions are not visually nested and remain active/idle after normal
+  terminal completion.
+- A missing forge provider, remote, or credential is reported as a blocker;
+  Batuta never treats a compare URL as a published PR.
 
 ## Learn more
 
 - [How it works](docs/how-it-works.md) · [Verify and install](docs/verify.md)
 - [Architecture](docs/architecture.md) ·
-  [Case study: version-subcommand](docs/case-studies/version-subcommand.md)
+  [Case study](docs/case-studies/version-subcommand.md)
 - [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)

@@ -2,98 +2,96 @@
 
 > 🇺🇸 [English version](README.md)
 
-O Batuta é um agente maestro para o [CompozyOS](https://www.compozy.com/docs/).
-Você descreve uma mudança em conversa; o Batuta a transforma em spec e tasks
-(via o `spec-cycle` bundled), roteia cada task para o modelo mais barato
-capaz de resolvê-la, despacha um único Loop de entrega durável e reporta o
-resultado exato na mesma conversa. Ele nunca escreve código. A entrega
-acontece em um worktree isolado e, depois que a revisão fica limpa, a
-publicação espera um gate humano de publicação que você aprova antes de
-qualquer push.
+O Batuta é um agente maestro para o
+[CompozyOS](https://www.compozy.com/docs/). Você descreve o resultado; o
+Batuta escreve o SDD pelo `spec-cycle` bundled, cria as tasks, faz o
+inventário automático de executores, classifica cada task por domínio × complexidade,
+arquiva uma matriz imutável de runtimes e conduz uma entrega limitada por runs
+novos do Compozy. Ele nunca implementa o código da feature diretamente.
+
+A entrega usa `auto_commit=true`, fallback limitado em novo run, revisão
+independente e publicação automática do HEAD exato, sem gate humano de publicação
+no caminho saudável. Push e abertura do PR são automáticos; o merge continua manual.
+O operador participa apenas quando faltam requisitos de
+produto ou existe um bloqueio externo real, como credenciais ou remote.
 
 O Batuta é um projeto independente da comunidade, não um componente oficial
 ou endossado do CompozyOS. O CompozyOS vive em
 [github.com/compozy/compozy](https://github.com/compozy/compozy).
 
+![Batuta no CompozyOS](docs/images/batuta-no-compozy.png)
+
 ```text
-você ─▶ sessão batuta ─▶ cy-create-spec ─▶ cy-create-tasks
-                                                  │
-                                                  ▼
-             relatório terminal ◀── batuta-deliver ──▶ implement-tasks ─▶ review-and-fix
-                                                            ─▶ gate de publicação (humano) ─▶ publicar (push + PR)
+conversa → SDD → tasks → inventário → matriz domínio × complexidade
+                                         ↓
+relatório ← verificar PR ← publicar ← revisar ← tentativa 1 no worktree isolado
+                                         ↓ somente task falha
+                                  tentativa 2 (novo run)
 ```
 
 ## Instalar
 
+A `v0.1.0-beta.4` continua sendo a release publicada no GitHub. Esta branch
+prepara a `v0.1.0-beta.5`. O SDK Go oficial `v0.3.0-beta.21` é usado diretamente,
+sem `replace` ou dependência de fork. A promoção pública ainda aguarda um
+binário oficial do Compozy com `config_overrides` em filhos `run-loop`; o
+preview local compatível é suportado para desenvolvimento.
+
 Pré-requisitos:
 
-- CompozyOS `v0.3.0-beta.14` ou posterior com o daemon rodando (verificado em
-  `v0.3.0-beta.16`).
-- Extensão bundled `spec-cycle` habilitada (`compozy extension list`).
-- Ao menos um provider autenticado: `compozy provider models list` lista
-  modelos.
+- daemon CompozyOS compatível;
+- extensão bundled `spec-cycle` habilitada;
+- ao menos um modelo autenticado em `compozy provider models list`.
 
 ```bash
 compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 
-`--allow-unverified` é o consentimento do CompozyOS para fontes da comunidade
-(fora do catálogo); o daemon ainda verifica o archive da release contra o
-sidecar `.sha256`. Detalhes, o caminho manual e a checagem de proveniência
-estão em [docs/verify.md](docs/verify.md).
+`--allow-unverified` é o consentimento explícito para uma fonte da comunidade;
+a verificação de integridade do archive continua ativa. Veja
+[docs/verify.md](docs/verify.md).
 
 Atualizar: `compozy extension update batuta --allow-unverified --yes` ·
 Remover: `compozy extension remove batuta --global`
 
-Release atual: `v0.1.0-beta.4` —
-[notas da release](docs/releases/0.1.0-beta.4.md).
-
+Release publicada atual: [`v0.1.0-beta.4`](docs/releases/0.1.0-beta.4.md).
+Próxima candidata: [`v0.1.0-beta.5`](docs/releases/0.1.0-beta.5.md).
 ## Uso
 
-Crie uma sessão com o agente `batuta` no workspace do seu projeto e descreva
-o que quer. Uma primeira sessão se parece com isto:
+Abra uma sessão Compozy com o agente `batuta` no workspace do projeto e
+descreva a mudança. O Batuta pergunta apenas sobre requisitos e depois:
 
-```text
-você    Adicione um subcomando --version que imprima literalmente "todo 1.0.0".
-batuta  Devo habilitar commits automáticos nas entregas deste workspace? (sim/não)
-você    não
-batuta  Roteamento derivado do seu catálogo de providers: low → …, medium → …,
-        high → …, critical → … (custos exibidos). Armazenar?
-você    sim
-batuta  [roda cy-create-spec] Revise _spec.md, _user_stories.md, _dx.md, _tests.md.
-você    aprovado
-batuta  [roda cy-create-tasks] 1 task, complexity low. Preflight OK, dry-run OK.
-        Despachei o run <id> de batuta-deliver. Reporto aqui quando terminar.
-batuta  Entrega <id>: implement-tasks done, review-and-fix done, 9/9 testes
-        passando, sem commit (auto_commit=false). Parada no gate de
-        publicação — toda entrega passa por ele, já que nada consegue
-        provar que a branch não tem nada a publicar sem perguntar a você.
-        Aprove ou rejeite em <url>.
-você    aprovar
-batuta  Entrega <id> chegou a done: gate aprovado, o publicador reporta
-        nada a publicar (nenhum commit foi feito).
-```
+1. roda `cy-create-spec` e aguarda a aprovação do contrato de produto;
+2. roda `cy-create-tasks` e valida os metadados canônicos;
+3. inventaria Compozy, Codex, OpenCode e Cursor Agent sem expor secrets;
+4. escolhe IDs exatos de provider/model presentes no catálogo vivo do Compozy;
+5. arquiva regras exatas de `type + complexity` sem alterar config armazenada;
+6. inicia a tentativa 1 de `batuta-deliver` com cap 4 e um deadline de 14.400 segundos;
+7. implementa, revisa, tenta novamente só as tasks falhas em novo run dentro do orçamento original, commita e
+   abre um PR para a fase de entrega.
 
-O roteamento vem do seu catálogo vivo de providers e fica armazenado por
-workspace; peça ao Batuta em conversa para mudá-lo. O Batuta provisiona um
-orçamento de tempo de parede (wall-clock) de 4 horas por workspace para as
-entregas que ele despacha, elevado por despacho quando uma entrega é
-legitimamente longa; uma submissão direta de `batuta-deliver` fora do
-caminho de despacho do Batuta fica sem limite até que esse override de
-workspace exista. O contrato completo — gate, bootstrap, preflight,
-dry-run, retorno orientado a eventos, escalada — está em
-[docs/how-it-works.md](docs/how-it-works.md) (em inglês).
+Por exemplo, uma célula frontend pode selecionar Cursor Agent com o ID ACP
+exato `cursor/grok-4.6[effort=high,fast=true]`, enquanto backend usa outro
+executor/modelo. Configurações dos executores externos informam a seleção de
+capacidade, mas somente bindings exatos reportados pelo Compozy executam.
+
+Os contratos completos estão em [docs/how-it-works.md](docs/how-it-works.md) e
+[docs/architecture.md](docs/architecture.md). O roadmap da apresentação está
+em [docs/images/batuta-next-roadmap.png](docs/images/batuta-next-roadmap.png).
 
 ## Limitações conhecidas
 
-Duas limitações upstream do CompozyOS permanecem: as sessões dos executores
-não são visualmente aninhadas e permanecem active/idle após a conclusão
-terminal normal.
+- A promoção pública beta.5 aguarda um binário oficial do Compozy com
+  `config_overrides` em filhos `run-loop`; a validação local usa um preview compatível.
+- As sessões dos executores não são visualmente aninhadas e permanecem
+  active/idle após a conclusão terminal normal.
+- Forge provider, remote ou credencial ausente vira blocker; uma compare URL
+  nunca é tratada como PR publicado.
 
 ## Saiba mais
 
 - [Como funciona](docs/how-it-works.md) · [Verificar e instalar](docs/verify.md)
 - [Arquitetura](docs/architecture.md) ·
-  [Estudo de caso: version-subcommand](docs/case-studies/version-subcommand.md)
+  [Estudo de caso](docs/case-studies/version-subcommand.md)
 - [Contribuindo](CONTRIBUTING.md) · [Licença MIT](LICENSE)

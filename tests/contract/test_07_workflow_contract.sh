@@ -318,7 +318,21 @@ require_release 'compozy extension list -o json'
 require_release 'compozy extension remove batuta --global -o json'
 require_release "uses: actions/upload-artifact@$UPLOAD_SHA"
 require_release 'if: failure()'
-require_release "expected={('agent','batuta'), ('loop','batuta-deliver'), ('skill','batuta-routing')}"
+require_release 'expected={'
+for expected_inventory_item in \
+  "('agent','batuta')" \
+  "('loop','batuta-deliver')" \
+  "('skill','batuta-routing')" \
+  "('tool','ext__batuta__delivery_budget_context')" \
+  "('tool','ext__batuta__executor_inventory')" \
+  "('tool','ext__batuta__publication_plan')" \
+  "('tool','ext__batuta__publication_verify')" \
+  "('tool','ext__batuta__publish_worktree')" \
+  "('tool','ext__batuta__routing_apply')" \
+  "('tool','ext__batuta__routing_context')" \
+  "('tool','ext__batuta__routing_plan')"; do
+  require_release "$expected_inventory_item"
+done
 require_release 'assert provenance["installed_from"] == "github"'
 require_release 'assert provenance["digest_matched"] is True'
 require_release 'assert installed["version"] == expected_version'

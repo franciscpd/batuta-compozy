@@ -216,7 +216,19 @@ jobs:
           rows = json.loads(sys.argv[3])
           expected_version = sys.argv[4]
           actual = {(item["kind"], item["name"]) for item in inventory}
-          expected={('agent','batuta'), ('agent','batuta-publisher'), ('loop','batuta-deliver'), ('skill','batuta-routing')}
+          expected={
+            ('agent','batuta'),
+            ('loop','batuta-deliver'),
+            ('skill','batuta-routing'),
+            ('tool','ext__batuta__delivery_budget_context'),
+            ('tool','ext__batuta__executor_inventory'),
+            ('tool','ext__batuta__publication_plan'),
+            ('tool','ext__batuta__publication_verify'),
+            ('tool','ext__batuta__publish_worktree'),
+            ('tool','ext__batuta__routing_apply'),
+            ('tool','ext__batuta__routing_context'),
+            ('tool','ext__batuta__routing_plan'),
+          }
           assert actual == expected, f"unexpected inventory: {sorted(actual)}"
           assert all(item["live"] for item in inventory), f"resources not live: {inventory}"
           assert provenance["installed_from"] == "github"

@@ -62,7 +62,7 @@ done
 for readme in README.md README.pt-BR.md; do
   require "$readme" 'docs/how-it-works.md'
   require "$readme" 'compozy provider models list'
-  require "$readme" 'v0.3.0-beta.14'
+  require "$readme" 'v0.3.0-beta.21'
   first_code_block=$(awk '/^```bash$/{n=1; next} n==1{print; exit}' "$readme")
   if [[ $first_code_block != "$install_command" ]]; then
     printf 'first bash code block in %s is not the install command: %s\n' \

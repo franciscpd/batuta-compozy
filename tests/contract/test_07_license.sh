@@ -153,36 +153,25 @@ if ! cmp -s -- "$expected_license" LICENSE; then
   exit 1
 fi
 
-python3 - extension.toml <<'PY'
-import sys
-import tomllib
-
-with open(sys.argv[1], "rb") as manifest_file:
-    manifest = tomllib.load(manifest_file)
-
-
-def contains_license(value):
-    if isinstance(value, dict):
-        return "license" in value or any(contains_license(item) for item in value.values())
-    if isinstance(value, list):
-        return any(contains_license(item) for item in value)
-    return False
-
-
-if contains_license(manifest):
-    raise SystemExit("extension.toml must not contain a license key")
-PY
+if [[ -e extension.toml || -L extension.toml ]]; then
+  printf 'code-backed source must not ship a handwritten extension.toml\n' >&2
+  exit 1
+fi
 
 assert_inventory() {
   local tree=$1 label=$2 actual expected
   actual=$(cd "$tree" && find . -type f -print | LC_ALL=C sort)
-  expected=$(printf '%s\n' \
-    './LICENSE' \
-    './agents/batuta-publisher/AGENT.md' \
-    './agents/batuta/AGENT.md' \
-    './extension.toml' \
-    './loops/batuta-deliver/loop.yaml' \
-    './resources/skills/batuta-routing/SKILL.md')
+  expected=$({
+    printf '%s\n' \
+      './LICENSE' \
+      './agents/batuta/AGENT.md' \
+      './go.mod' \
+      './go.sum' \
+      './loops/batuta-deliver/loop.yaml' \
+      './main.go' \
+      './resources/skills/batuta-routing/SKILL.md'
+    find internal -type f -name '*.go' ! -name '*_test.go' -print | sed 's#^#./#'
+  } | LC_ALL=C sort)
   if [[ $actual != "$expected" ]]; then
     printf '%s package tree mismatch:\n%s\n' "$label" "$actual" >&2
     exit 1
