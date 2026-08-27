@@ -4,21 +4,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
+	"github.com/franciscpd/batuta-compozy/internal/inventory"
+	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
 type planFunc func(context.Context, publication.TrustedScope, publication.PlanInput) (publication.PlanOutput, error)
 type publishFunc func(context.Context, publication.TrustedScope, publication.PublishInput) (publication.PublishOutput, error)
 type verifyFunc func(context.Context, publication.TrustedScope, publication.VerifyInput) (publication.VerifyOutput, error)
+type inventoryFunc func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error)
+type routingPlanFunc func(context.Context, publication.TrustedScope, RoutingPlanInput) (routing.RoutingGeneration, error)
+type routingApplyFunc func(context.Context, publication.TrustedScope, RoutingApplyInput) (RoutingApplyOutput, error)
+type routingContextFunc func(context.Context, publication.TrustedScope, RoutingContextInput) (RoutingContextOutput, error)
+type deliveryBudgetContextFunc func(context.Context, publication.TrustedScope, DeliveryBudgetContextInput) (DeliveryBudgetContextOutput, error)
 
 type serviceSet struct {
-	plan    planFunc
-	publish publishFunc
-	verify  verifyFunc
+	plan                  planFunc
+	publish               publishFunc
+	verify                verifyFunc
+	inventory             inventoryFunc
+	routingPlan           routingPlanFunc
+	routingApply          routingApplyFunc
+	routingContext        routingContextFunc
+	deliveryBudgetContext deliveryBudgetContextFunc
 }
 
 type application struct {
@@ -38,11 +53,99 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 	planner := publication.PublicationPlanner{Compozy: client, Git: git}
 	publisher := publication.Publisher{Planner: planner, Compozy: client, Git: git}
 	verifier := publication.Verifier{Planner: planner, Git: git}
+	collectorPaths := inventoryExecutables{
+		Compozy:  compozyExecutable,
+		Codex:    optionalExecutable("codex"),
+		OpenCode: optionalExecutable("opencode"),
+		Cursor:   optionalExecutable("agent"),
+	}
+	inventoryService := func(ctx context.Context, scope publication.TrustedScope) (inventory.InventorySnapshot, error) {
+		collector, err := adapters.NewCollector(runner, adapters.CollectorOptions{
+			TrustedWorkspace: scope.WorkspaceRoot, WorkspaceID: scope.WorkspaceID,
+			CompozyExecutable: collectorPaths.Compozy, CodexExecutable: collectorPaths.Codex,
+			OpenCodeExecutable: collectorPaths.OpenCode, CursorExecutable: collectorPaths.Cursor,
+			ProbeParallelism: 16,
+		})
+		if err != nil {
+			return inventory.InventorySnapshot{}, err
+		}
+		return collector.Collect(ctx)
+	}
+	var storeOnce sync.Once
+	var store *routing.OwnershipStore
+	var storeErr error
+	storeForCall := func() (*routing.OwnershipStore, error) {
+		storeOnce.Do(func() { store, storeErr = routing.NewOwnershipStore("") })
+		return store, storeErr
+	}
+	engine := &routingEngine{
+		inventory:       inventoryService,
+		inspectWorktree: client.Inspect,
+		worktreeState:   git.WorktreeState,
+		applyMatrix: func(ctx context.Context, input routing.MatrixApplyInput) (routing.MatrixApplyResult, error) {
+			store, err := storeForCall()
+			if err != nil {
+				return routing.MatrixApplyResult{}, err
+			}
+			return (routing.MatrixManager{Store: store}).Apply(ctx, input)
+		},
+	}
+	deliveryClient := deliveryLoopCLIClient{Executable: compozyExecutable, Runner: runner}
+	fallbackService := func() (deliveryFallbackService, error) {
+		store, err := storeForCall()
+		return deliveryFallbackService{
+			Store: store, Client: deliveryClient, WorktreeState: git.WorktreeState,
+		}, err
+	}
+	contextService := &deliveryContextService{StoreForCall: storeForCall, Client: deliveryClient}
+	engine.startDelivery = func(ctx context.Context, scope publication.TrustedScope, deliveryID string) (RoutingStartResult, error) {
+		fallbacks, err := fallbackService()
+		if err != nil {
+			return RoutingStartResult{}, err
+		}
+		return fallbacks.Start(ctx, scope, deliveryID)
+	}
+	engine.recover = func(ctx context.Context, scope publication.TrustedScope, deliveryID, runID string) (RoutingStartResult, error) {
+		fallbacks, err := fallbackService()
+		if err != nil {
+			return RoutingStartResult{}, err
+		}
+		return fallbacks.Recover(ctx, scope, deliveryID, runID)
+	}
+	engine.reconcile = func(ctx context.Context, scope publication.TrustedScope, deliveryID, runID string) (RoutingReconcileResult, error) {
+		fallbacks, err := fallbackService()
+		if err != nil {
+			return RoutingReconcileResult{}, err
+		}
+		return fallbacks.Reconcile(ctx, scope, deliveryID, runID)
+	}
 	return newWithServices(serviceSet{
-		plan:    planner.Plan,
-		publish: publisher.Publish,
-		verify:  verifier.Verify,
+		plan: planner.Plan, publish: publisher.Publish, verify: verifier.Verify,
+		inventory: inventoryService, routingPlan: engine.Plan, routingApply: engine.Apply,
+		routingContext: contextService.Routing, deliveryBudgetContext: contextService.Budget,
 	})
+}
+
+type inventoryExecutables struct {
+	Compozy  string
+	Codex    string
+	OpenCode string
+	Cursor   string
+}
+
+func optionalExecutable(name string) string {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(absolute)
 }
 
 func requireAbsoluteExecutable(name, value string) error {
@@ -67,9 +170,94 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			Command: "./bin",
 			Env: map[string]string{
 				"COMPOZY_EXECUTABLE": "{{compozy_executable}}",
+				"COMPOZY_HOME":       "{{env:COMPOZY_HOME}}",
 			},
 		},
 	})
+	if err := compozysdk.Tool(
+		extension,
+		"delivery_budget_context",
+		compozysdk.ToolOptions{
+			Description:  "Return the bounded review budget after one verified implementation child.",
+			FriendlyVerb: "Read delivery budget",
+			ReadOnly:     true,
+			Risk:         compozysdk.RiskRead,
+			InputSchema:  deliveryBudgetContextInputSchema(),
+			OutputSchema: deliveryBudgetContextOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[DeliveryBudgetContextInput]) (compozysdk.ToolResult, error) {
+			return app.deliveryBudgetContext(ctx, req.TrustedWorkspace, req.Input)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register delivery budget context: %w", err)
+	}
+	if err := compozysdk.Tool(
+		extension,
+		"executor_inventory",
+		compozysdk.ToolOptions{
+			Description:  "Collect a redacted immutable snapshot of supported local executors.",
+			FriendlyVerb: "Inventory executors",
+			ReadOnly:     true,
+			Risk:         compozysdk.RiskRead,
+			InputSchema:  inventoryInputSchema(),
+			OutputSchema: inventoryOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[struct{}]) (compozysdk.ToolResult, error) {
+			return app.inventory(ctx, req.TrustedWorkspace)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register executor inventory: %w", err)
+	}
+	if err := compozysdk.Tool(
+		extension,
+		"routing_plan",
+		compozysdk.ToolOptions{
+			Description:  "Validate authored task classification and propose an immutable runtime matrix.",
+			FriendlyVerb: "Plan task routing",
+			ReadOnly:     true,
+			Risk:         compozysdk.RiskRead,
+			InputSchema:  routingPlanInputSchema(),
+			OutputSchema: routingGenerationOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[RoutingPlanInput]) (compozysdk.ToolResult, error) {
+			return app.routingPlan(ctx, req.TrustedWorkspace, req.Input)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register routing plan: %w", err)
+	}
+	if err := compozysdk.Tool(
+		extension,
+		"routing_context",
+		compozysdk.ToolOptions{
+			Description:  "Return the exact runtime rules and bounded budget for one delivery attempt.",
+			FriendlyVerb: "Read routing context",
+			ReadOnly:     true,
+			Risk:         compozysdk.RiskRead,
+			InputSchema:  routingContextInputSchema(),
+			OutputSchema: routingContextOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[RoutingContextInput]) (compozysdk.ToolResult, error) {
+			return app.routingContext(ctx, req.TrustedWorkspace, req.Input)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register routing context: %w", err)
+	}
+	if err := compozysdk.Tool(
+		extension,
+		"routing_apply",
+		compozysdk.ToolOptions{
+			Description:  "Apply an owned routing matrix or perform one bounded delivery fallback operation.",
+			FriendlyVerb: "Apply task routing",
+			Risk:         compozysdk.RiskMutating,
+			InputSchema:  routingApplyInputSchema(),
+			OutputSchema: routingApplyOutputSchema(),
+		},
+		func(ctx context.Context, req compozysdk.ToolRequest[RoutingApplyInput]) (compozysdk.ToolResult, error) {
+			return app.routingApply(ctx, req.TrustedWorkspace, req.Input)
+		},
+	); err != nil {
+		return nil, fmt.Errorf("batuta: register routing apply: %w", err)
+	}
 	if err := compozysdk.Tool(
 		extension,
 		"publication_plan",

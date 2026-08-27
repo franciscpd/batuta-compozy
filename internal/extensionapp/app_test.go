@@ -12,7 +12,7 @@ import (
 	"github.com/franciscpd/batuta-compozy/internal/publication"
 )
 
-func TestNewRegistersExactPublicationDescriptorsAndResources(t *testing.T) {
+func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	t.Parallel()
 
 	extension, err := newWithServices(serviceSet{})
@@ -32,13 +32,14 @@ func TestNewRegistersExactPublicationDescriptorsAndResources(t *testing.T) {
 		t.Fatalf("resources = %#v", describe.Resources)
 	}
 	if describe.Subprocess.Command != "./bin" ||
-		describe.Subprocess.Env["COMPOZY_EXECUTABLE"] != "{{compozy_executable}}" {
+		describe.Subprocess.Env["COMPOZY_EXECUTABLE"] != "{{compozy_executable}}" ||
+		describe.Subprocess.Env["COMPOZY_HOME"] != "{{env:COMPOZY_HOME}}" {
 		t.Fatalf("subprocess = %#v", describe.Subprocess)
 	}
 
 	descriptors := extension.GetToolDescriptors()
-	if len(descriptors) != 3 {
-		t.Fatalf("len(descriptors) = %d, want 3", len(descriptors))
+	if len(descriptors) != 8 {
+		t.Fatalf("len(descriptors) = %d, want 8", len(descriptors))
 	}
 	want := []struct {
 		id       compozysdk.ToolID
@@ -46,9 +47,14 @@ func TestNewRegistersExactPublicationDescriptorsAndResources(t *testing.T) {
 		readOnly bool
 		risk     compozysdk.RiskClass
 	}{
+		{id: "ext__batuta__delivery_budget_context", handler: "delivery_budget_context", readOnly: true, risk: compozysdk.RiskRead},
+		{id: "ext__batuta__executor_inventory", handler: "executor_inventory", readOnly: true, risk: compozysdk.RiskRead},
 		{id: "ext__batuta__publication_plan", handler: "publication_plan", readOnly: true, risk: compozysdk.RiskRead},
 		{id: "ext__batuta__publication_verify", handler: "publication_verify", readOnly: true, risk: compozysdk.RiskRead},
 		{id: "ext__batuta__publish_worktree", handler: "publish_worktree", risk: compozysdk.RiskMutating},
+		{id: "ext__batuta__routing_apply", handler: "routing_apply", risk: compozysdk.RiskMutating},
+		{id: "ext__batuta__routing_context", handler: "routing_context", readOnly: true, risk: compozysdk.RiskRead},
+		{id: "ext__batuta__routing_plan", handler: "routing_plan", readOnly: true, risk: compozysdk.RiskRead},
 	}
 	for index, descriptor := range descriptors {
 		if descriptor.ID != want[index].id || descriptor.Handler != want[index].handler ||
@@ -59,8 +65,11 @@ func TestNewRegistersExactPublicationDescriptorsAndResources(t *testing.T) {
 		if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
 			t.Fatalf("descriptor[%d] schema: %v", index, err)
 		}
-		if schema["additionalProperties"] != false {
+		if descriptor.Handler != "routing_apply" && schema["additionalProperties"] != false {
 			t.Fatalf("descriptor[%d] additionalProperties = %#v", index, schema["additionalProperties"])
+		}
+		if descriptor.Handler == "routing_apply" && schema["oneOf"] == nil {
+			t.Fatalf("descriptor[%d] routing apply schema has no closed union", index)
 		}
 	}
 }

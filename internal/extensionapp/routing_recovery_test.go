@@ -171,6 +171,7 @@ type fakeDeliveryRunClient struct {
 	now           time.Time
 	recentCalls   int
 	startCalls    int
+	statusCalls   int
 	lastRequest   deliveryStartRequest
 	recentFactory func(deliveryStartRequest) []deliveryRun
 	startError    error
@@ -178,6 +179,7 @@ type fakeDeliveryRunClient struct {
 }
 
 func (c *fakeDeliveryRunClient) Status(_ context.Context, _ string, runID string) (deliveryRunDetail, error) {
+	c.statusCalls++
 	detail, exists := c.statuses[runID]
 	if !exists {
 		return deliveryRunDetail{}, errors.New("unexpected status")
