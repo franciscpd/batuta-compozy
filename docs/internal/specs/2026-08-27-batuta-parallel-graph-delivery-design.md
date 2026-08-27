@@ -1,6 +1,6 @@
 # Batuta parallel graph delivery and interactive SDD — design
 
-Status: conversational design approved on 2026-08-27; written review pending
+Status: approved on 2026-08-27
 
 ## Objective
 
