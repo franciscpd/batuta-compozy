@@ -18,10 +18,15 @@ if [[ -n $(find "$STAGE" -mindepth 1 -print -quit) ]]; then
   exit 2
 fi
 
-mkdir -p "$STAGE/agents" "$STAGE/resources/skills" "$STAGE/loops"
+mkdir -p "$STAGE/agents" "$STAGE/resources/skills" "$STAGE/loops" "$STAGE/internal"
 cp -- "$ROOT/LICENSE" "$STAGE/LICENSE"
-cp -- "$ROOT/extension.toml" "$STAGE/extension.toml"
+cp -- "$ROOT/go.mod" "$ROOT/go.sum" "$ROOT/main.go" "$STAGE/"
 cp -R -- "$ROOT/agents/batuta" "$STAGE/agents/"
-cp -R -- "$ROOT/agents/batuta-publisher" "$STAGE/agents/"
 cp -R -- "$ROOT/resources/skills/batuta-routing" "$STAGE/resources/skills/"
 cp -R -- "$ROOT/loops/batuta-deliver" "$STAGE/loops/"
+
+while IFS= read -r source; do
+  relative=${source#"$ROOT/"}
+  mkdir -p "$STAGE/$(dirname "$relative")"
+  cp -- "$source" "$STAGE/$relative"
+done < <(find "$ROOT/internal" -type f -name '*.go' ! -name '*_test.go' -print)

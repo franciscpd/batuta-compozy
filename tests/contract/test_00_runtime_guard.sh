@@ -11,7 +11,7 @@ expect_reject() {
     return 1
   fi
   case "$out" in
-    *"incompatible CompozyOS"*"v0.3.0-beta.14"*) ;;
+    *"incompatible CompozyOS"*"v0.3.0-beta.21"*) ;;
     *)
       printf 'reject message must name the floor: %s\n' "$out" >&2
       return 1
@@ -32,7 +32,7 @@ expect_reject_unparseable() {
     return 1
   fi
   case "$out" in
-    *"unrecognized version format"*"v0.3.0-beta.14"*) ;;
+    *"unrecognized version format"*"v0.3.0-beta.21"*) ;;
     *)
       printf 'unparseable reject message must name format and floor: %s\n' "$out" >&2
       return 1
@@ -80,17 +80,17 @@ expect_accept_with_warning() {
       return 1
       ;;
   esac
-  if ! grep -q 'custom post-tag build' "$err"; then
-    printf 'post-tag build must warn on stderr: %s\n' "$(cat "$err")" >&2
+  if ! grep -q 'custom compatible build' "$err"; then
+    printf 'custom build must warn on stderr: %s\n' "$(cat "$err")" >&2
     rm -f "$err"
     return 1
   fi
   rm -f "$err"
 }
 
-expect_reject "v0.3.0-beta.13" "tag"
-expect_reject "v0.3.0-beta.13-14-g36bd8156" "36bd8156"
-expect_reject "v0.3.0-beta.13-5-g594d9fdf" "594d9fdf"
+expect_reject "v0.3.0-beta.20" "tag"
+expect_reject "v0.3.0-beta.20-14-g36bd8156" "36bd8156"
+expect_reject "v0.3.0-beta.14" "tag"
 expect_reject "v0.2.9" "x"
 expect_reject "v0.2.9-beta.99" "x"
 
@@ -99,22 +99,26 @@ expect_reject_unparseable "" "x"
 expect_reject_unparseable "v0.3.0-rc.1" "x"
 expect_reject_unparseable "v0.4.0-rc.1" "x"
 expect_reject_unparseable "V0.3.0" "x"
-expect_reject_unparseable "v0.3.0-beta.14+meta" "x"
+expect_reject_unparseable "v0.3.0-beta.21+meta" "x"
+expect_reject_unparseable "v0.3.0-beta.21.preview." "x"
+expect_reject_unparseable "v0.3.0-beta.21.preview.not-a-hash" "x"
 
-expect_accept "v0.3.0-beta.14" "x"
-expect_accept "0.3.0-beta.14" "x"
-expect_accept "v0.3.0-beta.16" "x"
+expect_accept "v0.3.0-beta.21" "x"
+expect_accept "0.3.0-beta.21" "x"
+expect_accept "v0.3.0-beta.22" "x"
 expect_accept "v0.3.0" "x"
 expect_accept "v0.3.1-beta.1" "x"
 expect_accept "v0.4.0-beta.1" "x"
 expect_accept "v1.0.0" "x"
 
-expect_accept_with_warning "v0.3.0-beta.14-1-gabcdef12" "abcdef12"
-expect_accept_with_warning "v0.3.0-beta.16-9-ga35eda6d" "a35eda6d"
-expect_accept_with_warning "v0.3.0-beta.16-9-ga35eda6d" "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
+expect_accept_with_warning "v0.3.0-beta.21-1-gabcdef12" "abcdef12"
+expect_accept_with_warning "v0.3.0-beta.22-9-ga35eda6d" "a35eda6d"
+expect_accept_with_warning "v0.3.0-beta.22-9-ga35eda6d" "a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c"
 expect_accept_with_warning "v0.3.0-9-gdeadbeef" "deadbeef"
+expect_accept_with_warning "0.3.0-beta.21.preview.b53a4e14a" "b53a4e14a"
+expect_accept_with_warning "v0.3.0-beta.22.preview.abcdef12" "abcdef12deadbeef"
 
-if "$GUARD" --version "v0.3.0-beta.14" >/dev/null 2>&1; then
+if "$GUARD" --version "v0.3.0-beta.21" >/dev/null 2>&1; then
   printf 'guard accepted a malformed argument list\n' >&2
   exit 1
 fi
@@ -134,4 +138,4 @@ if [[ $repo_had_compozy == false && ( -e .compozy || -L .compozy ) ]]; then
   printf 'version guard generated .compozy in the repository\n' >&2
   exit 1
 fi
-printf 'OK: runtime guard enforces the v0.3.0-beta.14 semver floor\n'
+printf 'OK: runtime guard enforces the v0.3.0-beta.21 semver floor\n'

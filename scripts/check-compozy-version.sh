@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Batuta compatibility guard: CompozyOS must be v0.3.0-beta.14 or later.
+# Batuta compatibility guard: code-backed routing requires v0.3.0-beta.21 or later.
 set -euo pipefail
 
 usage() {
@@ -50,12 +50,13 @@ import re
 import sys
 
 version, commit = sys.argv[1:]
-FLOOR = (0, 3, 0, 14)          # v0.3.0-beta.14
-FLOOR_TEXT = "v0.3.0-beta.14"
-VERIFIED_TEXT = "v0.3.0-beta.16"
+FLOOR = (0, 3, 0, 21)          # v0.3.0-beta.21
+FLOOR_TEXT = "v0.3.0-beta.21"
+VERIFIED_TEXT = "v0.3.0-beta.21"
 
 match = re.fullmatch(
-    r"v?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?(?:-(\d+)-g([0-9a-fA-F]+))?",
+    r"v?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?"
+    r"(?:(?:-(\d+)-g([0-9a-fA-F]+))|(?:\.preview\.([0-9a-fA-F]+)))?",
     version.strip(),
 )
 
@@ -69,12 +70,17 @@ if match is None:
     raise SystemExit(
         f"incompatible CompozyOS {version} ({commit}): unrecognized version "
         f"format; Batuta requires {FLOOR_TEXT} or later "
-        f"(vMAJOR.MINOR.PATCH[-beta.N][-COUNT-gHASH])"
+        f"(vMAJOR.MINOR.PATCH[-beta.N][-COUNT-gHASH|.preview.HASH])"
     )
 
-major, minor, patch, beta, count, _ = match.groups()
+major, minor, patch, beta, count, _, preview_hash = match.groups()
 beta_number = int(beta) if beta is not None else None
-post_tag = count is not None
+custom_build = count is not None or preview_hash is not None
+if preview_hash is not None and (beta is None or not commit.lower().startswith(preview_hash.lower())):
+    raise SystemExit(
+        f"incompatible CompozyOS {version} ({commit}): preview identity does not "
+        f"match its explicit commit; Batuta requires {FLOOR_TEXT} or later"
+    )
 compatible = rank(int(major), int(minor), int(patch), beta_number) >= rank(*FLOOR)
 
 if not compatible:
@@ -83,9 +89,9 @@ if not compatible:
         f"{FLOOR_TEXT} or later"
     )
 
-if post_tag:
+if custom_build:
     print(
-        f"WARN: CompozyOS {version} ({commit}) is a custom post-tag build; "
+        f"WARN: CompozyOS {version} ({commit}) is a custom compatible build; "
         f"Batuta is verified on {VERIFIED_TEXT}",
         file=sys.stderr,
     )

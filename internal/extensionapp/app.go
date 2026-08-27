@@ -162,9 +162,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 		Version:     "0.1.0-beta.5",
 		Description: "Batuta conducts implementation, review, and verified publication on CompozyOS.",
 		Resources: compozysdk.DescribeResources{
-			Agents: []string{"agents"},
-			Skills: []string{"resources/skills"},
-			Loops:  []string{"loops"},
+			Agents: []compozysdk.DescribeResourcePath{{Path: "agents"}},
+			Skills: []compozysdk.DescribeResourcePath{{Path: "resources/skills"}},
+			Loops:  []compozysdk.DescribeResourcePath{{Path: "loops"}},
 		},
 		Subprocess: compozysdk.DescribeSubprocess{
 			Command: "./bin",

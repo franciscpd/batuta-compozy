@@ -26,9 +26,9 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	if describe.Name != "batuta" || describe.Version != "0.1.0-beta.5" {
 		t.Fatalf("identity = %q@%q", describe.Name, describe.Version)
 	}
-	if !reflect.DeepEqual(describe.Resources.Agents, []string{"agents"}) ||
-		!reflect.DeepEqual(describe.Resources.Skills, []string{"resources/skills"}) ||
-		!reflect.DeepEqual(describe.Resources.Loops, []string{"loops"}) {
+	if !reflect.DeepEqual(describe.Resources.Agents, []compozysdk.DescribeResourcePath{{Path: "agents"}}) ||
+		!reflect.DeepEqual(describe.Resources.Skills, []compozysdk.DescribeResourcePath{{Path: "resources/skills"}}) ||
+		!reflect.DeepEqual(describe.Resources.Loops, []compozysdk.DescribeResourcePath{{Path: "loops"}}) {
 		t.Fatalf("resources = %#v", describe.Resources)
 	}
 	if describe.Subprocess.Command != "./bin" ||

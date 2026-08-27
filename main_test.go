@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 type fakeExtensionRunner struct {
@@ -99,5 +102,77 @@ func TestRunPropagatesResolverAndRuntimeFailures(t *testing.T) {
 		func(string, string) (extensionRunner, error) { return &fakeExtensionRunner{err: runErr}, nil },
 	); !errors.Is(err, runErr) {
 		t.Fatalf("runtime error = %v", err)
+	}
+}
+
+func TestDeliveryRunsChildrenInTheSelectedWorktreeWithBoundedOverrides(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile("loops/batuta-deliver/loop.yaml")
+	if err != nil {
+		t.Fatalf("read batuta-deliver: %v", err)
+	}
+	var definition struct {
+		Graph struct {
+			Nodes []struct {
+				ID     string `yaml:"id"`
+				Kind   string `yaml:"kind"`
+				Params struct {
+					ConfigOverrides struct {
+						IterationCap      int    `yaml:"iteration_cap"`
+						BudgetTokens      string `yaml:"budget_tokens"`
+						BudgetWallSec     string `yaml:"budget_wall_sec"`
+						BudgetOnExceeded  string `yaml:"budget_on_exceeded"`
+						ReattemptStrategy string `yaml:"reattempt_strategy"`
+						RuntimeRules      string `yaml:"runtime_rules"`
+						Environment       struct {
+							Mode        string `yaml:"mode"`
+							WorktreeRef string `yaml:"worktree_ref"`
+						} `yaml:"environment"`
+					} `yaml:"config_overrides"`
+				} `yaml:"params"`
+			} `yaml:"nodes"`
+		} `yaml:"graph"`
+	}
+	if err := yaml.Unmarshal(payload, &definition); err != nil {
+		t.Fatalf("decode batuta-deliver: %v", err)
+	}
+	wantContext := map[string]struct {
+		budgetTokens string
+		budgetWall   string
+		runtimeRules string
+	}{
+		"implement": {
+			budgetTokens: "{{ .nodes.routing_context.output.remaining_tokens }}",
+			budgetWall:   "{{ .nodes.routing_context.output.remaining_wall_seconds }}",
+			runtimeRules: "{{ .nodes.routing_context.output.runtime_rules }}",
+		},
+		"review": {
+			budgetTokens: "{{ .nodes.delivery_budget_context.output.remaining_tokens }}",
+			budgetWall:   "{{ .nodes.delivery_budget_context.output.remaining_wall_seconds }}",
+		},
+	}
+	for nodeID, want := range wantContext {
+		var found bool
+		for _, node := range definition.Graph.Nodes {
+			if node.ID != nodeID {
+				continue
+			}
+			found = true
+			got := node.Params.ConfigOverrides
+			if node.Kind != "run-loop" || got.IterationCap != 4 ||
+				got.BudgetTokens != want.budgetTokens || got.BudgetWallSec != want.budgetWall ||
+				got.RuntimeRules != want.runtimeRules || got.BudgetOnExceeded != "halt" ||
+				got.ReattemptStrategy != "halt" {
+				t.Fatalf("node %s bounded overrides = %#v", nodeID, got)
+			}
+			if got.Environment.Mode != "worktree" ||
+				got.Environment.WorktreeRef != "{{ .inputs.worktree_ref }}" {
+				t.Fatalf("node %s environment = %#v, want selected worktree", nodeID, got.Environment)
+			}
+		}
+		if !found {
+			t.Fatalf("delivery node %s not found", nodeID)
+		}
 	}
 }
