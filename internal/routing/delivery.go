@@ -131,6 +131,7 @@ type DeliveryRecord struct {
 	InitialWorktreeFingerprint WorktreeFingerprint  `json:"initial_worktree_fingerprint"`
 	State                      DeliveryState        `json:"state"`
 	Attempts                   []DeliveryAttempt    `json:"attempts"`
+	Graph                      *DeliveryGraph       `json:"graph,omitempty"`
 }
 
 func SuccessorRuntimeRules(
@@ -290,6 +291,17 @@ func validateDelivery(record DeliveryRecord, generations map[string]RoutingGener
 	if err := validateDeliveryTaskSnapshot(record.TaskSnapshot, record.TaskSetDigest, generation); err != nil {
 		return err
 	}
+	if record.Graph != nil {
+		if err := validateDeliveryGraph(
+			record.Graph,
+			record.TaskSnapshot,
+			generation,
+			record.CreatedAt,
+			record.InitialWorktreeFingerprint.HeadSHA,
+		); err != nil {
+			return err
+		}
+	}
 	operations := make(map[string]struct{}, len(record.Attempts))
 	for index, attempt := range record.Attempts {
 		if err := validateAttempt(attempt, index+1); err != nil {
@@ -405,8 +417,16 @@ func validateDeliveryTransition(before, after DeliveryRecord) error {
 	afterHeader := after
 	beforeHeader.State, afterHeader.State = "", ""
 	beforeHeader.Attempts, afterHeader.Attempts = nil, nil
+	beforeHeader.Graph, afterHeader.Graph = nil, nil
 	if !reflect.DeepEqual(beforeHeader, afterHeader) || !deliveryStateTransitionAllowed(before.State, after.State) || len(after.Attempts) < len(before.Attempts) || len(after.Attempts) > len(before.Attempts)+1 {
 		return ErrDeliveryConflict
+	}
+	if before.Graph == nil || after.Graph == nil {
+		if before.Graph != nil || after.Graph != nil {
+			return ErrDeliveryConflict
+		}
+	} else if err := validateDeliveryGraphTransition(before.Graph, after.Graph); err != nil {
+		return err
 	}
 	for index := range before.Attempts {
 		if index < len(before.Attempts)-1 {

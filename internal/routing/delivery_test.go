@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +54,329 @@ func TestDeliveryJournalPersistsStrictSchemaV2(t *testing.T) {
 	}
 	if journalInfo.Mode().Perm() != 0o600 || lockInfo.Mode().Perm() != 0o600 || dirInfo.Mode().Perm() != 0o700 {
 		t.Fatalf("modes = journal:%o lock:%o dir:%o, want 600/600/700", journalInfo.Mode().Perm(), lockInfo.Mode().Perm(), dirInfo.Mode().Perm())
+	}
+}
+
+func TestLegacyGraphlessDeliveryLoadsByteForByteAndCannotGainGraph(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewOwnershipStore(root)
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	delivery := validDeliveryFixture(t)
+	generation := validGenerationFixture(t)
+	journal := RoutingJournal{
+		SchemaVersion: journalSchemaVersion, CurrentGeneration: generation.Digest,
+		Generations: map[string]RoutingGeneration{generation.Digest: generation},
+		Deliveries:  map[string]DeliveryRecord{delivery.DeliveryID: delivery},
+	}
+	payload, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatalf("json.Marshal(legacy journal) error = %v", err)
+	}
+	if strings.Contains(string(payload), `"graph"`) {
+		t.Fatalf("legacy payload unexpectedly contains graph: %s", payload)
+	}
+	if err := os.WriteFile(store.pathFor(delivery.WorkspaceID), payload, 0o600); err != nil {
+		t.Fatalf("write legacy journal: %v", err)
+	}
+	loaded, exists, err := store.Load(delivery.WorkspaceID)
+	if err != nil || !exists || loaded.Deliveries[delivery.DeliveryID].Graph != nil {
+		t.Fatalf("Load(legacy) = %#v, exists %v, error %v", loaded, exists, err)
+	}
+	afterRead, err := os.ReadFile(store.pathFor(delivery.WorkspaceID))
+	if err != nil || !slices.Equal(afterRead, payload) {
+		t.Fatalf("legacy bytes changed on read: error %v\nwant %s\ngot  %s", err, payload, afterRead)
+	}
+
+	err = store.WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		record := tx.Journal.Deliveries[delivery.DeliveryID]
+		record.Graph, err = NewDeliveryGraph(record.TaskSnapshot, generation, record.InitialWorktreeFingerprint.HeadSHA)
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[delivery.DeliveryID] = record
+		return tx.Persist()
+	})
+	if !errors.Is(err, ErrDeliveryConflict) {
+		t.Fatalf("attach graph to started legacy delivery error = %v, want ErrDeliveryConflict", err)
+	}
+}
+
+func TestDeliveryGraphJournalAllowsOnlyValidTaskLifecycle(t *testing.T) {
+	t.Parallel()
+
+	store, delivery := persistedGraphDeliveryStore(t)
+	base := delivery.InitialWorktreeFingerprint.HeadSHA
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		_, err := graph.AdmitReadyWave(ReadyWaveInput{
+			IntegrationHeadSHA: base, RemainingSlots: 1, ReachableCommits: map[string]bool{},
+		})
+		if err != nil {
+			return err
+		}
+		graph.Tasks[0].Attempts = append(graph.Tasks[0].Attempts, GraphTaskAttempt{
+			Execution: 1,
+			Runtime:   RuntimeValue{Provider: "codex", Model: "gpt-5.6-luna", Reasoning: "high"},
+			State:     GraphTaskPreparing, BaseHeadSHA: base,
+		})
+		return nil
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskRunning
+		task.Attempts[0].State = GraphTaskRunning
+		task.Attempts[0].WorktreeID = "task-worktree-1"
+		task.Attempts[0].WorktreeRoot = "/workspace/task-1"
+		task.Attempts[0].ChildRunID = "child-run-1"
+		return nil
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskWaitingInput
+		task.Attempts[0].State = GraphTaskWaitingInput
+		task.Attempts[0].Question = &TaskQuestion{
+			RequestID: "request-1", Prompt: "Choose the public behavior",
+			ContextDigest: digestFixture("question-context"),
+		}
+		_, _, err := graph.OpenPause(HumanPause{
+			TaskID: task.TaskID, Execution: 1, RequestID: "request-1",
+			StartedAt: delivery.CreatedAt.Add(10 * time.Minute),
+		})
+		return err
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskRunning
+		task.Attempts[0].State = GraphTaskRunning
+		_, _, err := graph.ClosePause("request-1", delivery.CreatedAt.Add(20*time.Minute))
+		return err
+	})
+	candidate := graphGitSHA("candidate")
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskCandidate
+		task.Attempts[0].State = GraphTaskCandidate
+		task.Attempts[0].CandidateCommitSHA = candidate
+		task.Attempts[0].VerificationDigest = digestFixture("verification")
+		return nil
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskIntegrated
+		task.IntegratedCommitSHA = candidate
+		task.Attempts[0].State = GraphTaskIntegrated
+		return nil
+	})
+
+	journal, exists, err := store.Load(delivery.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load(final graph) = exists %v, error %v", exists, err)
+	}
+	got := journal.Deliveries[delivery.DeliveryID].Graph
+	if got == nil || got.Tasks[0].State != GraphTaskIntegrated || got.Tasks[0].IntegratedCommitSHA != candidate ||
+		len(got.Pauses) != 1 || got.Pauses[0].EndedAt == nil {
+		t.Fatalf("final graph = %#v", got)
+	}
+	err = store.WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		record := tx.Journal.Deliveries[delivery.DeliveryID]
+		record.Graph.Tasks[0].State = GraphTaskBlocked
+		record.Graph.Tasks[0].BlockerCode = "late_rewrite"
+		tx.Journal.Deliveries[delivery.DeliveryID] = record
+		return tx.Persist()
+	})
+	if !errors.Is(err, ErrInvalidDeliveryTransition) {
+		t.Fatalf("rewrite integrated task error = %v, want ErrInvalidDeliveryTransition", err)
+	}
+}
+
+func TestDeliveryGraphAllowsPendingAndRunningTasksToBlock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pending", func(t *testing.T) {
+		t.Parallel()
+		store, delivery := persistedGraphDeliveryStore(t)
+		mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+			graph.Tasks[0].State = GraphTaskBlocked
+			graph.Tasks[0].BlockerCode = "dependency_blocked"
+			return nil
+		})
+		journal, _, err := store.Load(delivery.WorkspaceID)
+		if err != nil || journal.Deliveries[delivery.DeliveryID].Graph.Tasks[0].State != GraphTaskBlocked {
+			t.Fatalf("Load(blocked pending) error = %v, journal = %#v", err, journal)
+		}
+	})
+
+	t.Run("running", func(t *testing.T) {
+		t.Parallel()
+		store, delivery := persistedGraphDeliveryStore(t)
+		base := delivery.InitialWorktreeFingerprint.HeadSHA
+		mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+			if _, err := graph.AdmitReadyWave(ReadyWaveInput{
+				IntegrationHeadSHA: base, RemainingSlots: 1, ReachableCommits: map[string]bool{},
+			}); err != nil {
+				return err
+			}
+			graph.Tasks[0].Attempts = []GraphTaskAttempt{{
+				Execution: 1,
+				Runtime:   RuntimeValue{Provider: "codex", Model: "gpt-5.6-luna", Reasoning: "high"},
+				State:     GraphTaskPreparing, BaseHeadSHA: base,
+			}}
+			return nil
+		})
+		mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+			task := &graph.Tasks[0]
+			task.State = GraphTaskRunning
+			task.Attempts[0].State = GraphTaskRunning
+			task.Attempts[0].WorktreeID = "task-worktree-1"
+			task.Attempts[0].WorktreeRoot = "/workspace/task-1"
+			task.Attempts[0].ChildRunID = "child-run-1"
+			return nil
+		})
+		mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+			task := &graph.Tasks[0]
+			task.State = GraphTaskBlocked
+			task.BlockerCode = "verification_failed"
+			task.Attempts[0].State = GraphTaskBlocked
+			task.Attempts[0].BlockerCode = "verification_failed"
+			return nil
+		})
+		journal, _, err := store.Load(delivery.WorkspaceID)
+		if err != nil || journal.Deliveries[delivery.DeliveryID].Graph.Tasks[0].State != GraphTaskBlocked {
+			t.Fatalf("Load(blocked running) error = %v, journal = %#v", err, journal)
+		}
+	})
+}
+
+func TestDeliveryGraphConflictReexecutionAppendsAttemptAndIntegratedIsImmutable(t *testing.T) {
+	t.Parallel()
+
+	store, delivery := persistedGraphDeliveryStore(t)
+	base := delivery.InitialWorktreeFingerprint.HeadSHA
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		_, err := graph.AdmitReadyWave(ReadyWaveInput{
+			IntegrationHeadSHA: base, RemainingSlots: 1, ReachableCommits: map[string]bool{},
+		})
+		if err != nil {
+			return err
+		}
+		graph.Tasks[0].Attempts = []GraphTaskAttempt{{
+			Execution: 1, Runtime: RuntimeValue{Provider: "codex", Model: "gpt-5.6-luna", Reasoning: "high"},
+			State: GraphTaskPreparing, BaseHeadSHA: base,
+		}}
+		return nil
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		task.State = GraphTaskRunning
+		task.Attempts[0].State = GraphTaskRunning
+		task.Attempts[0].WorktreeID = "task-worktree-1"
+		task.Attempts[0].WorktreeRoot = "/workspace/task-1"
+		task.Attempts[0].ChildRunID = "child-run-1"
+		return nil
+	})
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		candidate := graphGitSHA("obsolete-candidate")
+		task := &graph.Tasks[0]
+		task.State = GraphTaskCandidate
+		task.Attempts[0].State = GraphTaskCandidate
+		task.Attempts[0].CandidateCommitSHA = candidate
+		task.Attempts[0].VerificationDigest = digestFixture("verification-1")
+		return nil
+	})
+	latestHead := graphGitSHA("latest-head")
+	mutateGraphDelivery(t, store, delivery, func(graph *DeliveryGraph) error {
+		task := &graph.Tasks[0]
+		obsolete := task.Attempts[0].CandidateCommitSHA
+		task.Attempts[0].Conflict = &ConflictProof{
+			IntegrationOperationID: digestFixture("integration-operation"),
+			IntegrationHeadSHA:     latestHead, CandidateCommitSHA: obsolete,
+			EvidenceDigest: digestFixture("conflict-evidence"),
+		}
+		task.Attempts = append(task.Attempts, GraphTaskAttempt{
+			Execution: 2, Runtime: RuntimeValue{Provider: "cursor", Model: "grok-4.6", Reasoning: "high"},
+			State: GraphTaskPreparing, BaseHeadSHA: latestHead,
+		})
+		graph.Waves = append(graph.Waves, DeliveryWave{
+			Number: len(graph.Waves) + 1, BaseHeadSHA: latestHead, TaskIDs: []string{task.TaskID},
+		})
+		task.State = GraphTaskPreparing
+		return nil
+	})
+
+	journal, _, err := store.Load(delivery.WorkspaceID)
+	if err != nil {
+		t.Fatalf("Load(reexecution) error = %v", err)
+	}
+	reexecuted := journal.Deliveries[delivery.DeliveryID].Graph.Tasks[0]
+	if len(reexecuted.Attempts) != 2 || reexecuted.Attempts[0].Conflict == nil ||
+		reexecuted.Attempts[0].CandidateCommitSHA == "" || reexecuted.Attempts[1].BaseHeadSHA != latestHead {
+		t.Fatalf("reexecuted task = %#v", reexecuted)
+	}
+
+	first := reexecuted.Attempts[0]
+	err = store.WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		record := tx.Journal.Deliveries[delivery.DeliveryID]
+		record.Graph.Tasks[0].Attempts[0].CandidateCommitSHA = graphGitSHA("rewritten")
+		tx.Journal.Deliveries[delivery.DeliveryID] = record
+		return tx.Persist()
+	})
+	if !errors.Is(err, ErrDeliveryConflict) {
+		t.Fatalf("rewrite obsolete attempt error = %v, want ErrDeliveryConflict", err)
+	}
+	journal, _, _ = store.Load(delivery.WorkspaceID)
+	if !reflect.DeepEqual(journal.Deliveries[delivery.DeliveryID].Graph.Tasks[0].Attempts[0], first) {
+		t.Fatal("rejected rewrite changed durable attempt")
+	}
+}
+
+func persistedGraphDeliveryStore(t *testing.T) (*OwnershipStore, DeliveryRecord) {
+	t.Helper()
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	delivery := validDeliveryFixture(t)
+	delivery.Attempts = nil
+	generation := validGenerationFixture(t)
+	delivery.Graph, err = NewDeliveryGraph(delivery.TaskSnapshot, generation, delivery.InitialWorktreeFingerprint.HeadSHA)
+	if err != nil {
+		t.Fatalf("NewDeliveryGraph() error = %v", err)
+	}
+	err = store.WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		tx.Journal.Generations[generation.Digest] = generation
+		tx.Journal.CurrentGeneration = generation.Digest
+		tx.Journal.Deliveries[delivery.DeliveryID] = delivery
+		return tx.Persist()
+	})
+	if err != nil {
+		t.Fatalf("persist graph delivery: %v", err)
+	}
+	return store, delivery
+}
+
+func mutateGraphDelivery(
+	t *testing.T,
+	store *OwnershipStore,
+	delivery DeliveryRecord,
+	mutate func(*DeliveryGraph) error,
+) {
+	t.Helper()
+	err := store.WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		record := tx.Journal.Deliveries[delivery.DeliveryID]
+		if record.Graph == nil {
+			return ErrInvalidDeliveryGraph
+		}
+		if err := mutate(record.Graph); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[delivery.DeliveryID] = record
+		return tx.Persist()
+	})
+	if err != nil {
+		t.Fatalf("mutate graph delivery: %v", err)
 	}
 }
 

@@ -63,6 +63,14 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 	if err != nil {
 		return MatrixApplyResult{}, err
 	}
+	graph, err := NewDeliveryGraph(
+		input.TaskSnapshot,
+		input.Generation,
+		input.InitialWorktreeFingerprint.HeadSHA,
+	)
+	if err != nil {
+		return MatrixApplyResult{}, ErrOwnershipUnproven
+	}
 	var result MatrixApplyResult
 	err = m.Store.WithLockedJournal(input.WorkspaceID, func(tx *JournalTx) error {
 		if archived, exists := tx.Journal.Generations[input.Generation.Digest]; exists && !reflect.DeepEqual(archived, input.Generation) {
@@ -71,7 +79,7 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 		tx.Journal.Generations[input.Generation.Digest] = input.Generation
 		tx.Journal.CurrentGeneration = input.Generation.Digest
 		if existing, exists := tx.Journal.Deliveries[deliveryID]; exists {
-			if !deliveryMatchesMatrixInput(existing, input) {
+			if !deliveryMatchesMatrixInput(existing, input, graph) {
 				return ErrDeliveryConflict
 			}
 			result = matrixResult(existing, len(input.Generation.Rules))
@@ -86,7 +94,7 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 			CreatedAt: createdAt, AbsoluteDeadline: createdAt.Add(4 * time.Hour),
 			AttemptCeiling: deliveryAttemptCeiling, TokenCeiling: deliveryTokenCeiling,
 			InitialWorktreeFingerprint: input.InitialWorktreeFingerprint,
-			State:                      DeliveryStateActive, Attempts: []DeliveryAttempt{},
+			State:                      DeliveryStateActive, Attempts: []DeliveryAttempt{}, Graph: cloneDeliveryGraph(graph),
 		}
 		tx.Journal.Deliveries[deliveryID] = delivery
 		if err := tx.Persist(); err != nil {
@@ -107,7 +115,7 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 	}
 	archivedGeneration, generationExists := journal.Generations[input.Generation.Digest]
 	archivedDelivery, deliveryExists := journal.Deliveries[deliveryID]
-	if !generationExists || !deliveryExists || archivedGeneration.Digest != input.Generation.Digest || archivedDelivery.DeliveryID != deliveryID || !deliveryMatchesMatrixInput(archivedDelivery, input) {
+	if !generationExists || !deliveryExists || archivedGeneration.Digest != input.Generation.Digest || archivedDelivery.DeliveryID != deliveryID || !deliveryMatchesMatrixInput(archivedDelivery, input, graph) {
 		return MatrixApplyResult{}, ErrOwnershipUnproven
 	}
 	return result, nil
@@ -140,13 +148,30 @@ func trustedWorkspaceIdentityDigest(workspaceID, root string) string {
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
-func deliveryMatchesMatrixInput(delivery DeliveryRecord, input MatrixApplyInput) bool {
+func deliveryMatchesMatrixInput(delivery DeliveryRecord, input MatrixApplyInput, graph *DeliveryGraph) bool {
 	return delivery.DeliveryID != "" && delivery.WorkspaceID == input.WorkspaceID && delivery.WorktreeID == input.WorktreeID &&
 		delivery.WorktreeRoot == input.WorktreeRoot && delivery.Slug == input.Slug && delivery.TaskSetDigest == input.TaskSetDigest &&
 		delivery.RoutingGenerationDigest == input.Generation.Digest && delivery.OriginSessionID == input.OriginSessionID &&
 		reflect.DeepEqual(delivery.TaskSnapshot, input.TaskSnapshot) &&
 		reflect.DeepEqual(delivery.InitialWorktreeFingerprint, input.InitialWorktreeFingerprint) &&
+		deliveryGraphMatchesIdentity(delivery.Graph, graph) &&
 		delivery.AttemptCeiling == deliveryAttemptCeiling && delivery.TokenCeiling == deliveryTokenCeiling
+}
+
+func deliveryGraphMatchesIdentity(actual, initial *DeliveryGraph) bool {
+	if actual == nil || initial == nil || len(actual.Tasks) != len(initial.Tasks) {
+		return false
+	}
+	for index := range actual.Tasks {
+		actualTask := actual.Tasks[index]
+		initialTask := initial.Tasks[index]
+		if actualTask.TaskID != initialTask.TaskID || actualTask.AuthoredIndex != initialTask.AuthoredIndex ||
+			!reflect.DeepEqual(actualTask.Dependencies, initialTask.Dependencies) ||
+			actualTask.Domain != initialTask.Domain || actualTask.Complexity != initialTask.Complexity {
+			return false
+		}
+	}
+	return true
 }
 
 func matrixResult(delivery DeliveryRecord, ruleCount int) MatrixApplyResult {

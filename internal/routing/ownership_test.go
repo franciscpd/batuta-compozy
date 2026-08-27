@@ -62,6 +62,136 @@ func TestOwnershipWorkspaceLockSerializesSeparateStoreInstances(t *testing.T) {
 	}
 }
 
+func TestDeliveryGraphCrossStoreWritersNeverAdmitMoreThanFourTasks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stores := make([]*OwnershipStore, 2)
+	for index := range stores {
+		store, err := NewOwnershipStore(root)
+		if err != nil {
+			t.Fatalf("NewOwnershipStore(%d) error = %v", index, err)
+		}
+		stores[index] = store
+	}
+	snapshot := graphSnapshotFixture(t, []TaskArtifact{
+		graphTaskArtifact("task_01", "pending", DomainBackend, ComplexityLow),
+		graphTaskArtifact("task_02", "pending", DomainFrontend, ComplexityLow),
+		graphTaskArtifact("task_03", "pending", DomainTesting, ComplexityLow),
+		graphTaskArtifact("task_04", "pending", DomainDocs, ComplexityLow),
+		graphTaskArtifact("task_05", "pending", DomainInfra, ComplexityLow),
+	})
+	generation := graphGenerationFixture(t, snapshot)
+	delivery := validDeliveryFixture(t)
+	delivery.DeliveryID = digestFixture("parallel-delivery")
+	delivery.Slug = "graph-demo"
+	delivery.TaskSetDigest = snapshot.Digest
+	delivery.TaskSnapshot = snapshot
+	delivery.RoutingGenerationDigest = generation.Digest
+	delivery.Attempts = nil
+	graph, err := NewDeliveryGraph(snapshot, generation, delivery.InitialWorktreeFingerprint.HeadSHA)
+	if err != nil {
+		t.Fatalf("NewDeliveryGraph() error = %v", err)
+	}
+	delivery.Graph = graph
+	if err := stores[0].WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		tx.Journal.Generations[generation.Digest] = generation
+		tx.Journal.CurrentGeneration = generation.Digest
+		tx.Journal.Deliveries[delivery.DeliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist delivery: %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsByWriter := make(chan error, len(snapshot.Tasks))
+	var writers sync.WaitGroup
+	for index := range snapshot.Tasks {
+		writers.Add(1)
+		go func(index int) {
+			defer writers.Done()
+			<-start
+			errorsByWriter <- stores[index%len(stores)].WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+				record := tx.Journal.Deliveries[delivery.DeliveryID]
+				wave, err := record.Graph.AdmitReadyWave(ReadyWaveInput{
+					IntegrationHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA,
+					RemainingSlots:     1,
+					ReachableCommits:   map[string]bool{},
+				})
+				if err != nil {
+					return err
+				}
+				if len(wave.TaskIDs) == 1 {
+					task := graphTaskByID(record.Graph.Tasks, wave.TaskIDs[0])
+					if task == nil {
+						return ErrInvalidDeliveryGraph
+					}
+					task.Attempts = append(task.Attempts, GraphTaskAttempt{
+						Execution:   1,
+						Runtime:     RuntimeValue{Provider: "codex", Model: "gpt-5.6-luna", Reasoning: "high"},
+						State:       GraphTaskPreparing,
+						BaseHeadSHA: delivery.InitialWorktreeFingerprint.HeadSHA,
+					})
+				}
+				tx.Journal.Deliveries[delivery.DeliveryID] = record
+				return tx.Persist()
+			})
+		}(index)
+	}
+	close(start)
+	writers.Wait()
+	close(errorsByWriter)
+	for err := range errorsByWriter {
+		if err != nil {
+			t.Fatalf("parallel admission error = %v", err)
+		}
+	}
+	if err := stores[1].WithLockedJournal(delivery.WorkspaceID, func(tx *JournalTx) error {
+		record := tx.Journal.Deliveries[delivery.DeliveryID]
+		for index := range record.Graph.Tasks {
+			task := &record.Graph.Tasks[index]
+			if task.State != GraphTaskPreparing {
+				continue
+			}
+			task.State = GraphTaskRunning
+			task.Attempts[0].State = GraphTaskRunning
+			task.Attempts[0].WorktreeID = "worktree-" + task.TaskID
+			task.Attempts[0].WorktreeRoot = "/workspace/" + task.TaskID
+			task.Attempts[0].ChildRunID = "child-" + task.TaskID
+		}
+		tx.Journal.Deliveries[delivery.DeliveryID] = record
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("promote admitted tasks to running: %v", err)
+	}
+	journal, exists, err := stores[0].Load(delivery.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load() = exists %v, error %v", exists, err)
+	}
+	durable := journal.Deliveries[delivery.DeliveryID].Graph
+	if durable == nil || activeGraphTaskCount(durable.Tasks) != MaxParallelTasks || len(durable.Waves) != MaxParallelTasks {
+		t.Fatalf("durable graph = %#v, want exactly %d admitted tasks", durable, MaxParallelTasks)
+	}
+	pending := 0
+	for _, task := range durable.Tasks {
+		if task.State == GraphTaskPending {
+			pending++
+		}
+	}
+	if pending != 1 {
+		t.Fatalf("pending tasks = %d, want one", pending)
+	}
+	running := 0
+	for _, task := range durable.Tasks {
+		if task.State == GraphTaskRunning {
+			running++
+		}
+	}
+	if running != MaxParallelTasks {
+		t.Fatalf("running tasks = %d, want %d", running, MaxParallelTasks)
+	}
+}
+
 func TestOwnershipJournalHashesWorkspaceFilenameAndExcludesSecrets(t *testing.T) {
 	t.Parallel()
 

@@ -41,6 +41,11 @@ func TestMatrixApplyArchivesGenerationAndDeliveryWithoutStoredConfig(t *testing.
 		delivery.OriginSessionID != input.OriginSessionID || len(delivery.Attempts) != 0 || delivery.State != DeliveryStateActive {
 		t.Fatalf("delivery = %#v", delivery)
 	}
+	if delivery.Graph == nil || len(delivery.Graph.Tasks) != len(input.TaskSnapshot.Tasks) ||
+		delivery.Graph.Tasks[0].TaskID != input.TaskSnapshot.Tasks[0].ID ||
+		delivery.Graph.Tasks[0].State != GraphTaskPending || delivery.Graph.Tasks[0].AuthoredIndex != 0 {
+		t.Fatalf("delivery graph = %#v, want immutable pending task projection", delivery.Graph)
+	}
 }
 
 func TestMatrixApplyReplaysIdenticalHeaderWithoutResettingBudget(t *testing.T) {
@@ -56,6 +61,20 @@ func TestMatrixApplyReplaysIdenticalHeaderWithoutResettingBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply(first) error = %v", err)
 	}
+	if err := store.WithLockedJournal(input.WorkspaceID, func(tx *JournalTx) error {
+		delivery := tx.Journal.Deliveries[first.DeliveryID]
+		if _, err := delivery.Graph.AdmitReadyWave(ReadyWaveInput{
+			IntegrationHeadSHA: input.InitialWorktreeFingerprint.HeadSHA,
+			RemainingSlots:     1,
+			ReachableCommits:   map[string]bool{},
+		}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[first.DeliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist graph progress: %v", err)
+	}
 	time.Sleep(time.Millisecond)
 	second, err := manager.Apply(context.Background(), input)
 	if err != nil {
@@ -67,6 +86,10 @@ func TestMatrixApplyReplaysIdenticalHeaderWithoutResettingBudget(t *testing.T) {
 	journal, _, err := store.Load(input.WorkspaceID)
 	if err != nil || len(journal.Deliveries) != 1 || len(journal.Generations) != 1 {
 		t.Fatalf("replay journal = %#v, error:%v", journal, err)
+	}
+	graph := journal.Deliveries[first.DeliveryID].Graph
+	if graph == nil || graph.Tasks[0].State != GraphTaskPreparing || len(graph.Waves) != 1 {
+		t.Fatalf("replay reset durable graph progress: %#v", graph)
 	}
 }
 

@@ -356,6 +356,17 @@ func validateGenerationArchive(current string, generations map[string]RoutingGen
 
 func validateJournalTransition(before, after RoutingJournal) error {
 	if err := validateJournal(after); err != nil {
+		if errors.Is(err, ErrInvalidDeliveryGraph) {
+			for deliveryID, delivery := range before.Deliveries {
+				candidate, exists := after.Deliveries[deliveryID]
+				if !exists {
+					return ErrDeliveryConflict
+				}
+				if transitionErr := validateDeliveryTransition(delivery, candidate); transitionErr != nil {
+					return transitionErr
+				}
+			}
+		}
 		return err
 	}
 	for digest, generation := range before.Generations {
