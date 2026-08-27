@@ -42,7 +42,10 @@ case "$*" in
     printf '%s\n' '{}'
     ;;
   "extension enable batuta -o json")
-    printf '%s\n' '{"extension":{"state":"active"}}'
+    printf '%s\n' '{"profile":"default","enabled":true}'
+    ;;
+  "extension status batuta -o json")
+    printf '%s\n' '{"name":"batuta","enabled":true,"state":"active","health":"healthy"}'
     ;;
   "extension inventory batuta -o json")
     printf '%s\n' '{"items":[{"kind":"agent","name":"batuta","live":true},{"kind":"loop","name":"batuta-deliver","live":true},{"kind":"skill","name":"batuta-routing","live":true},{"kind":"tool","name":"ext__batuta__delivery_budget_context","live":true},{"kind":"tool","name":"ext__batuta__executor_inventory","live":true},{"kind":"tool","name":"ext__batuta__publication_plan","live":true},{"kind":"tool","name":"ext__batuta__publication_verify","live":true},{"kind":"tool","name":"ext__batuta__publish_worktree","live":true},{"kind":"tool","name":"ext__batuta__routing_apply","live":true},{"kind":"tool","name":"ext__batuta__routing_context","live":true},{"kind":"tool","name":"ext__batuta__routing_plan","live":true}]}'
@@ -58,8 +61,8 @@ BATUTA_FAKE_LOG="$LOG" BATUTA_FAKE_TREE="$TREE" PATH="$TMP:$PATH" \
   scripts/republish.sh >/dev/null
 
 mapfile -t calls < "$LOG"
-[[ ${#calls[@]} -eq 8 ]] || {
-  printf 'expected exactly 8 compozy calls, got %d:\n%s\n' "${#calls[@]}" "$(cat "$LOG")" >&2
+[[ ${#calls[@]} -eq 9 ]] || {
+  printf 'expected exactly 9 compozy calls, got %d:\n%s\n' "${#calls[@]}" "$(cat "$LOG")" >&2
   exit 1
 }
 expect_call() {
@@ -77,7 +80,8 @@ expect_call 3 "extension list -o json"
 expect_call 4 "extension remove batuta --global -o json"
 expect_call 5 "extension install * --allow-unverified --yes -o json"
 expect_call 6 "extension enable batuta -o json"
-expect_call 7 "extension inventory batuta -o json"
+expect_call 7 "extension status batuta -o json"
+expect_call 8 "extension inventory batuta -o json"
 
 validate_path=${calls[2]#extension validate }
 validate_path=${validate_path% -o json}
@@ -118,8 +122,8 @@ if grep -q '^extension remove' "$LOG"; then
   exit 1
 fi
 second_count=$(wc -l < "$LOG")
-if [[ $second_count -ne 7 ]]; then
-  printf 'expected 7 compozy calls without remove, got %s:\n%s\n' "$second_count" "$(cat "$LOG")" >&2
+if [[ $second_count -ne 8 ]]; then
+  printf 'expected 8 compozy calls without remove, got %s:\n%s\n' "$second_count" "$(cat "$LOG")" >&2
   exit 1
 fi
 

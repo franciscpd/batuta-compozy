@@ -68,11 +68,13 @@ raise SystemExit(0 if any(row.get("name") == "batuta" for row in rows) else 1)
 fi
 
 compozy extension install "$generation_canonical" --allow-unverified --yes -o json >/dev/null
-compozy extension enable batuta -o json | python3 -c "
+compozy extension enable batuta -o json >/dev/null
+compozy extension status batuta -o json | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-state=d.get('extension',{}).get('state')
-assert state=='active', f'enable falhou: {d}'
+assert d.get('enabled') is True, f'extensao nao habilitada: {d}'
+assert d.get('state')=='active', f'extensao nao ativa: {d}'
+assert d.get('health')=='healthy', f'extensao sem saude: {d}'
 print('extensao ativa')"
 
 compozy extension inventory batuta -o json | python3 -c "
