@@ -408,17 +408,12 @@ func (s *deliveryGraphService) recordAnswer(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
-	answer := routing.TaskAnswer{
-		QuestionOperationID: input.QuestionOperationID, LoopRunID: input.RequestLoopRunID,
-		Generation: input.RequestGeneration, NodeID: input.RequestNodeID,
-		ItemIndex: input.RequestItemIndex, Value: input.Answer,
-	}
 	if attempt.Question == nil || attempt.Question.RequestID != input.QuestionOperationID ||
-		attempt.ChildRunID != input.RequestLoopRunID {
+		!validOpaqueRunID(attempt.ChildRunID) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	if attempt.Question.Answer != nil {
-		if !reflect.DeepEqual(attempt.Question.Answer, &answer) || len(task.Attempts) < input.Execution+1 {
+		if attempt.Question.Answer.Value != input.Answer || len(task.Attempts) < input.Execution+1 {
 			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 		}
 		return answerOutput(input, input.Execution+1), nil
@@ -439,14 +434,19 @@ func (s *deliveryGraphService) recordAnswer(
 			BlockerCode: "delivery_budget_exhausted",
 		}, nil
 	}
-	detail, err := s.Runs.Status(ctx, scope.WorkspaceID, input.RequestLoopRunID)
+	detail, err := s.Runs.Status(ctx, scope.WorkspaceID, attempt.ChildRunID)
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
-	if detail.Run.Status != "running" || !graphTaskRunMatches(
+	request, matched := matchingAnsweredRequest(detail.Requests, attempt.ChildRunID, *attempt.Question)
+	if detail.Run.ID != attempt.ChildRunID || detail.Run.Status != "running" || !graphTaskRunMatches(
 		detail.Run, scope.WorkspaceID, delivery, delivery.Graph.Waves[input.Wave-1], task, input.Execution,
-	) || !containsAnsweredRequest(detail.Requests, input, *attempt.Question) {
+	) || !matched {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
+	answer := routing.TaskAnswer{
+		QuestionOperationID: input.QuestionOperationID, LoopRunID: request.LoopRunID,
+		Generation: request.Generation, NodeID: request.NodeID, ItemIndex: request.ItemIndex, Value: input.Answer,
 	}
 	err = store.WithLockedJournal(scope.WorkspaceID, func(tx *routing.JournalTx) error {
 		current, exists := tx.Journal.Deliveries[input.DeliveryID]
@@ -1883,21 +1883,22 @@ func graphAttemptRunExecution(attempt routing.GraphTaskAttempt) int {
 	return attempt.Execution
 }
 
-func containsAnsweredRequest(requests []deliveryRequest, input DeliveryGraphInput, question routing.TaskQuestion) bool {
+func matchingAnsweredRequest(requests []deliveryRequest, childRunID string, question routing.TaskQuestion) (deliveryRequest, bool) {
+	var match deliveryRequest
 	matches := 0
 	for _, request := range requests {
-		if request.LoopRunID == input.RequestLoopRunID && request.LoopName == "batuta-task" &&
-			request.Generation == input.RequestGeneration && request.NodeID == input.RequestNodeID &&
-			request.ItemIndex == input.RequestItemIndex && request.Kind == "ask" && request.State == "answered" &&
+		if request.LoopRunID == childRunID && request.LoopName == "batuta-task" &&
+			request.Generation >= 1 && request.NodeID != "" && request.ItemIndex >= 0 && request.Kind == "ask" && request.State == "answered" &&
 			request.Prompt == question.Prompt && rawJSONDigest(request.Context) == question.ContextDigest &&
 			jsonEquivalent(request.Expect, taskAnswerExpectation()) && reflect.DeepEqual(request.Decisions, []string{"respond"}) &&
 			request.Agents == "deny" && request.AnsweredDecision == "respond" && request.ActorKind == "human" &&
 			boundedRequestIdentity(request.ActorID) && request.AnsweredAt != nil && request.ResolvedAt != nil &&
 			request.AnsweredAt.Equal(*request.ResolvedAt) {
+			match = request
 			matches++
 		}
 	}
-	return matches == 1
+	return match, matches == 1
 }
 
 func taskAnswerExpectation() json.RawMessage {

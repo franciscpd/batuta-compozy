@@ -13,6 +13,16 @@ No operator chooses the routine executor or model. The operator is involved
 only when product requirements are ambiguous or an external credential or
 capability is genuinely unavailable.
 
+## SDD clarification
+
+During SDD authorship, resolve a material product ambiguity with
+`compozy__clarify`, one operator-language question at a time. For a closed
+decision, offer two to four mutually exclusive choices, list the recommended
+choice first with a concise impact, and accept free text. Wait until the card is
+settled before opening another; never guess a default or delegate the decision
+to a planner. Loop `ask` is reserved for a running Loop cell, not SDD, normal
+explanations, or final spec approval.
+
 ## Evidence
 
 Inventory evidence has exactly three resolution states:

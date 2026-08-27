@@ -100,6 +100,34 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	}
 }
 
+func TestDescribeDeliveryGraphDerivesInteractiveRequestIdentity(t *testing.T) {
+	t.Parallel()
+
+	extension, err := newWithServices(serviceSet{})
+	if err != nil {
+		t.Fatalf("newWithServices() error = %v", err)
+	}
+	var schema map[string]any
+	for _, descriptor := range extension.GetToolDescriptors() {
+		if descriptor.Handler == "delivery_graph" {
+			if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
+				t.Fatalf("delivery graph schema: %v", err)
+			}
+			break
+		}
+	}
+	if schema == nil {
+		t.Fatal("delivery graph descriptor is missing")
+	}
+	answer := schema["oneOf"].([]any)[3].(map[string]any)
+	properties := answer["properties"].(map[string]any)
+	for _, field := range []string{"request_loop_run_id", "request_generation", "request_node_id", "request_item_index"} {
+		if _, exists := properties[field]; exists {
+			t.Fatalf("published record_answer schema permits caller-controlled %q", field)
+		}
+	}
+}
+
 func TestHandlersRequireDaemonTrustedWorkspace(t *testing.T) {
 	t.Parallel()
 

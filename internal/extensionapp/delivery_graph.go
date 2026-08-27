@@ -58,10 +58,6 @@ type DeliveryGraphInput struct {
 	ContextDigest       string          `json:"context_digest,omitempty"`
 	Choices             []string        `json:"choices,omitempty"`
 	QuestionOperationID string          `json:"question_operation_id,omitempty"`
-	RequestLoopRunID    string          `json:"request_loop_run_id,omitempty"`
-	RequestGeneration   int             `json:"request_generation,omitempty"`
-	RequestNodeID       string          `json:"request_node_id,omitempty"`
-	RequestItemIndex    int             `json:"request_item_index,omitempty"`
 	Answer              string          `json:"answer,omitempty"`
 	BlockerCode         string          `json:"blocker_code,omitempty"`
 }
@@ -163,8 +159,7 @@ func (input DeliveryGraphInput) validate() error {
 			}
 		}
 	case GraphOpRecordAnswer:
-		if !task || !routingDigestPattern.MatchString(input.QuestionOperationID) || !validOpaqueRunID(input.RequestLoopRunID) ||
-			input.RequestGeneration < 1 || input.RequestNodeID == "" || input.RequestItemIndex < 0 || input.Answer == "" ||
+		if !task || !routingDigestPattern.MatchString(input.QuestionOperationID) || input.Answer == "" ||
 			len(input.Answer) > 4096 || input.hasCandidateFields() || input.Prompt != "" || input.ContextDigest != "" ||
 			input.Choices != nil || input.ChildRunID != "" || input.BlockerCode != "" {
 			return errors.New("batuta: invalid task answer")
@@ -236,8 +231,7 @@ func (input DeliveryGraphInput) hasCandidateFields() bool {
 }
 
 func (input DeliveryGraphInput) hasAnswerFields() bool {
-	return input.QuestionOperationID != "" || input.RequestLoopRunID != "" || input.RequestGeneration != 0 ||
-		input.RequestNodeID != "" || input.RequestItemIndex != 0 || input.Answer != ""
+	return input.QuestionOperationID != "" || input.Answer != ""
 }
 
 func (input DeliveryGraphInput) hasQuestionFields() bool {
@@ -285,12 +279,9 @@ func deliveryGraphInputSchema() map[string]any {
 			"context_digest": sha256OutputSchema(),
 			"choices":        map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 512}},
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "request_loop_run_id", "request_generation", "request_node_id", "request_item_index", "answer"}, withSchema(task(GraphOpRecordAnswer), map[string]any{
-			"question_operation_id": sha256OutputSchema(), "request_loop_run_id": opaqueRunIDSchema(),
-			"request_generation": map[string]any{"type": "integer", "minimum": 1},
-			"request_node_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
-			"request_item_index": map[string]any{"type": "integer", "minimum": 0},
-			"answer":             map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
+		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "answer"}, withSchema(task(GraphOpRecordAnswer), map[string]any{
+			"question_operation_id": sha256OutputSchema(),
+			"answer":                map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
 		})),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(), "base_sha": gitSHAInputSchema(), "commit_sha": gitSHAInputSchema(),

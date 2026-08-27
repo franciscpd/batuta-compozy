@@ -74,5 +74,18 @@ assert "short grill" in agent, "simple requests must shorten, not skip, the gril
 assert "only when the request changes a Web surface" in agent, (
     "_uiux.md must remain conditional"
 )
-print("OK: Batuta authors the unified spec-cycle PM and preflight contract")
+skill = Path("resources/skills/batuta-routing/SKILL.md").read_text()
+for surface in (agent, skill):
+    for value in (
+        "`compozy__clarify`",
+        "one",
+        "two to four",
+        "recommended",
+        "free text",
+        "settled",
+        "never guess a default",
+    ):
+        assert value in surface.lower(), f"missing interactive SDD contract: {value}"
+    assert "Loop `ask`" in surface, "SDD must reserve ask for running Loop cells"
+print("OK: Batuta authors the unified spec-cycle PM, preflight, and clarification contract")
 PY

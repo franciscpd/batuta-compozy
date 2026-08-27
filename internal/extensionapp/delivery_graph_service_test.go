@@ -291,8 +291,7 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	answerInput := DeliveryGraphInput{
 		Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number,
 		TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID,
-		RequestLoopRunID: run.ID, RequestGeneration: 2, RequestNodeID: "ask_operator",
-		RequestItemIndex: 0, Answer: "Preserve compatibility",
+		Answer: "Preserve compatibility",
 	}
 	answer, err := service.Execute(context.Background(), fixture.scope, answerInput)
 	if err != nil || answer.Disposition != GraphDispositionTaskReady || answer.Execution != 2 || runs.statusCalls != 1 {
@@ -301,6 +300,15 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	answerReplay, err := service.Execute(context.Background(), fixture.scope, answerInput)
 	if err != nil || !reflect.DeepEqual(answerReplay, answer) || runs.statusCalls != 1 {
 		t.Fatalf("record_answer replay = %#v, error=%v status_calls=%d", answerReplay, err, runs.statusCalls)
+	}
+	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
+	storedTask, _ = journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if storedTask.Attempts[0].Question == nil || storedTask.Attempts[0].Question.Answer == nil ||
+		storedTask.Attempts[0].Question.Answer.LoopRunID != run.ID ||
+		storedTask.Attempts[0].Question.Answer.Generation != 2 ||
+		storedTask.Attempts[0].Question.Answer.NodeID != "ask_operator" ||
+		storedTask.Attempts[0].Question.Answer.ItemIndex != 0 {
+		t.Fatalf("record_answer did not persist daemon-derived identity: %#v", storedTask.Attempts[0].Question)
 	}
 	questionReplay, err := service.Execute(context.Background(), fixture.scope, questionInput)
 	if err != nil || !reflect.DeepEqual(questionReplay, question) || runs.recentCalls != 1 {
@@ -369,6 +377,50 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	}
 	if validator.last.ExpectedBranch != identity.Branch {
 		t.Fatalf("continued candidate branch = %q, want original worktree branch %q", validator.last.ExpectedBranch, identity.Branch)
+	}
+}
+
+func TestDeliveryGraphServiceRejectsNonUniqueOrMismatchedAnsweredRequests(t *testing.T) {
+	for name, mutate := range map[string]func([]deliveryRequest) []deliveryRequest{
+		"zero":     func([]deliveryRequest) []deliveryRequest { return nil },
+		"multiple": func(requests []deliveryRequest) []deliveryRequest { return append(requests, requests[0]) },
+		"mismatched prompt": func(requests []deliveryRequest) []deliveryRequest {
+			requests[0].Prompt = "A different question"
+			return requests
+		},
+		"mismatched human responder": func(requests []deliveryRequest) []deliveryRequest {
+			requests[0].ActorKind = "agent"
+			return requests
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newDeliveryServiceFixture(t)
+			taskRoot := t.TempDir()
+			writeRoutingTask(t, taskRoot)
+			wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+			journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+			delivery := journal.Deliveries[fixture.deliveryID]
+			task, _ := delivery.Graph.Task("task_01")
+			run := deliveryRun{ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task", Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: graphTaskRunInputs(delivery, wave, task, 1)}
+			runs := &fakeGraphRunReader{recent: []deliveryRun{run}, statuses: map[string]deliveryRunDetail{}}
+			service := deliveryGraphService{Store: fixture.store, Runs: runs, Now: func() time.Time { return fixture.now }}
+			questionInput := DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?", ContextDigest: digestValue(`{"task_id":"task_01"}`), Choices: []string{"Preserve compatibility", "Adopt the new contract"}}
+			question, err := service.Execute(context.Background(), fixture.scope, questionInput)
+			if err != nil {
+				t.Fatalf("record_question: %v", err)
+			}
+			requests := mutate([]deliveryRequest{{
+				LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator", ItemIndex: 0,
+				Kind: "ask", State: "answered", Prompt: questionInput.Prompt, Context: json.RawMessage(`{"task_id":"task_01"}`), Expect: taskAnswerExpectation(),
+				Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond", ActorKind: "human", ActorID: "operator-1",
+				AnsweredAt: timePointer(fixture.now), ResolvedAt: timePointer(fixture.now),
+			}})
+			runs.statuses[run.ID] = deliveryRunDetail{Run: run, Requests: requests}
+			_, err = service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID, Answer: "Preserve compatibility"})
+			if !errors.Is(err, routing.ErrDeliveryConflict) {
+				t.Fatalf("record_answer error = %v, want delivery conflict", err)
+			}
+		})
 	}
 }
 

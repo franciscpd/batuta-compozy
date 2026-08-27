@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -175,4 +177,135 @@ func TestDeliveryRunsChildrenInTheSelectedWorktreeWithBoundedOverrides(t *testin
 			t.Fatalf("delivery node %s not found", nodeID)
 		}
 	}
+}
+
+func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile("loops/batuta-task/loop.yaml")
+	if err != nil {
+		t.Fatalf("read batuta-task: %v", err)
+	}
+	var definition struct {
+		Meta struct {
+			Name string `yaml:"name"`
+		} `yaml:"meta"`
+		Concurrency string `yaml:"concurrency"`
+		Inputs      map[string]struct {
+			Required bool `yaml:"required"`
+		} `yaml:"inputs"`
+		Contract struct {
+			IterationCap int              `yaml:"iteration_cap"`
+			StopWhen     string           `yaml:"stop_when"`
+			OnBlocked    []taskLoopEffect `yaml:"on_blocked"`
+			OnFailed     []taskLoopEffect `yaml:"on_failed"`
+			OnExhausted  []taskLoopEffect `yaml:"on_exhausted"`
+			OnStalled    []taskLoopEffect `yaml:"on_stalled"`
+			OnCanceled   []taskLoopEffect `yaml:"on_canceled"`
+		} `yaml:"contract"`
+		Graph struct {
+			Nodes []struct {
+				ID      string         `yaml:"id"`
+				Kind    string         `yaml:"kind"`
+				Params  map[string]any `yaml:"params"`
+				Session struct {
+					Isolated bool `yaml:"isolated"`
+				} `yaml:"session"`
+			} `yaml:"nodes"`
+		} `yaml:"graph"`
+	}
+	if err := yaml.Unmarshal(payload, &definition); err != nil {
+		t.Fatalf("decode batuta-task: %v", err)
+	}
+	if definition.Meta.Name != "batuta-task" || definition.Concurrency != "queue" || definition.Contract.IterationCap != 4 {
+		t.Fatalf("task loop identity = %#v", definition)
+	}
+	for _, name := range []string{"delivery_id", "wave", "task_id", "execution", "routing_generation", "runtime", "worktree_ref", "base_sha", "budget_tokens", "budget_wall_seconds"} {
+		input, exists := definition.Inputs[name]
+		if !exists || !input.Required {
+			t.Fatalf("missing immutable required input %q: %#v", name, definition.Inputs)
+		}
+	}
+	if len(definition.Graph.Nodes) == 0 || definition.Graph.Nodes[0].ID != "task_context" || definition.Graph.Nodes[0].Kind != "ext__batuta__delivery_graph" {
+		t.Fatalf("first node = %#v, want task_context delivery_graph", definition.Graph.Nodes)
+	}
+	nodes := map[string]struct {
+		ID      string
+		Kind    string
+		Params  map[string]any
+		Session struct{ Isolated bool }
+	}{}
+	for _, node := range definition.Graph.Nodes {
+		nodes[node.ID] = struct {
+			ID      string
+			Kind    string
+			Params  map[string]any
+			Session struct{ Isolated bool }
+		}{ID: node.ID, Kind: node.Kind, Params: node.Params, Session: struct{ Isolated bool }{Isolated: node.Session.Isolated}}
+	}
+	implementer, exists := nodes["implement_task"]
+	if !exists || implementer.Kind != "run-agent" || !implementer.Session.Isolated ||
+		implementer.Params["agent"] != "code_implementer" || implementer.Params["runtime"] != "{{ .inputs.runtime }}" {
+		t.Fatalf("implementer = %#v", implementer)
+	}
+	environment, ok := implementer.Params["environment"].(map[string]any)
+	if !ok || environment["mode"] != "worktree" || environment["worktree_ref"] != "{{ .inputs.worktree_ref }}" {
+		t.Fatalf("implementer environment = %#v", implementer.Params["environment"])
+	}
+	output, ok := implementer.Params["output_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("implementer output schema = %#v", implementer.Params["output_schema"])
+	}
+	properties := output["properties"].(map[string]any)
+	status := properties["status"].(map[string]any)["enum"].([]any)
+	if !reflect.DeepEqual(status, []any{"completed", "needs_input"}) || output["additionalProperties"] != false {
+		t.Fatalf("implementer output schema = %#v", output)
+	}
+	for _, name := range []string{"record_question", "ask_operator", "record_answer", "implementation"} {
+		if _, exists := nodes[name]; !exists {
+			t.Fatalf("missing interactive task node %q", name)
+		}
+	}
+	answerParams := nodes["record_answer"].Params
+	if len(answerParams) != 7 || answerParams["question_operation_id"] != "{{ .nodes.record_question.output.question_operation_id }}" ||
+		answerParams["answer"] != "{{ .nodes.ask_operator.output.answer }}" {
+		t.Fatalf("record_answer must receive only question_operation_id and typed answer beyond task identity: %#v", answerParams)
+	}
+	ask := nodes["ask_operator"].Params
+	responders := ask["responders"].(map[string]any)
+	expect := ask["expect"].(map[string]any)
+	if responders["agents"] != "deny" || !reflect.DeepEqual(expect, map[string]any{
+		"type": "object", "additionalProperties": false, "required": []any{"answer"},
+		"properties": map[string]any{"answer": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096}},
+	}) {
+		t.Fatalf("ask contract = %#v", ask)
+	}
+	if definition.Contract.StopWhen != "nodes.implementation.output.status == 'completed'" {
+		t.Fatalf("stop_when = %q", definition.Contract.StopWhen)
+	}
+	for name, effects := range map[string][]taskLoopEffect{
+		"on_blocked": definition.Contract.OnBlocked, "on_failed": definition.Contract.OnFailed,
+		"on_exhausted": definition.Contract.OnExhausted, "on_stalled": definition.Contract.OnStalled,
+		"on_canceled": definition.Contract.OnCanceled,
+	} {
+		if len(effects) != 1 || effects[0].Tool != "ext__batuta__delivery_graph" ||
+			effects[0].With["operation"] != "record_failure" ||
+			effects[0].With["child_run_id"] != "{{ .effect.identity.loop_run_id }}" ||
+			!strings.Contains(effects[0].With["blocker_code"].(string), ".effect.identity.generation") {
+			t.Fatalf("%s terminal effect = %#v", name, effects)
+		}
+	}
+	if _, exists := nodes["record_candidate"]; exists {
+		t.Fatal("batuta-task must not record its own candidate without the public child run identity")
+	}
+	for _, forbidden := range []string{"kind: run-loop", "publish_worktree", "publication_", "runtime_rules", "worktree_root"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("batuta-task contains forbidden %q", forbidden)
+		}
+	}
+}
+
+type taskLoopEffect struct {
+	Tool string         `yaml:"tool"`
+	With map[string]any `yaml:"with"`
 }

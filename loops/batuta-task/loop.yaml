@@ -1,0 +1,272 @@
+apiVersion: compozy.loop/v1
+kind: Loop
+meta:
+  name: batuta-task
+  description: Implements one routed task in its assigned worktree and pauses only for a material human decision.
+  catalog:
+    use_when: "A Batuta delivery graph has prepared one immutable task attempt."
+    keywords: [batuta, task, implementation, clarification]
+    category: Engineering
+
+concurrency: queue
+
+inputs:
+  delivery_id:
+    type: string
+    required: true
+  wave:
+    type: number
+    required: true
+  task_id:
+    type: string
+    required: true
+  execution:
+    type: number
+    required: true
+  routing_generation:
+    type: string
+    required: true
+  runtime:
+    type: runtime
+    required: true
+  worktree_ref:
+    type: string
+    required: true
+  base_sha:
+    type: string
+    required: true
+  budget_tokens:
+    type: number
+    required: true
+  budget_wall_seconds:
+    type: number
+    required: true
+
+contract:
+  goal: >
+    Complete exactly task {{ .inputs.task_id }} for delivery {{ .inputs.delivery_id }}
+    in its assigned worktree. Ask a human only when an approved-scope product
+    decision or external value is genuinely required.
+  definition_of_done: >
+    The task has one focused implementation commit and typed completed evidence,
+    or Batuta has recorded the exact terminal failure for this child run.
+  iteration_cap: 4
+  budget:
+    tokens: 0
+    wall_clock_sec: 0
+    on_exceeded: halt
+  stop_when: "nodes.implementation.output.status == 'completed'"
+  terminal_states: [done, blocked, failed, exhausted, stalled, canceled]
+  on_blocked:
+    - &record_terminal_failure
+      tool: ext__batuta__delivery_graph
+      with:
+        operation: record_failure
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .inputs.wave }}"
+        task_id: "{{ .inputs.task_id }}"
+        execution: "{{ .inputs.execution }}"
+        child_run_id: "{{ .effect.identity.loop_run_id }}"
+        blocker_code: "task_terminal_{{ .effect.identity.trigger }}_g{{ .effect.identity.generation }}"
+  on_failed:
+    - *record_terminal_failure
+  on_exhausted:
+    - *record_terminal_failure
+  on_stalled:
+    - *record_terminal_failure
+  on_canceled:
+    - *record_terminal_failure
+
+start:
+  - kind: manual
+  - kind: native_tool
+
+graph:
+  nodes:
+    - id: task_context
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: task_context
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .inputs.wave }}"
+        task_id: "{{ .inputs.task_id }}"
+        execution: "{{ .inputs.execution }}"
+
+    - id: implement_task
+      class: action
+      kind: run-agent
+      session:
+        isolated: true
+      params:
+        agent: code_implementer
+        runtime: "{{ .inputs.runtime }}"
+        environment:
+          mode: worktree
+          worktree_ref: "{{ .inputs.worktree_ref }}"
+        prompt: |
+          Begin implementation immediately. This is authorization to complete exactly
+          task {{ .inputs.task_id }}; do not ask for approval before starting.
+
+          Required skills:
+          - cy-workflow-memory
+          - cy-execute-task
+          - cy-final-verify
+
+          Read the exact approved task file {{ .nodes.task_context.output.task_file }}
+          and its complete SDD package before editing. Use the journaled answers from
+          task_context to continue this same task and worktree; make technical choices
+          inside the approved scope yourself. Preserve unrelated worktree changes.
+
+          Use needs_input only for a material product decision or an unavailable
+          external value. In that case return one concise question, two to four
+          mutually exclusive choices when the decision is closed (recommended first),
+          and bounded non-secret context. Set context_digest to the SHA-256 digest
+          of the exact ask context {"task_id":"{{ .inputs.task_id }}"}. Do not ask routine implementation,
+          verification, routing, or commit questions.
+
+          Run focused verification and self-review. Make exactly one local
+          implementation commit when complete; never push. Never invoke the full
+          review-and-fix Loop.
+        output_schema:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status:
+              enum: [completed, needs_input]
+            question:
+              type: string
+              minLength: 1
+              maxLength: 2048
+            context_digest:
+              type: string
+            choices:
+              type: array
+              minItems: 2
+              maxItems: 4
+              items:
+                type: string
+                minLength: 1
+                maxLength: 512
+            commit_sha:
+              type: string
+            verification:
+              type: object
+            verification_digest:
+              type: string
+
+    - id: implementation_outcome
+      class: control
+      kind: route
+      routes:
+        - when: "nodes.implement_task.output.status == 'needs_input'"
+          to: record_question
+        - when: "nodes.implement_task.output.status == 'completed'"
+          to: implementation
+      default: terminal_contract_failure
+
+    - id: record_question
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: record_question
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .inputs.wave }}"
+        task_id: "{{ .inputs.task_id }}"
+        execution: "{{ .inputs.execution }}"
+        prompt: |
+          {{ .nodes.implement_task.output.question }}
+
+          Choices (recommended first):
+          {{ range .nodes.implement_task.output.choices }}- {{ . }}
+          {{ end }}
+          You may instead provide a concise free-text answer.
+        context_digest: "{{ .nodes.implement_task.output.context_digest }}"
+        choices: "{{ .nodes.implement_task.output.choices }}"
+
+    - id: ask_operator
+      class: control
+      kind: ask
+      params:
+        prompt: |
+          {{ .nodes.implement_task.output.question }}
+
+          Choices (recommended first):
+          {{ range .nodes.implement_task.output.choices }}- {{ . }}
+          {{ end }}
+          You may instead provide a concise free-text answer.
+        context:
+          task_id: "{{ .inputs.task_id }}"
+        expect:
+          type: object
+          additionalProperties: false
+          required: [answer]
+          properties:
+            answer:
+              type: string
+              minLength: 1
+              maxLength: 4096
+        responders:
+          agents: deny
+
+    - id: record_answer
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: record_answer
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .inputs.wave }}"
+        task_id: "{{ .inputs.task_id }}"
+        execution: "{{ .inputs.execution }}"
+        question_operation_id: "{{ .nodes.record_question.output.question_operation_id }}"
+        answer: "{{ .nodes.ask_operator.output.answer }}"
+
+    - id: implementation
+      class: action
+      kind: transform
+      params:
+        map:
+          status:
+            value: completed
+          task_id:
+            from: inputs.task_id
+          execution:
+            from: inputs.execution
+          commit_sha:
+            from: nodes.implement_task.output.commit_sha
+          verification:
+            from: nodes.implement_task.output.verification
+          verification_digest:
+            from: nodes.implement_task.output.verification_digest
+      produces:
+        status: string
+        task_id: string
+        execution: number
+        commit_sha: string
+        verification: object
+        verification_digest: string
+
+    - id: terminal_contract_failure
+      class: action
+      kind: transform
+      params:
+        map:
+          status:
+            value: blocked
+
+  edges:
+    - from: task_context
+      to: implement_task
+    - from: implement_task
+      to: implementation_outcome
+    - from: implementation_outcome
+      to: record_question
+    - from: implementation_outcome
+      to: implementation
+    - from: implementation_outcome
+      to: terminal_contract_failure
+    - from: record_question
+      to: ask_operator
+    - from: ask_operator
+      to: record_answer

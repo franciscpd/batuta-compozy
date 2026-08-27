@@ -63,6 +63,33 @@ func TestDeliveryGraphToolExposesEightClosedOperations(t *testing.T) {
 	}
 }
 
+func TestDeliveryGraphRecordAnswerDerivesRequestIdentity(t *testing.T) {
+	t.Parallel()
+
+	input := DeliveryGraphInput{
+		Operation: GraphOpRecordAnswer, DeliveryID: digestValue("delivery-derived-answer"),
+		Wave: 1, TaskID: "task_01", Execution: 1,
+		QuestionOperationID: digestValue("question-operation"), Answer: "Preserve compatibility",
+	}
+	if err := input.validate(); err != nil {
+		t.Fatalf("record_answer with only question_operation_id and answer: %v", err)
+	}
+
+	schema := deliveryGraphInputSchema()
+	variant := schema["oneOf"].([]any)[3].(map[string]any)
+	properties := variant["properties"].(map[string]any)
+	required := variant["required"].([]string)
+	wantRequired := []string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "answer"}
+	if !reflect.DeepEqual(required, wantRequired) {
+		t.Fatalf("record_answer required = %#v, want %#v", required, wantRequired)
+	}
+	for _, legacy := range []string{"request_loop_run_id", "request_generation", "request_node_id", "request_item_index"} {
+		if _, exists := properties[legacy]; exists {
+			t.Fatalf("record_answer exposes caller-controlled %q", legacy)
+		}
+	}
+}
+
 func TestDeliveryGraphHandlerRequiresDaemonTrustedWorkspaceBeforeService(t *testing.T) {
 	t.Parallel()
 

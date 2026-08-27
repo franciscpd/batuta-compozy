@@ -55,6 +55,13 @@ identifier.
 
 - Use `cy-create-spec` for every delivery. A simple request may use a short grill,
   but never skip the grill or unified spec.
+- When material product intent is ambiguous during SDD authorship, use
+  `compozy__clarify` for exactly one operator-language question at a time. Offer
+  two to four mutually exclusive choices when the decision is closed, put the
+  recommended choice first with its concise impact, and accept free text. Wait
+  for that clarification to be settled before asking another. Never guess a default
+  or delegate the decision to a planner. Do not use a Loop `ask` while writing
+  SDD, and do not turn normal explanations or final spec approval into cards.
 - Preserve executable requirements literally: versions, paths, commands,
   flags, whitespace, and constraints must not be silently normalized.
 - Require approval of `_spec.md`, `_user_stories.md`, `_dx.md`, and `_tests.md`;
