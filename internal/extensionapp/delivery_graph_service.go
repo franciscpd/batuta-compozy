@@ -261,6 +261,9 @@ func (s *deliveryGraphService) taskContext(
 	if !exists {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
+	if len(task.Attempts) == 0 || attempt.Execution != task.Attempts[len(task.Attempts)-1].Execution {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
 	if attempt.WorktreeID == "" || attempt.WorktreeRoot == "" || attempt.BaseHeadSHA != wave.BaseHeadSHA ||
 		(task.State != routing.GraphTaskRunning && task.State != routing.GraphTaskWaitingInput) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
@@ -324,10 +327,6 @@ func (s *deliveryGraphService) recordQuestion(
 	scope publication.TrustedScope,
 	input DeliveryGraphInput,
 ) (DeliveryGraphOutput, error) {
-	operationID, err := deriveQuestionOperationID(scope, input)
-	if err != nil {
-		return DeliveryGraphOutput{}, err
-	}
 	store, err := s.store()
 	if err != nil {
 		return DeliveryGraphOutput{}, err
@@ -340,8 +339,18 @@ func (s *deliveryGraphService) recordQuestion(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
+	runExecution := input.Execution
+	operationID, err := deriveQuestionOperationID(scope, input)
+	if err != nil {
+		return DeliveryGraphOutput{}, err
+	}
+	input.Execution = attempt.Execution
+	if prior, exists := graphTaskQuestionAttempt(task, runExecution, operationID); exists && prior.Question.Answer != nil {
+		input.QuestionOperationID = operationID
+		return s.answerReplayOutput(delivery, task, attempt, runExecution, input)
+	}
 	question := routing.TaskQuestion{
-		RequestID: operationID, Prompt: input.Prompt, ContextDigest: input.ContextDigest,
+		RequestID: operationID, Prompt: input.Prompt, ContextDigest: canonicalTaskContextDigest(input.TaskID),
 		Choices: append([]string(nil), input.Choices...),
 	}
 	if attempt.Question != nil {
@@ -408,17 +417,19 @@ func (s *deliveryGraphService) recordAnswer(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
-	if attempt.Question == nil || attempt.Question.RequestID != input.QuestionOperationID ||
-		!validOpaqueRunID(attempt.ChildRunID) {
+	runExecution := input.Execution
+	questionAttempt, exists := graphTaskQuestionAttempt(task, runExecution, input.QuestionOperationID)
+	if !exists || questionAttempt.Question == nil || !validOpaqueRunID(questionAttempt.ChildRunID) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
-	if attempt.Question.Answer != nil {
-		if attempt.Question.Answer.Value != input.Answer || len(task.Attempts) < input.Execution+1 {
+	input.Execution = attempt.Execution
+	if questionAttempt.Question.Answer != nil {
+		if questionAttempt.Question.Answer.Value != input.Answer {
 			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 		}
-		return answerOutput(input, input.Execution+1), nil
+		return s.answerReplayOutput(delivery, task, attempt, runExecution, input)
 	}
-	if task.State != routing.GraphTaskWaitingInput || attempt.State != routing.GraphTaskWaitingInput {
+	if questionAttempt.Execution != attempt.Execution || task.State != routing.GraphTaskWaitingInput || attempt.State != routing.GraphTaskWaitingInput {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	_, remainingWall, budgetErr := graphRemainingBudget(delivery, s.now())
@@ -434,14 +445,14 @@ func (s *deliveryGraphService) recordAnswer(
 			BlockerCode: "delivery_budget_exhausted",
 		}, nil
 	}
-	detail, err := s.Runs.Status(ctx, scope.WorkspaceID, attempt.ChildRunID)
+	detail, err := s.Runs.Status(ctx, scope.WorkspaceID, questionAttempt.ChildRunID)
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
-	request, matched := matchingAnsweredRequest(detail.Requests, attempt.ChildRunID, *attempt.Question)
-	if detail.Run.ID != attempt.ChildRunID || detail.Run.Status != "running" || !graphTaskRunMatches(
+	request, matched := matchingAnsweredRequest(detail.Requests, questionAttempt.ChildRunID, *questionAttempt.Question)
+	if detail.Run.ID != questionAttempt.ChildRunID || detail.Run.Status != "running" || !graphTaskRunMatches(
 		detail.Run, scope.WorkspaceID, delivery, delivery.Graph.Waves[input.Wave-1], task, input.Execution,
-	) || !matched {
+	) || !matched || !matchingResolvedAskCell(detail.Generations, request) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	answer := routing.TaskAnswer{
@@ -453,7 +464,7 @@ func (s *deliveryGraphService) recordAnswer(
 		if !exists || current.Graph == nil || current.WorkspaceID != scope.WorkspaceID || current.WorktreeRoot != scope.WorkspaceRoot {
 			return routing.ErrDeliveryConflict
 		}
-		if _, _, err := current.Graph.RecordAnswer(input.TaskID, input.Execution, answer, s.now()); err != nil {
+		if _, _, err := current.Graph.RecordAnswer(input.TaskID, questionAttempt.Execution, answer, s.now()); err != nil {
 			return err
 		}
 		tx.Journal.Deliveries[input.DeliveryID] = current
@@ -462,7 +473,7 @@ func (s *deliveryGraphService) recordAnswer(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
-	return answerOutput(input, input.Execution+1), nil
+	return answerOutput(input, attempt.Execution+1), nil
 }
 
 func (s *deliveryGraphService) questionOutput(
@@ -491,6 +502,74 @@ func answerOutput(input DeliveryGraphInput, nextExecution int) DeliveryGraphOutp
 	}
 }
 
+func (s *deliveryGraphService) answerReplayOutput(
+	delivery routing.DeliveryRecord,
+	task routing.GraphTask,
+	attempt routing.GraphTaskAttempt,
+	runExecution int,
+	input DeliveryGraphInput,
+) (DeliveryGraphOutput, error) {
+	if graphAttemptRunExecution(attempt) != runExecution {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
+	current := task.Attempts[len(task.Attempts)-1]
+	if graphAttemptRunExecution(current) != runExecution {
+		wave, found := graphWaveForBase(delivery.Graph, task.TaskID, current.BaseHeadSHA)
+		if !found || task.State != routing.GraphTaskPreparing || current.State != routing.GraphTaskPreparing {
+			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+		}
+		runtime := current.Runtime
+		return DeliveryGraphOutput{
+			Operation: input.Operation, Disposition: GraphDispositionPreparing, Replayed: true,
+			DeliveryID: input.DeliveryID, Wave: wave.Number, TaskID: input.TaskID,
+			Execution: current.Execution, Runtime: &runtime, BaseSHA: current.BaseHeadSHA,
+			RemainingTaskExecutions: routing.MaxTaskExecutions - current.Execution,
+		}, nil
+	}
+	if task.State == routing.GraphTaskCandidate && attempt.State == routing.GraphTaskCandidate {
+		replayInput := input
+		replayInput.Execution = attempt.Execution
+		replayInput.BaseSHA = attempt.BaseHeadSHA
+		output, err := s.candidateOutput(delivery, replayInput)
+		if err != nil {
+			return DeliveryGraphOutput{}, err
+		}
+		output.Replayed = true
+		return output, nil
+	}
+	if task.State == routing.GraphTaskIntegrated && attempt.State == routing.GraphTaskIntegrated {
+		disposition := GraphDispositionWaveIntegrated
+		if graphAllIntegrated(delivery.Graph) {
+			disposition = GraphDispositionAllIntegrated
+		}
+		return DeliveryGraphOutput{
+			Operation: input.Operation, Disposition: disposition, Replayed: true,
+			DeliveryID: input.DeliveryID, Wave: input.Wave, TaskID: input.TaskID,
+			Execution: attempt.Execution, BaseSHA: graphIntegrationHead(delivery),
+			RemainingTaskExecutions: routing.MaxTaskExecutions - attempt.Execution,
+		}, nil
+	}
+	if task.State != routing.GraphTaskRunning {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
+	output := answerOutput(input, attempt.Execution)
+	output.Replayed = true
+	return output, nil
+}
+
+func graphWaveForBase(graph *routing.DeliveryGraph, taskID, baseSHA string) (routing.DeliveryWave, bool) {
+	if graph == nil {
+		return routing.DeliveryWave{}, false
+	}
+	for index := len(graph.Waves) - 1; index >= 0; index-- {
+		wave := graph.Waves[index]
+		if wave.BaseHeadSHA == baseSHA && containsTaskID(wave.TaskIDs, taskID) {
+			return wave, true
+		}
+	}
+	return routing.DeliveryWave{}, false
+}
+
 func (s *deliveryGraphService) recordFailure(
 	ctx context.Context,
 	scope publication.TrustedScope,
@@ -508,6 +587,7 @@ func (s *deliveryGraphService) recordFailure(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
+	input.Execution = attempt.Execution
 	failure := routing.TaskFailure{BlockerCode: input.BlockerCode}
 	replay := attempt.State == routing.GraphTaskBlocked
 	if replay {
@@ -658,6 +738,7 @@ func (s *deliveryGraphService) recordCandidate(
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
+	input.Execution = attempt.Execution
 	if !validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
@@ -1765,11 +1846,11 @@ func graphTaskForOperation(
 		return routing.DeliveryRecord{}, routing.GraphTask{}, routing.GraphTaskAttempt{}, routing.DeliveryWave{}, routing.ErrDeliveryConflict
 	}
 	task, exists := delivery.Graph.Task(input.TaskID)
-	if !exists || input.Execution < 1 || input.Execution > len(task.Attempts) {
+	if !exists || input.Execution < 1 {
 		return routing.DeliveryRecord{}, routing.GraphTask{}, routing.GraphTaskAttempt{}, routing.DeliveryWave{}, routing.ErrDeliveryConflict
 	}
-	attempt := task.Attempts[input.Execution-1]
-	if attempt.Execution != input.Execution || attempt.BaseHeadSHA != wave.BaseHeadSHA {
+	attempt, exists := graphTaskAttemptForRunExecution(task, input.Execution)
+	if !exists || attempt.BaseHeadSHA != wave.BaseHeadSHA {
 		return routing.DeliveryRecord{}, routing.GraphTask{}, routing.GraphTaskAttempt{}, routing.DeliveryWave{}, routing.ErrDeliveryConflict
 	}
 	return delivery, task, attempt, wave, nil
@@ -1777,24 +1858,31 @@ func graphTaskForOperation(
 
 func deriveQuestionOperationID(scope publication.TrustedScope, input DeliveryGraphInput) (string, error) {
 	payload, err := json.Marshal(struct {
-		WorkspaceID   string   `json:"workspace_id"`
-		DeliveryID    string   `json:"delivery_id"`
-		Wave          int      `json:"wave"`
-		TaskID        string   `json:"task_id"`
-		Execution     int      `json:"execution"`
-		Prompt        string   `json:"prompt"`
-		ContextDigest string   `json:"context_digest"`
-		Choices       []string `json:"choices"`
+		WorkspaceID string   `json:"workspace_id"`
+		DeliveryID  string   `json:"delivery_id"`
+		Wave        int      `json:"wave"`
+		TaskID      string   `json:"task_id"`
+		Execution   int      `json:"execution"`
+		Prompt      string   `json:"prompt"`
+		Choices     []string `json:"choices"`
 	}{
 		WorkspaceID: scope.WorkspaceID, DeliveryID: input.DeliveryID, Wave: input.Wave,
 		TaskID: input.TaskID, Execution: input.Execution, Prompt: input.Prompt,
-		ContextDigest: input.ContextDigest, Choices: append([]string(nil), input.Choices...),
+		Choices: append([]string(nil), input.Choices...),
 	})
 	if err != nil {
 		return "", routing.ErrDeliveryConflict
 	}
 	digest := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func canonicalTaskContextDigest(taskID string) string {
+	payload, _ := json.Marshal(struct {
+		TaskID string `json:"task_id"`
+	}{TaskID: taskID})
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func graphTaskRunMatches(
@@ -1829,6 +1917,16 @@ func graphTaskAttemptForRunExecution(task routing.GraphTask, runExecution int) (
 	for index := len(task.Attempts) - 1; index >= 0; index-- {
 		attempt := task.Attempts[index]
 		if graphAttemptRunExecution(attempt) == runExecution {
+			return attempt, true
+		}
+	}
+	return routing.GraphTaskAttempt{}, false
+}
+
+func graphTaskQuestionAttempt(task routing.GraphTask, runExecution int, operationID string) (routing.GraphTaskAttempt, bool) {
+	for index := len(task.Attempts) - 1; index >= 0; index-- {
+		attempt := task.Attempts[index]
+		if graphAttemptRunExecution(attempt) == runExecution && attempt.Question != nil && attempt.Question.RequestID == operationID {
 			return attempt, true
 		}
 	}
@@ -1888,7 +1986,7 @@ func matchingAnsweredRequest(requests []deliveryRequest, childRunID string, ques
 	matches := 0
 	for _, request := range requests {
 		if request.LoopRunID == childRunID && request.LoopName == "batuta-task" &&
-			request.Generation >= 1 && request.NodeID != "" && request.ItemIndex >= 0 && request.Kind == "ask" && request.State == "answered" &&
+			request.Generation >= 1 && request.NodeID == "ask_operator" && request.ItemIndex >= 0 && request.Kind == "ask" && request.State == "answered" &&
 			request.Prompt == question.Prompt && rawJSONDigest(request.Context) == question.ContextDigest &&
 			jsonEquivalent(request.Expect, taskAnswerExpectation()) && reflect.DeepEqual(request.Decisions, []string{"respond"}) &&
 			request.Agents == "deny" && request.AnsweredDecision == "respond" && request.ActorKind == "human" &&
@@ -1899,6 +1997,23 @@ func matchingAnsweredRequest(requests []deliveryRequest, childRunID string, ques
 		}
 	}
 	return match, matches == 1
+}
+
+func matchingResolvedAskCell(generations []deliveryGeneration, request deliveryRequest) bool {
+	matches := 0
+	for _, generation := range generations {
+		if generation.Generation != int64(request.Generation) {
+			continue
+		}
+		for _, output := range generation.Outputs {
+			if output.NodeID != "ask_operator" || output.ItemIndex != request.ItemIndex || output.Status != "succeeded" ||
+				!routingDigestPattern.MatchString(output.OutputRef) {
+				continue
+			}
+			matches++
+		}
+	}
+	return matches == 1
 }
 
 func taskAnswerExpectation() json.RawMessage {

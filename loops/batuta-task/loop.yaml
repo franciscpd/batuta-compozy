@@ -55,7 +55,7 @@ contract:
     tokens: 0
     wall_clock_sec: 0
     on_exceeded: halt
-  stop_when: "nodes.implementation.output.status == 'completed'"
+  stop_when: "nodes.implementation.status == 'succeeded' && nodes.implementation.output.status == 'completed'"
   terminal_states: [done, blocked, failed, exhausted, stalled, canceled]
   on_blocked:
     - &record_terminal_failure
@@ -115,14 +115,16 @@ graph:
 
           Read the exact approved task file {{ .nodes.task_context.output.task_file }}
           and its complete SDD package before editing. Use the journaled answers from
-          task_context to continue this same task and worktree; make technical choices
-          inside the approved scope yourself. Preserve unrelated worktree changes.
+          task_context to continue this same task and worktree. The bounded settled
+          answer history is:
+          {{ toJson .nodes.task_context.output.answers }}
+          Make technical choices inside the approved scope yourself. Preserve unrelated
+          worktree changes.
 
           Use needs_input only for a material product decision or an unavailable
           external value. In that case return one concise question, two to four
           mutually exclusive choices when the decision is closed (recommended first),
-          and bounded non-secret context. Set context_digest to the SHA-256 digest
-          of the exact ask context {"task_id":"{{ .inputs.task_id }}"}. Do not ask routine implementation,
+          and bounded non-secret context. Do not ask routine implementation,
           verification, routing, or commit questions.
 
           Run focused verification and self-review. Make exactly one local
@@ -131,16 +133,24 @@ graph:
         output_schema:
           type: object
           additionalProperties: false
-          required: [status]
+          # The pin's template linter resolves downstream paths from these root
+          # properties; the closed oneOf below still selects exactly one shape.
           properties:
             status:
+              type: string
               enum: [completed, needs_input]
+            commit_sha:
+              type: string
+              pattern: "^[a-f0-9]{40}([a-f0-9]{24})?$"
+            verification:
+              type: object
+            verification_digest:
+              type: string
+              pattern: "^sha256:[a-f0-9]{64}$"
             question:
               type: string
               minLength: 1
               maxLength: 2048
-            context_digest:
-              type: string
             choices:
               type: array
               minItems: 2
@@ -149,12 +159,24 @@ graph:
                 type: string
                 minLength: 1
                 maxLength: 512
-            commit_sha:
-              type: string
-            verification:
-              type: object
-            verification_digest:
-              type: string
+          oneOf:
+            - required: [status, commit_sha, verification, verification_digest]
+              properties:
+                status:
+                  enum: [completed]
+              not:
+                anyOf:
+                  - required: [question]
+                  - required: [choices]
+            - required: [status, question, choices]
+              properties:
+                status:
+                  enum: [needs_input]
+              not:
+                anyOf:
+                  - required: [commit_sha]
+                  - required: [verification]
+                  - required: [verification_digest]
 
     - id: implementation_outcome
       class: control
@@ -182,7 +204,6 @@ graph:
           {{ range .nodes.implement_task.output.choices }}- {{ . }}
           {{ end }}
           You may instead provide a concise free-text answer.
-        context_digest: "{{ .nodes.implement_task.output.context_digest }}"
         choices: "{{ .nodes.implement_task.output.choices }}"
 
     - id: ask_operator
@@ -232,7 +253,7 @@ graph:
           task_id:
             from: inputs.task_id
           execution:
-            from: inputs.execution
+            from: nodes.task_context.output.execution
           commit_sha:
             from: nodes.implement_task.output.commit_sha
           verification:

@@ -256,8 +256,7 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	questionInput := DeliveryGraphInput{
 		Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number,
 		TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?",
-		ContextDigest: digestValue(`{"task_id":"task_01"}`),
-		Choices:       []string{"Preserve compatibility", "Adopt the new contract"},
+		Choices: []string{"Preserve compatibility", "Adopt the new contract"},
 	}
 
 	question, err := service.Execute(context.Background(), fixture.scope, questionInput)
@@ -273,6 +272,7 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	storedTask, _ := journal.Deliveries[fixture.deliveryID].Graph.Task("task_01")
 	if storedTask.State != routing.GraphTaskWaitingInput || storedTask.Attempts[0].ChildRunID != run.ID ||
 		storedTask.Attempts[0].Question == nil || storedTask.Attempts[0].Question.RequestID != question.QuestionOperationID ||
+		storedTask.Attempts[0].Question.ContextDigest != "sha256:3fc04a933b93fe0df804c847180e8914e712e3cacc96df2b709fb8b90af02f86" ||
 		len(journal.Deliveries[fixture.deliveryID].Graph.Pauses) != 1 ||
 		journal.Deliveries[fixture.deliveryID].Graph.Pauses[0].EndedAt != nil {
 		t.Fatalf("stored question task = %#v pauses=%#v", storedTask, journal.Deliveries[fixture.deliveryID].Graph.Pauses)
@@ -280,6 +280,9 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 
 	runs.statuses[run.ID] = deliveryRunDetail{
 		Run: run,
+		Generations: []deliveryGeneration{{Generation: 2, Outputs: []deliveryOutput{{
+			NodeID: "ask_operator", ItemIndex: 0, Status: "succeeded", OutputRef: answeredAskOutputRef("Preserve compatibility"),
+		}}}},
 		Requests: []deliveryRequest{{
 			LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator",
 			ItemIndex: 0, Kind: "ask", State: "answered", Prompt: questionInput.Prompt,
@@ -298,7 +301,8 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 		t.Fatalf("record_answer = %#v, error=%v status_calls=%d", answer, err, runs.statusCalls)
 	}
 	answerReplay, err := service.Execute(context.Background(), fixture.scope, answerInput)
-	if err != nil || !reflect.DeepEqual(answerReplay, answer) || runs.statusCalls != 1 {
+	if err != nil || answerReplay.Disposition != answer.Disposition || answerReplay.Execution != answer.Execution ||
+		!answerReplay.Replayed || runs.statusCalls != 1 {
 		t.Fatalf("record_answer replay = %#v, error=%v status_calls=%d", answerReplay, err, runs.statusCalls)
 	}
 	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
@@ -311,7 +315,8 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 		t.Fatalf("record_answer did not persist daemon-derived identity: %#v", storedTask.Attempts[0].Question)
 	}
 	questionReplay, err := service.Execute(context.Background(), fixture.scope, questionInput)
-	if err != nil || !reflect.DeepEqual(questionReplay, question) || runs.recentCalls != 1 {
+	if err != nil || questionReplay.Disposition != GraphDispositionTaskReady || questionReplay.Execution != 2 ||
+		questionReplay.QuestionOperationID != question.QuestionOperationID || !questionReplay.Replayed || runs.recentCalls != 1 {
 		t.Fatalf("record_question after answer = %#v, error=%v recent_calls=%d", questionReplay, err, runs.recentCalls)
 	}
 
@@ -369,7 +374,7 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	service.Candidates = validator
 	candidate, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
 		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
-		TaskID: "task_01", Execution: 2, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,
+		TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,
 		CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest,
 	})
 	if err != nil || candidate.Disposition != GraphDispositionCandidateRecorded {
@@ -381,17 +386,41 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 }
 
 func TestDeliveryGraphServiceRejectsNonUniqueOrMismatchedAnsweredRequests(t *testing.T) {
-	for name, mutate := range map[string]func([]deliveryRequest) []deliveryRequest{
-		"zero":     func([]deliveryRequest) []deliveryRequest { return nil },
-		"multiple": func(requests []deliveryRequest) []deliveryRequest { return append(requests, requests[0]) },
-		"mismatched prompt": func(requests []deliveryRequest) []deliveryRequest {
+	type mutation struct {
+		requests   func([]deliveryRequest) []deliveryRequest
+		outputs    func([]deliveryOutput) []deliveryOutput
+		generation int64
+	}
+	for name, mutate := range map[string]mutation{
+		"zero requests":     {requests: func([]deliveryRequest) []deliveryRequest { return nil }},
+		"multiple requests": {requests: func(requests []deliveryRequest) []deliveryRequest { return append(requests, requests[0]) }},
+		"mismatched prompt": {requests: func(requests []deliveryRequest) []deliveryRequest {
 			requests[0].Prompt = "A different question"
 			return requests
-		},
-		"mismatched human responder": func(requests []deliveryRequest) []deliveryRequest {
+		}},
+		"mismatched human responder": {requests: func(requests []deliveryRequest) []deliveryRequest {
 			requests[0].ActorKind = "agent"
 			return requests
-		},
+		}},
+		"zero output cells":     {outputs: func([]deliveryOutput) []deliveryOutput { return nil }},
+		"multiple output cells": {outputs: func(outputs []deliveryOutput) []deliveryOutput { return append(outputs, outputs[0]) }},
+		"wrong generation cell": {generation: 3},
+		"wrong item cell": {outputs: func(outputs []deliveryOutput) []deliveryOutput {
+			outputs[0].ItemIndex = 1
+			return outputs
+		}},
+		"wrong node cell": {outputs: func(outputs []deliveryOutput) []deliveryOutput {
+			outputs[0].NodeID = "other_node"
+			return outputs
+		}},
+		"non-succeeded cell": {outputs: func(outputs []deliveryOutput) []deliveryOutput {
+			outputs[0].Status = "failed"
+			return outputs
+		}},
+		"invalid output ref": {outputs: func(outputs []deliveryOutput) []deliveryOutput {
+			outputs[0].OutputRef = "not-a-sha256-ref"
+			return outputs
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fixture := newDeliveryServiceFixture(t)
@@ -404,23 +433,146 @@ func TestDeliveryGraphServiceRejectsNonUniqueOrMismatchedAnsweredRequests(t *tes
 			run := deliveryRun{ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task", Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: graphTaskRunInputs(delivery, wave, task, 1)}
 			runs := &fakeGraphRunReader{recent: []deliveryRun{run}, statuses: map[string]deliveryRunDetail{}}
 			service := deliveryGraphService{Store: fixture.store, Runs: runs, Now: func() time.Time { return fixture.now }}
-			questionInput := DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?", ContextDigest: digestValue(`{"task_id":"task_01"}`), Choices: []string{"Preserve compatibility", "Adopt the new contract"}}
+			questionInput := DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?", Choices: []string{"Preserve compatibility", "Adopt the new contract"}}
 			question, err := service.Execute(context.Background(), fixture.scope, questionInput)
 			if err != nil {
 				t.Fatalf("record_question: %v", err)
 			}
-			requests := mutate([]deliveryRequest{{
+			requests := []deliveryRequest{{
 				LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator", ItemIndex: 0,
 				Kind: "ask", State: "answered", Prompt: questionInput.Prompt, Context: json.RawMessage(`{"task_id":"task_01"}`), Expect: taskAnswerExpectation(),
 				Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond", ActorKind: "human", ActorID: "operator-1",
 				AnsweredAt: timePointer(fixture.now), ResolvedAt: timePointer(fixture.now),
-			}})
-			runs.statuses[run.ID] = deliveryRunDetail{Run: run, Requests: requests}
+			}}
+			if mutate.requests != nil {
+				requests = mutate.requests(requests)
+			}
+			outputs := []deliveryOutput{{NodeID: "ask_operator", ItemIndex: 0, Status: "succeeded", OutputRef: answeredAskOutputRef("Preserve compatibility")}}
+			if mutate.outputs != nil {
+				outputs = mutate.outputs(outputs)
+			}
+			generation := int64(2)
+			if mutate.generation != 0 {
+				generation = mutate.generation
+			}
+			runs.statuses[run.ID] = deliveryRunDetail{Run: run, Requests: requests, Generations: []deliveryGeneration{{Generation: generation, Outputs: outputs}}}
 			_, err = service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID, Answer: "Preserve compatibility"})
 			if !errors.Is(err, routing.ErrDeliveryConflict) {
 				t.Fatalf("record_answer error = %v, want delivery conflict", err)
 			}
 		})
+	}
+}
+
+func TestDeliveryGraphServiceRecordsFailureAfterAnsweredContinuationAndReplays(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	run := deliveryRun{ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task", Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: graphTaskRunInputs(delivery, wave, task, 1)}
+	runs := &fakeGraphRunReader{recent: []deliveryRun{run}, statuses: map[string]deliveryRunDetail{}}
+	service := deliveryGraphService{Store: fixture.store, Runs: runs, Now: func() time.Time { return fixture.now }}
+	questionInput := DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?", Choices: []string{"Preserve compatibility", "Adopt the new contract"}}
+	question, err := service.Execute(context.Background(), fixture.scope, questionInput)
+	if err != nil {
+		t.Fatalf("record_question: %v", err)
+	}
+	runs.statuses[run.ID] = deliveryRunDetail{Run: run, Generations: []deliveryGeneration{{Generation: 2, Outputs: []deliveryOutput{{NodeID: "ask_operator", ItemIndex: 0, Status: "succeeded", OutputRef: answeredAskOutputRef("Preserve compatibility")}}}}, Requests: []deliveryRequest{{
+		LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator", ItemIndex: 0, Kind: "ask", State: "answered", Prompt: questionInput.Prompt,
+		Context: json.RawMessage(`{"task_id":"task_01"}`), Expect: taskAnswerExpectation(), Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond", ActorKind: "human", ActorID: "operator-1", AnsweredAt: timePointer(fixture.now), ResolvedAt: timePointer(fixture.now),
+	}}}
+	if _, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID, Answer: "Preserve compatibility"}); err != nil {
+		t.Fatalf("record_answer: %v", err)
+	}
+	run.Status, run.TokensUsed, run.TokensUsedPresent = "failed", 1200, true
+	runs.statuses[run.ID] = deliveryRunDetail{Run: run}
+	failureInput := DeliveryGraphInput{Operation: GraphOpRecordFailure, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BlockerCode: "implementation_failed"}
+	first, err := service.Execute(context.Background(), fixture.scope, failureInput)
+	if err != nil || first.Disposition != GraphDispositionPreparing || first.Execution != 3 || first.Wave != 2 {
+		t.Fatalf("record_failure after answer = %#v, error=%v", first, err)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, failureInput)
+	if err != nil || !reflect.DeepEqual(replay, first) || runs.statusCalls != 2 {
+		t.Fatalf("record_failure after answer replay = %#v, error=%v status_calls=%d", replay, err, runs.statusCalls)
+	}
+}
+
+func TestDeliveryGraphServiceRecordsCandidateAfterTwoAnsweredContinuations(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task, _ := delivery.Graph.Task("task_01")
+	run := deliveryRun{ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task", Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: graphTaskRunInputs(delivery, wave, task, 1)}
+	runs := &fakeGraphRunReader{recent: []deliveryRun{run}, statuses: map[string]deliveryRunDetail{}}
+	validator := &fakeGraphCandidateValidator{evidence: integration.CandidateEvidence{RepositoryIdentity: digestValue("repository"), CommitSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd", TreeSHA: "1234512345123451234512345123451234512345", OwnedTrackingPaths: []string{}, Tracking: []integration.TrackingFile{}}}
+	service := deliveryGraphService{Store: fixture.store, Runs: runs, Candidates: validator, Now: func() time.Time { return fixture.now }}
+	answerInputs := map[int]DeliveryGraphInput{}
+	answerQuestion := func(generation int, input DeliveryGraphInput, answer string) DeliveryGraphOutput {
+		question, err := service.Execute(context.Background(), fixture.scope, input)
+		if err != nil {
+			t.Fatalf("record_question generation %d: %v", generation, err)
+		}
+		runs.statuses[run.ID] = deliveryRunDetail{Run: run, Generations: []deliveryGeneration{{Generation: int64(generation), Outputs: []deliveryOutput{{NodeID: "ask_operator", ItemIndex: 0, Status: "succeeded", OutputRef: answeredAskOutputRef(answer)}}}}, Requests: []deliveryRequest{{
+			LoopRunID: run.ID, LoopName: "batuta-task", Generation: generation, NodeID: "ask_operator", ItemIndex: 0, Kind: "ask", State: "answered", Prompt: input.Prompt,
+			Context: json.RawMessage(`{"task_id":"task_01"}`), Expect: taskAnswerExpectation(), Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond", ActorKind: "human", ActorID: "operator-1", AnsweredAt: timePointer(fixture.now), ResolvedAt: timePointer(fixture.now),
+		}}}
+		answerInput := DeliveryGraphInput{Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, QuestionOperationID: question.QuestionOperationID, Answer: answer}
+		answerInputs[generation] = answerInput
+		output, err := service.Execute(context.Background(), fixture.scope, answerInput)
+		if err != nil {
+			t.Fatalf("record_answer generation %d: %v", generation, err)
+		}
+		return output
+	}
+	first := answerQuestion(2, DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Choose compatibility behavior", Choices: []string{"Preserve compatibility", "Adopt new contract"}}, "Preserve compatibility")
+	second := answerQuestion(3, DeliveryGraphInput{Operation: GraphOpRecordQuestion, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, Prompt: "Choose rollout behavior", Choices: []string{"Ship gradually", "Ship immediately"}}, "Ship gradually")
+	if first.Execution != 2 || second.Execution != 3 {
+		t.Fatalf("continuation executions = %#v, %#v", first, second)
+	}
+	firstReplay, err := service.Execute(context.Background(), fixture.scope, answerInputs[2])
+	if err != nil || firstReplay.Disposition != GraphDispositionTaskReady || firstReplay.Execution != 3 {
+		t.Fatalf("first answer replay after second answer = %#v, error=%v", firstReplay, err)
+	}
+	verification := json.RawMessage(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	verificationDigest := digestValue(string(verification))
+	commitSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	run.Status, run.TokensUsed, run.TokensUsedPresent = "done", 700, true
+	runs.statuses[run.ID] = deliveryRunDetail{Run: run, Generations: []deliveryGeneration{{Generation: 4, Outputs: []deliveryOutput{{NodeID: "implementation", ItemIndex: 0, Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 3, commitSHA, verification, verificationDigest)}}}}}
+	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery = journal.Deliveries[fixture.deliveryID]
+	task, _ = delivery.Graph.Task("task_01")
+	if !graphTaskRunMatches(run, fixture.scope.WorkspaceID, delivery, wave, task, 3) || !hasCompletedTaskOutput(runs.statuses[run.ID], DeliveryGraphInput{TaskID: "task_01", Execution: 3, CommitSHA: commitSHA, VerificationDigest: verificationDigest}) {
+		t.Fatalf("two-answer completion preconditions do not match task run: %#v", task)
+	}
+	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA, CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest})
+	if err != nil || output.Disposition != GraphDispositionCandidateRecorded || output.Execution != 3 {
+		t.Fatalf("record_candidate after two answers = %#v, error=%v", output, err)
+	}
+	afterCandidate, err := service.Execute(context.Background(), fixture.scope, answerInputs[2])
+	if err != nil || afterCandidate.Disposition != GraphDispositionCandidateRecorded || afterCandidate.Execution != 3 ||
+		afterCandidate.BaseSHA != wave.BaseHeadSHA || !afterCandidate.Replayed {
+		t.Fatalf("first answer replay after candidate = %#v, error=%v", afterCandidate, err)
+	}
+	service.Integrator = &fakeGraphIntegrator{integratedSHA: commitSHA}
+	settled, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+	})
+	if err != nil || settled.Disposition != GraphDispositionAllIntegrated {
+		t.Fatalf("settle answered candidate = %#v, error=%v", settled, err)
+	}
+	afterIntegration, err := service.Execute(context.Background(), fixture.scope, answerInputs[2])
+	if err != nil || afterIntegration.Disposition != GraphDispositionAllIntegrated || !afterIntegration.Replayed {
+		t.Fatalf("first answer replay after integration = %#v, error=%v", afterIntegration, err)
 	}
 }
 
@@ -501,6 +653,93 @@ func TestDeliveryGraphServiceReplaysConflictOutputAfterRetryIntegrated(t *testin
 	if err != nil || output.Disposition != GraphDispositionReexecuteConflict || output.TaskID != task.TaskID ||
 		output.Execution != 2 || output.Runtime == nil || *output.Runtime != runtime || output.BaseSHA != retryBase {
 		t.Fatalf("historical conflict output = %#v, error=%v", output, err)
+	}
+}
+
+func TestDeliveryGraphServiceDoesNotAdvertiseOldRunReadyAfterConflictReexecution(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	base := delivery.InitialWorktreeFingerprint.HeadSHA
+	retryBase := "1111111111111111111111111111111111111111"
+	questionID := digestValue("conflict-replay-question")
+	task := &delivery.Graph.Tasks[0]
+	task.State = routing.GraphTaskPreparing
+	task.Attempts = []routing.GraphTaskAttempt{
+		{Execution: 1, RunExecution: 1, State: routing.GraphTaskCandidate, BaseHeadSHA: base, Question: &routing.TaskQuestion{
+			RequestID: questionID, Prompt: "Choose compatibility behavior", ContextDigest: canonicalTaskContextDigest("task_01"),
+			Answer: &routing.TaskAnswer{QuestionOperationID: questionID, LoopRunID: "run_old", Generation: 2, NodeID: "ask_operator", ItemIndex: 0, Value: "Preserve compatibility"},
+		}},
+		{Execution: 2, RunExecution: 2, State: routing.GraphTaskPreparing, BaseHeadSHA: retryBase},
+	}
+	delivery.Graph.Waves = []routing.DeliveryWave{
+		{Number: 1, BaseHeadSHA: base, TaskIDs: []string{task.TaskID}},
+		{Number: 2, BaseHeadSHA: retryBase, TaskIDs: []string{task.TaskID}},
+	}
+	service := deliveryGraphService{Now: func() time.Time { return fixture.now }}
+	output, err := service.answerReplayOutput(delivery, *task, task.Attempts[0], 1, DeliveryGraphInput{
+		Operation: GraphOpRecordAnswer, DeliveryID: fixture.deliveryID, Wave: 1, TaskID: task.TaskID,
+		Execution: 1, QuestionOperationID: questionID,
+	})
+	if err != nil || output.Disposition != GraphDispositionPreparing || output.Execution != 2 || output.Wave != 2 || !output.Replayed {
+		t.Fatalf("old-run answer replay after conflict = %#v, error=%v", output, err)
+	}
+}
+
+func TestDeliveryGraphServiceRejectsHistoricalTaskContextAfterConflictRunIsRunning(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	task := &delivery.Graph.Tasks[0]
+	retryBase := "1111111111111111111111111111111111111111"
+	current := task.Attempts[0]
+	conflictOperationID := digestValue("task-context-running-conflict")
+	conflictEvidence := digestValue("task-context-running-conflict-evidence")
+	candidateCommit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	current.State = routing.GraphTaskCandidate
+	current.ChildRunID = "run_old"
+	current.CandidateCommitSHA = candidateCommit
+	current.VerificationDigest = digestValue("task-context-running-verification")
+	current.Conflict = &routing.ConflictProof{
+		IntegrationOperationID: conflictOperationID, IntegrationHeadSHA: retryBase,
+		CandidateCommitSHA: candidateCommit, EvidenceDigest: conflictEvidence,
+	}
+	task.Attempts[0] = current
+	task.Attempts = append(task.Attempts, routing.GraphTaskAttempt{
+		Execution: 2, RunExecution: 2, State: routing.GraphTaskRunning,
+		WorktreeID: "wt_retry", WorktreeRoot: taskRoot, BaseHeadSHA: retryBase,
+		Runtime: current.Runtime, TokenAllowance: current.TokenAllowance,
+	})
+	task.State = routing.GraphTaskRunning
+	delivery.Graph.Waves = append(delivery.Graph.Waves, routing.DeliveryWave{
+		Number: 2, BaseHeadSHA: retryBase, TaskIDs: []string{task.TaskID},
+	})
+	delivery.Graph.Integrations = append(delivery.Graph.Integrations, routing.IntegrationOperation{
+		OperationID: conflictOperationID, RequestDigest: digestValue("task-context-running-request"),
+		Wave: 1, StartingHeadSHA: wave.BaseHeadSHA, OrderedTaskIDs: []string{task.TaskID},
+		CandidateCommitSHAs: []string{candidateCommit}, AcceptedTaskIDs: []string{},
+		AcceptedCommitSHAs: []string{}, IntegratedCommitSHAs: []string{},
+		ConflictingTaskID: task.TaskID, ConflictEvidenceDigest: conflictEvidence, FinalHeadSHA: retryBase,
+	})
+	journal.Deliveries[fixture.deliveryID] = delivery
+	if err := fixture.store.Save(fixture.scope.WorkspaceID, journal); err != nil {
+		t.Fatalf("Save(conflict retry) error = %v", err)
+	}
+
+	service := deliveryGraphService{Store: fixture.store, Now: func() time.Time { return fixture.now }}
+	_, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpTaskContext, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		TaskID: "task_01", Execution: 1,
+	})
+	if !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("historical task_context after running conflict = %v, want ErrDeliveryConflict", err)
 	}
 }
 
@@ -965,7 +1204,8 @@ func TestDeliveryGraphServiceCleansAnsweredContinuationUsingLatestCandidateEvide
 	persistTransition("question", func(delivery *routing.DeliveryRecord, _ routing.RoutingGeneration) error {
 		_, err := delivery.Graph.RecordQuestion("task_01", 1, "run_task_01", routing.TaskQuestion{
 			RequestID: questionID, Prompt: "Choose the compatible behavior",
-			ContextDigest: digestValue("cleanup-question-context"), Choices: []string{"compatible"},
+			ContextDigest: canonicalTaskContextDigest("task_01"),
+			Choices:       []string{"compatible"},
 		}, fixture.now)
 		return err
 	})
@@ -1060,6 +1300,10 @@ func completedTaskOutputRef(
 		t.Fatalf("marshal completed task output: %v", err)
 	}
 	return string(payload)
+}
+
+func answeredAskOutputRef(answer string) string {
+	return digestValue(`{"answer":"` + answer + `"}`)
 }
 
 func timePointer(value time.Time) *time.Time {

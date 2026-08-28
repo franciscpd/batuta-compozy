@@ -1,14 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"text/template"
 
+	compozysdk "github.com/compozy/compozy/sdk/go"
+	"github.com/franciscpd/batuta-compozy/internal/extensionapp"
+	"github.com/franciscpd/batuta-compozy/internal/routing"
 	"gopkg.in/yaml.v3"
 )
 
@@ -256,10 +262,37 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	if !ok {
 		t.Fatalf("implementer output schema = %#v", implementer.Params["output_schema"])
 	}
-	properties := output["properties"].(map[string]any)
-	status := properties["status"].(map[string]any)["enum"].([]any)
-	if !reflect.DeepEqual(status, []any{"completed", "needs_input"}) || output["additionalProperties"] != false {
+	variants, ok := output["oneOf"].([]any)
+	if !ok || len(variants) != 2 {
 		t.Fatalf("implementer output schema = %#v", output)
+	}
+	if output["type"] != "object" || output["additionalProperties"] != false {
+		t.Fatalf("implementer output root must be closed for reference resolution: %#v", output)
+	}
+	rootProperties, ok := output["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("implementer output root properties = %#v", output["properties"])
+	}
+	for _, name := range []string{"status", "commit_sha", "verification", "verification_digest", "question", "choices"} {
+		if _, exists := rootProperties[name]; !exists {
+			t.Fatalf("implementer output root property %q is unavailable to downstream templates: %#v", name, rootProperties)
+		}
+	}
+	for _, raw := range variants {
+		variant := raw.(map[string]any)
+		if _, exists := variant["not"]; !exists {
+			t.Fatalf("implementer output variant must prohibit the other closed shape: %#v", variant)
+		}
+	}
+	completed := variants[0].(map[string]any)
+	needsInput := variants[1].(map[string]any)
+	if !reflect.DeepEqual(completed["required"], []any{"status", "commit_sha", "verification", "verification_digest"}) ||
+		completed["properties"].(map[string]any)["status"].(map[string]any)["enum"].([]any)[0] != "completed" ||
+		rootProperties["commit_sha"].(map[string]any)["pattern"] != "^[a-f0-9]{40}([a-f0-9]{24})?$" ||
+		rootProperties["verification_digest"].(map[string]any)["pattern"] != "^sha256:[a-f0-9]{64}$" ||
+		!reflect.DeepEqual(needsInput["required"], []any{"status", "question", "choices"}) ||
+		needsInput["properties"].(map[string]any)["status"].(map[string]any)["enum"].([]any)[0] != "needs_input" {
+		t.Fatalf("implementer closed variants = %#v", variants)
 	}
 	for _, name := range []string{"record_question", "ask_operator", "record_answer", "implementation"} {
 		if _, exists := nodes[name]; !exists {
@@ -280,7 +313,7 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	}) {
 		t.Fatalf("ask contract = %#v", ask)
 	}
-	if definition.Contract.StopWhen != "nodes.implementation.output.status == 'completed'" {
+	if definition.Contract.StopWhen != "nodes.implementation.status == 'succeeded' && nodes.implementation.output.status == 'completed'" {
 		t.Fatalf("stop_when = %q", definition.Contract.StopWhen)
 	}
 	for name, effects := range map[string][]taskLoopEffect{
@@ -301,6 +334,69 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	for _, forbidden := range []string{"kind: run-loop", "publish_worktree", "publication_", "runtime_rules", "worktree_root"} {
 		if strings.Contains(string(payload), forbidden) {
 			t.Fatalf("batuta-task contains forbidden %q", forbidden)
+		}
+	}
+}
+
+func TestBatutaTaskPromptRendersJournaledAnswers(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile("loops/batuta-task/loop.yaml")
+	if err != nil {
+		t.Fatalf("read batuta-task: %v", err)
+	}
+	var definition struct {
+		Graph struct {
+			Nodes []struct {
+				ID     string         `yaml:"id"`
+				Params map[string]any `yaml:"params"`
+			} `yaml:"nodes"`
+		} `yaml:"graph"`
+	}
+	if err := yaml.Unmarshal(payload, &definition); err != nil {
+		t.Fatalf("decode batuta-task: %v", err)
+	}
+	var prompt string
+	for _, node := range definition.Graph.Nodes {
+		if node.ID == "implement_task" {
+			prompt, _ = node.Params["prompt"].(string)
+		}
+	}
+	if !strings.Contains(prompt, "{{ toJson .nodes.task_context.output.answers }}") {
+		t.Fatalf("implementer prompt omits explicit journaled answers: %q", prompt)
+	}
+	render := template.Must(template.New("prompt").Funcs(template.FuncMap{
+		"toJson": func(value any) (string, error) {
+			encoded, err := json.Marshal(value)
+			return string(encoded), err
+		},
+	}).Parse(prompt))
+	for _, answers := range [][]routing.TaskAnswer{
+		nil,
+		{{QuestionOperationID: "sha256:one", Value: "one"}},
+		{{QuestionOperationID: "sha256:one", Value: "one"}, {QuestionOperationID: "sha256:two", Value: "two"}},
+	} {
+		result, err := compozysdk.StructuredResult(extensionapp.DeliveryGraphOutput{
+			Operation: extensionapp.GraphOpTaskContext, Disposition: extensionapp.GraphDispositionTaskReady,
+			TaskFile: ".compozy/tasks/demo/task_01.md", Answers: answers,
+		})
+		if err != nil {
+			t.Fatalf("StructuredResult(task_context) error = %v", err)
+		}
+		var output map[string]any
+		if err := json.Unmarshal(result.Structured, &output); err != nil {
+			t.Fatalf("decode structured task_context: %v", err)
+		}
+		var rendered bytes.Buffer
+		if err := render.Option("missingkey=error").Execute(&rendered, map[string]any{
+			"inputs": map[string]any{"task_id": "task_01"},
+			"nodes":  map[string]any{"task_context": map[string]any{"output": output}},
+		}); err != nil {
+			t.Fatalf("render answers %#v output=%#v: %v", answers, output, err)
+		}
+		encoded, err := json.Marshal(output["answers"])
+		if err != nil || !strings.Contains(rendered.String(), string(encoded)) {
+			t.Fatalf("rendered prompt does not contain answers %s: %q", encoded, rendered.String())
 		}
 	}
 }

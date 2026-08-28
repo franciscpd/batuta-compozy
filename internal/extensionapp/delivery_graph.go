@@ -55,7 +55,6 @@ type DeliveryGraphInput struct {
 	Verification        json.RawMessage `json:"verification,omitempty"`
 	VerificationDigest  string          `json:"verification_digest,omitempty"`
 	Prompt              string          `json:"prompt,omitempty"`
-	ContextDigest       string          `json:"context_digest,omitempty"`
 	Choices             []string        `json:"choices,omitempty"`
 	QuestionOperationID string          `json:"question_operation_id,omitempty"`
 	Answer              string          `json:"answer,omitempty"`
@@ -83,6 +82,26 @@ type DeliveryGraphOutput struct {
 	RemainingTokens         int64                  `json:"remaining_tokens,omitempty"`
 	RemainingWallSeconds    int                    `json:"remaining_wall_seconds,omitempty"`
 	BlockerCode             string                 `json:"blocker_code,omitempty"`
+	Replayed                bool                   `json:"replayed,omitempty"`
+}
+
+// MarshalJSON preserves the explicit empty answer history required by the
+// task-context Loop template without serializing a null answers field for the
+// other closed output variants.
+func (output DeliveryGraphOutput) MarshalJSON() ([]byte, error) {
+	type wireOutput DeliveryGraphOutput
+	encoded, err := json.Marshal(wireOutput(output))
+	if err != nil || output.Operation != GraphOpTaskContext {
+		return encoded, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	if _, exists := fields["answers"]; !exists {
+		fields["answers"] = json.RawMessage("[]")
+	}
+	return json.Marshal(fields)
 }
 
 type DeliveryGraphTask struct {
@@ -146,7 +165,7 @@ func (input DeliveryGraphInput) validate() error {
 			return errors.New("batuta: task_context requires wave, task_id, and execution")
 		}
 	case GraphOpRecordQuestion:
-		if !task || input.Prompt == "" || len(input.Prompt) > 2048 || !routingDigestPattern.MatchString(input.ContextDigest) ||
+		if !task || input.Prompt == "" || len(input.Prompt) > 2048 ||
 			len(input.Choices) > 4 || input.hasCandidateFields() || input.hasAnswerFields() || input.ChildRunID != "" || input.BlockerCode != "" {
 			return errors.New("batuta: invalid task question")
 		}
@@ -160,7 +179,7 @@ func (input DeliveryGraphInput) validate() error {
 		}
 	case GraphOpRecordAnswer:
 		if !task || !routingDigestPattern.MatchString(input.QuestionOperationID) || input.Answer == "" ||
-			len(input.Answer) > 4096 || input.hasCandidateFields() || input.Prompt != "" || input.ContextDigest != "" ||
+			len(input.Answer) > 4096 || input.hasCandidateFields() || input.Prompt != "" ||
 			input.Choices != nil || input.ChildRunID != "" || input.BlockerCode != "" {
 			return errors.New("batuta: invalid task answer")
 		}
@@ -235,7 +254,7 @@ func (input DeliveryGraphInput) hasAnswerFields() bool {
 }
 
 func (input DeliveryGraphInput) hasQuestionFields() bool {
-	return input.Prompt != "" || input.ContextDigest != "" || input.Choices != nil || input.hasAnswerFields()
+	return input.Prompt != "" || input.Choices != nil || input.hasAnswerFields()
 }
 
 func (input DeliveryGraphInput) hasResultFields() bool {
@@ -274,10 +293,9 @@ func deliveryGraphInputSchema() map[string]any {
 	return map[string]any{"oneOf": []any{
 		objectSchema([]string{"operation", "delivery_id"}, base(GraphOpPrepareWave)),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution"}, task(GraphOpTaskContext)),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "prompt", "context_digest"}, withSchema(task(GraphOpRecordQuestion), map[string]any{
-			"prompt":         map[string]any{"type": "string", "minLength": 1, "maxLength": 2048},
-			"context_digest": sha256OutputSchema(),
-			"choices":        map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 512}},
+		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "prompt"}, withSchema(task(GraphOpRecordQuestion), map[string]any{
+			"prompt":  map[string]any{"type": "string", "minLength": 1, "maxLength": 2048},
+			"choices": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 512}},
 		})),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "answer"}, withSchema(task(GraphOpRecordAnswer), map[string]any{
 			"question_operation_id": sha256OutputSchema(),
@@ -351,6 +369,7 @@ func deliveryGraphOutputSchema() map[string]any {
 		"remaining_tokens":          map[string]any{"type": "integer", "minimum": 0},
 		"remaining_wall_seconds":    map[string]any{"type": "integer", "minimum": 0},
 		"blocker_code":              map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"replayed":                  map[string]any{"type": "boolean"},
 	})
 }
 

@@ -61,6 +61,13 @@ func TestDeliveryGraphToolExposesEightClosedOperations(t *testing.T) {
 			t.Fatalf("delivery graph schema missing bound %q: %s", required, payload)
 		}
 	}
+	var outputSchema map[string]any
+	if err := json.Unmarshal(descriptor.OutputSchema, &outputSchema); err != nil {
+		t.Fatalf("output schema: %v", err)
+	}
+	if properties, ok := outputSchema["properties"].(map[string]any); !ok || !reflect.DeepEqual(properties["replayed"], map[string]any{"type": "boolean"}) {
+		t.Fatalf("delivery graph output schema does not expose replayed: %#v", outputSchema["properties"])
+	}
 }
 
 func TestDeliveryGraphRecordAnswerDerivesRequestIdentity(t *testing.T) {
@@ -87,6 +94,51 @@ func TestDeliveryGraphRecordAnswerDerivesRequestIdentity(t *testing.T) {
 		if _, exists := properties[legacy]; exists {
 			t.Fatalf("record_answer exposes caller-controlled %q", legacy)
 		}
+	}
+}
+
+func TestDeliveryGraphRecordQuestionDerivesCanonicalContextDigest(t *testing.T) {
+	t.Parallel()
+
+	input := DeliveryGraphInput{
+		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-derived-context"),
+		Wave: 1, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?",
+		Choices: []string{"Preserve compatibility", "Adopt the new contract"},
+	}
+	if err := input.validate(); err != nil {
+		t.Fatalf("record_question without caller context digest: %v", err)
+	}
+	variant := deliveryGraphInputSchema()["oneOf"].([]any)[2].(map[string]any)
+	properties := variant["properties"].(map[string]any)
+	if _, exists := properties["context_digest"]; exists {
+		t.Fatal("record_question exposes caller-controlled context_digest")
+	}
+}
+
+func TestDeliveryGraphTaskContextWireOutputAlwaysIncludesAnswersArray(t *testing.T) {
+	t.Parallel()
+
+	for name, output := range map[string]DeliveryGraphOutput{
+		"task context":    {Operation: GraphOpTaskContext, Disposition: GraphDispositionTaskReady},
+		"other operation": {Operation: GraphOpRecordAnswer, Disposition: GraphDispositionTaskReady},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := compozysdk.StructuredResult(output)
+			if err != nil {
+				t.Fatalf("StructuredResult() error = %v", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(result.Structured, &fields); err != nil {
+				t.Fatalf("decode structured output: %v", err)
+			}
+			answers, exists := fields["answers"]
+			if name == "task context" && (!exists || string(answers) != "[]") {
+				t.Fatalf("task_context answers = %q exists=%v, want []", answers, exists)
+			}
+			if name == "other operation" && exists {
+				t.Fatalf("non-task_context emitted answers = %q", answers)
+			}
+		})
 	}
 }
 
@@ -118,7 +170,7 @@ func TestDeliveryGraphInputRejectsSecretPathQuestionsAndOpenVerification(t *test
 	baseQuestion := DeliveryGraphInput{
 		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-question-validation"),
 		Wave: 1, TaskID: "task_01", Execution: 1, Prompt: "Choose the supported compatibility behavior",
-		ContextDigest: digestValue("bounded-redacted-context"), Choices: []string{"Preserve compatibility", "Adopt new behavior"},
+		Choices: []string{"Preserve compatibility", "Adopt new behavior"},
 	}
 	for _, prompt := range []string{
 		"Use Authorization: Bearer super-secret-token",
