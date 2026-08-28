@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
@@ -63,11 +64,11 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 	}
 
 	want := []Command{
-		{Executable: "/controlled/compozy", Args: []string{"worktree", "status", "--workspace", "ws_trusted", "--refresh", "-o", "json", "--", "wt_delivery"}},
-		{Executable: "/controlled/compozy", Args: []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
-		{Executable: "/controlled/compozy", Args: []string{"worktree", "exit", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
-		{Executable: "/controlled/compozy", Args: []string{"worktree", "push", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}},
-		{Executable: "/controlled/compozy", Args: []string{"worktree", "pr", "--workspace", "ws_trusted", "--title", prefill.Title, "--body", prefill.Body, "--base", "main", "-o", "json", "--", "wt_delivery"}},
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "status", "--workspace", "ws_trusted", "--refresh", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "exit", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "push", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
+		{Executable: "/controlled/compozy", Args: []string{"worktree", "pr", "--workspace", "ws_trusted", "--title", prefill.Title, "--body", prefill.Body, "--base", "main", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
@@ -177,6 +178,29 @@ func TestCLIClientRejectsMalformedResponsesAndMismatchedIDs(t *testing.T) {
 	}
 }
 
+func TestCLIClientRejectsTruncatedOutputAndBoundsCommands(t *testing.T) {
+	t.Parallel()
+
+	scope := TrustedScope{WorkspaceID: "ws_trusted"}
+	truncated := &scriptedCommandRunner{results: []CommandResult{{
+		Stdout: []byte(exitFixtureJSON), StdoutTruncated: true,
+	}}}
+	if _, err := (CLIClient{Executable: "/controlled/compozy", Runner: truncated}).ExitPlan(
+		context.Background(), scope, "wt_delivery",
+	); err == nil {
+		t.Fatal("ExitPlan(truncated) error = nil")
+	}
+
+	blocking := blockingPublicationCommandRunner{}
+	started := time.Now()
+	_, err := (CLIClient{
+		Executable: "/controlled/compozy", Runner: blocking, Timeout: 10 * time.Millisecond,
+	}).ExitPlan(context.Background(), scope, "wt_delivery")
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		t.Fatalf("ExitPlan(timeout) error = %v, elapsed %s", err, time.Since(started))
+	}
+}
+
 func TestPublicationWireTypesUseExactSnakeCaseKeys(t *testing.T) {
 	t.Parallel()
 
@@ -216,6 +240,13 @@ type scriptedCommandRunner struct {
 	commands []Command
 	results  []CommandResult
 	errors   []error
+}
+
+type blockingPublicationCommandRunner struct{}
+
+func (blockingPublicationCommandRunner) Run(ctx context.Context, _ Command) (CommandResult, error) {
+	<-ctx.Done()
+	return CommandResult{}, ctx.Err()
 }
 
 func (r *scriptedCommandRunner) Run(_ context.Context, command Command) (CommandResult, error) {

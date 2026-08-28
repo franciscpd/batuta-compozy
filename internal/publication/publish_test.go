@@ -386,6 +386,34 @@ func TestPublisherRejectsMalformedExpectedHeadAndBoundsSummary(t *testing.T) {
 	}
 }
 
+func TestPublisherBoundsPollingWithoutCallerDeadline(t *testing.T) {
+	t.Parallel()
+
+	pending := validExitPlan()
+	pending.Primary = "push"
+	pending.Actions = []ExitAction{
+		{Action: "push", Enabled: false},
+		{Action: "open_pr", Enabled: false, BlockedReason: "remote state is converging"},
+	}
+	client := &publisherWorktreeClient{
+		inspection: validInspection(), exitPlans: []ExitPlan{validExitPlan(), pending},
+		pushOperation: Operation{OperationID: "op-push"},
+	}
+	publisher := newTestPublisher(client, &fakeGitEvidence{snapshot: validSnapshot(), baseAhead: 1})
+	publisher.PollTimeout = 10 * time.Millisecond
+	started := time.Now()
+
+	output, err := publisher.Publish(
+		context.Background(), trustedScope(), PublishInput{WorktreeRef: "wt_delivery", ExpectedHeadSHA: testHeadSHA},
+	)
+	if err != nil || output.Status != PublishStatusBlocked {
+		t.Fatalf("Publish(pending remote) = %#v, error=%v", output, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Publish(pending remote) elapsed = %s, want bounded", elapsed)
+	}
+}
+
 func newTestPublisher(client *publisherWorktreeClient, git *fakeGitEvidence) Publisher {
 	return Publisher{
 		Planner:      PublicationPlanner{Compozy: client, Git: git},

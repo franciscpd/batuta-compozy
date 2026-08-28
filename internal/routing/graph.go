@@ -343,6 +343,42 @@ func (g *DeliveryGraph) BeginWaveAttempts(waveNumber int, generation RoutingGene
 	}
 	candidate := cloneDeliveryGraph(g)
 	wave := candidate.Waves[waveNumber-1]
+	replayed := 0
+	for _, taskID := range wave.TaskIDs {
+		task := graphTaskByID(candidate.Tasks, taskID)
+		if task == nil || task.State != GraphTaskPreparing {
+			return ErrInvalidDeliveryTransition
+		}
+		var generationTask GenerationTask
+		found := false
+		for _, value := range generation.Tasks {
+			if value.ID == taskID && value.Domain == task.Domain && value.Complexity == task.Complexity {
+				generationTask = value
+				found = true
+				break
+			}
+		}
+		runtime, runtimeFound := generationRuntimeForTask(generation, generationTask)
+		if !found || !runtimeFound {
+			return ErrInvalidDeliveryGraph
+		}
+		if len(task.Attempts) == 0 || task.Attempts[len(task.Attempts)-1].State != GraphTaskPreparing {
+			continue
+		}
+		execution := len(task.Attempts)
+		attempt := task.Attempts[execution-1]
+		if attempt.Execution != execution || attempt.RunExecution != execution || attempt.Runtime != runtime ||
+			attempt.BaseHeadSHA != wave.BaseHeadSHA {
+			return ErrInvalidDeliveryTransition
+		}
+		replayed++
+	}
+	if replayed > 0 {
+		if replayed != len(wave.TaskIDs) {
+			return ErrInvalidDeliveryTransition
+		}
+		return nil
+	}
 	for _, taskID := range wave.TaskIDs {
 		task := graphTaskByID(candidate.Tasks, taskID)
 		if task == nil || task.State != GraphTaskPreparing {

@@ -92,7 +92,7 @@ func (s *deliveryContextService) Routing(
 		return RoutingContextOutput{}, err
 	}
 	if s == nil || !routingDigestPattern.MatchString(input.DeliveryID) ||
-		input.Attempt < 1 || !canonicalSlugPattern.MatchString(input.Slug) ||
+		input.Attempt < 1 || !validCanonicalSlug(input.Slug) ||
 		!routingDigestPattern.MatchString(input.RoutingGeneration) || !validOpaqueRunID(scope.WorkspaceID) {
 		return RoutingContextOutput{}, routing.ErrDeliveryConflict
 	}

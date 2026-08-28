@@ -246,6 +246,41 @@ func TestDeliveryGraphBeginsWaveAttemptsAndAttachesWorktreesIdempotently(t *test
 	}
 }
 
+func TestDeliveryGraphBeginWaveAttemptsReplaysExactGeneration(t *testing.T) {
+	t.Parallel()
+
+	snapshot := graphSnapshotFixture(t, []TaskArtifact{
+		graphTaskArtifact("task_01", "pending", DomainBackend, ComplexityLow),
+		graphTaskArtifact("task_02", "pending", DomainFrontend, ComplexityHigh),
+	})
+	generation := graphGenerationFixture(t, snapshot)
+	base := graphGitSHA("replay-base")
+	graph, err := NewDeliveryGraph(snapshot, generation, base)
+	if err != nil {
+		t.Fatalf("NewDeliveryGraph() error = %v", err)
+	}
+	wave, err := graph.AdmitReadyWave(ReadyWaveInput{
+		IntegrationHeadSHA: base, RemainingSlots: 2, ReachableCommits: map[string]bool{},
+	})
+	if err != nil {
+		t.Fatalf("AdmitReadyWave() error = %v", err)
+	}
+	if err := graph.BeginWaveAttempts(wave.Number, generation); err != nil {
+		t.Fatalf("BeginWaveAttempts(first) error = %v", err)
+	}
+	if err := graph.ReserveWaveTokens(wave.Number, 200); err != nil {
+		t.Fatalf("ReserveWaveTokens() error = %v", err)
+	}
+	want := cloneDeliveryGraph(graph)
+
+	if err := graph.BeginWaveAttempts(wave.Number, generation); err != nil {
+		t.Fatalf("BeginWaveAttempts(replay) error = %v", err)
+	}
+	if !reflect.DeepEqual(graph, want) {
+		t.Fatalf("BeginWaveAttempts(replay) graph = %#v, want unchanged %#v", graph, want)
+	}
+}
+
 func TestDeliveryGraphRejectsWaveWithoutTaskAdmission(t *testing.T) {
 	t.Parallel()
 

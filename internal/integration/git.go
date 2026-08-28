@@ -190,7 +190,7 @@ func (c GitClient) Preflight(ctx context.Context, request PreflightRequest) (res
 		}
 		applied, conflictEvidence, cherryPickErr := c.applyDeterministic(ctx, deterministicApplyRequest{
 			Root: worktreeRoot, OperationID: request.OperationID, RequestDigest: request.RequestDigest,
-			TaskID: candidate.TaskID, CandidateCommitSHA: candidate.CommitSHA, Disposable: true,
+			TaskID: candidate.TaskID, CandidateCommitSHA: candidate.CommitSHA,
 		})
 		if cherryPickErr != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -515,7 +515,6 @@ type deterministicApplyRequest struct {
 	CandidateCommitSHA string
 	ExpectedTreeSHA    string
 	ExpectedCommitSHA  string
-	Disposable         bool
 }
 
 type deterministicApplyResult struct {
@@ -541,18 +540,17 @@ func (c GitClient) applyDeterministic(
 	}
 	commandResult, cherryPickErr := c.run(ctx, request.Root, "cherry-pick", "--no-commit", request.CandidateCommitSHA)
 	if cherryPickErr != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return deterministicApplyResult{}, "", ctxErr
-		}
 		conflicted := c.hasCherryPickConflict(ctx, request.Root)
 		proof := ""
 		if conflicted {
 			proof = digest(append([]byte(request.TaskID+"\x00"+request.CandidateCommitSHA+"\x00"), commandResult.Stderr...))
 		}
-		if request.Disposable {
-			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			_, _ = c.run(cleanupCtx, request.Root, "cherry-pick", "--abort")
-			cancel()
+		clean := c.restoreAfterCherryPickFailure(ctx, request.Root)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return deterministicApplyResult{}, "", ctxErr
+		}
+		if !clean {
+			return deterministicApplyResult{}, proof, ErrForeignState
 		}
 		return deterministicApplyResult{}, proof, ErrPreflightFailed
 	}
@@ -580,6 +578,17 @@ func (c GitClient) applyDeterministic(
 		return deterministicApplyResult{}, "", ErrForeignState
 	}
 	return deterministicApplyResult{CommitSHA: commit, TreeSHA: tree}, "", nil
+}
+
+func (c GitClient) restoreAfterCherryPickFailure(ctx context.Context, root string) bool {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_, _ = c.run(cleanupCtx, root, "cherry-pick", "--abort")
+	if _, err := c.run(cleanupCtx, root, "read-tree", "--reset", "-u", "HEAD"); err != nil {
+		return false
+	}
+	status, err := c.run(cleanupCtx, root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	return err == nil && len(status.Stdout) == 0
 }
 
 func (c GitClient) hasCherryPickConflict(ctx context.Context, root string) bool {

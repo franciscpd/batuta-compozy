@@ -465,6 +465,33 @@ func TestGitClientPreflightRejectsForeignRepositoryAndOperationalCherryPickFailu
 	}
 }
 
+func TestGitClientApplyDeterministicRestoresDurableRootAfterConflict(t *testing.T) {
+	t.Parallel()
+
+	fixture := newIntegrationGitFixture(t)
+	_, _, candidateCommit := fixture.candidate(t, "task_01", "shared.txt", "candidate\n")
+	writeIntegrationFile(t, filepath.Join(fixture.root, "shared.txt"), "integration\n")
+	fixture.run(t, fixture.root, "add", "shared.txt")
+	fixture.run(t, fixture.root, "commit", "-m", "advance integration root")
+	head := strings.TrimSpace(fixture.run(t, fixture.root, "rev-parse", "HEAD"))
+	client := GitClient{Executable: fixture.git, Runner: publication.ExecRunner{}}
+
+	_, _, err := client.applyDeterministic(context.Background(), deterministicApplyRequest{
+		Root: fixture.root, OperationID: integrationDigest([]byte("durable-conflict-op")),
+		RequestDigest: integrationDigest([]byte("durable-conflict-request")), TaskID: "task_01",
+		CandidateCommitSHA: candidateCommit,
+	})
+	if !errors.Is(err, ErrPreflightFailed) {
+		t.Fatalf("applyDeterministic(conflict) error = %v, want ErrPreflightFailed", err)
+	}
+	if status := fixture.run(t, fixture.root, "status", "--porcelain=v1"); status != "" {
+		t.Fatalf("durable integration root status after conflict = %q, want clean", status)
+	}
+	if got := strings.TrimSpace(fixture.run(t, fixture.root, "rev-parse", "HEAD")); got != head {
+		t.Fatalf("durable integration root HEAD after conflict = %q, want %q", got, head)
+	}
+}
+
 func TestGitClientApplyAndReconcileExactPrefix(t *testing.T) {
 	t.Parallel()
 

@@ -153,6 +153,22 @@ func TestDeliveryClientSeparatesParentGenerationCapFromFreshRunCeiling(t *testin
 	}
 }
 
+func TestDeliveryClientRejectsNumericSlugBeforeStartingLoop(t *testing.T) {
+	t.Parallel()
+
+	request := validDeliveryStartRequest()
+	request.Slug = "123"
+	runner := &deliveryRecordingRunner{}
+	client := deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: runner}
+
+	if _, err := client.Start(context.Background(), "ws_demo", request); err == nil {
+		t.Fatal("Start(numeric slug) error = nil")
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("Start(numeric slug) commands = %#v, want none", runner.commands)
+	}
+}
+
 func TestDeliveryClientRejectsUnsafeInputsAndMalformedResponses(t *testing.T) {
 	t.Parallel()
 

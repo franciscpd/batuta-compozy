@@ -238,7 +238,7 @@ func (c deliveryLoopCLIClient) run(ctx context.Context, args []string) (publicat
 
 func validateDeliveryStartRequest(request deliveryStartRequest) error {
 	if !routingDigestPattern.MatchString(request.DeliveryID) || request.Attempt < 1 || request.Attempt > 4 ||
-		!canonicalSlugPattern.MatchString(request.Slug) || !validOpaqueRunID(request.OriginSessionID) ||
+		!validCanonicalSlug(request.Slug) || !validOpaqueRunID(request.OriginSessionID) ||
 		!validOpaqueRunID(request.WorktreeRef) || !routingDigestPattern.MatchString(request.RoutingGeneration) ||
 		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling != 1_000_000 ||
 		(request.Attempt == 1 && request.RecoveryOperationID != "") || (request.Attempt > 1 && !routingDigestPattern.MatchString(request.RecoveryOperationID)) ||
@@ -418,4 +418,11 @@ func intInput(values map[string]any, key string) int64 {
 	return -1
 }
 
-var canonicalSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var (
+	canonicalSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	slugLetterPattern    = regexp.MustCompile(`[a-z]`)
+)
+
+func validCanonicalSlug(slug string) bool {
+	return canonicalSlugPattern.MatchString(slug) && slugLetterPattern.MatchString(slug)
+}

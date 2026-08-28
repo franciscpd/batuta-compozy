@@ -7,11 +7,19 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
+)
+
+const (
+	publicationStdoutLimit    int64 = 1024 * 1024
+	publicationStderrLimit    int64 = 64 * 1024
+	publicationCommandTimeout       = 30 * time.Second
 )
 
 type CLIClient struct {
 	Executable string
 	Runner     CommandRunner
+	Timeout    time.Duration
 }
 
 func (c CLIClient) Inspect(
@@ -114,9 +122,24 @@ func (c CLIClient) runOperation(ctx context.Context, args []string) (Operation, 
 }
 
 func (c CLIClient) runJSON(ctx context.Context, args []string, target any) error {
-	result, err := c.Runner.Run(ctx, Command{Executable: c.Executable, Args: args})
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = publicationCommandTimeout
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, err := c.Runner.Run(commandCtx, Command{
+		Executable: c.Executable, Args: args,
+		StdoutLimit: publicationStdoutLimit, StderrLimit: publicationStderrLimit,
+	})
 	if err != nil {
+		if ctxErr := commandCtx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return errors.New("publication: Compozy command output exceeded the safe limit")
 	}
 	if err := json.Unmarshal(result.Stdout, target); err != nil {
 		return fmt.Errorf("decode Compozy JSON: %w", err)

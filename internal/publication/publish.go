@@ -8,7 +8,10 @@ import (
 	"unicode/utf8"
 )
 
-const maxPublicationSummaryBytes = 1024
+const (
+	maxPublicationSummaryBytes = 1024
+	publicationPollTimeout     = 30 * time.Second
+)
 
 type PublishInput struct {
 	WorktreeRef     string `json:"worktree_ref"`
@@ -37,6 +40,7 @@ type Publisher struct {
 	Compozy      WorktreeClient
 	Git          GitEvidence
 	PollInterval time.Duration
+	PollTimeout  time.Duration
 }
 
 func (p Publisher) Publish(
@@ -195,15 +199,17 @@ func (p Publisher) waitForOpenPR(
 	expectedHead string,
 	fallback ExitPlan,
 ) (ExitPlan, string, bool) {
+	pollCtx, cancel := p.pollContext(ctx)
+	defer cancel()
 	last := fallback
 	for {
-		plan, err := p.Compozy.ExitPlan(ctx, scope, ref)
+		plan, err := p.Compozy.ExitPlan(pollCtx, scope, ref)
 		if err != nil {
 			return last, "", false
 		}
 		last = plan
 		if prURL, ok := observedPRURL(plan); ok {
-			if p.upstreamMatches(ctx, path, expectedHead) {
+			if p.upstreamMatches(pollCtx, path, expectedHead) {
 				return plan, prURL, false
 			}
 			return plan, "", false
@@ -211,7 +217,7 @@ func (p Publisher) waitForOpenPR(
 		if actionEnabled(plan, "open_pr") {
 			return plan, "", true
 		}
-		if !p.wait(ctx) {
+		if !p.wait(pollCtx) {
 			return last, "", false
 		}
 	}
@@ -225,20 +231,22 @@ func (p Publisher) waitForVisiblePR(
 	expectedHead string,
 	fallback ExitPlan,
 ) (ExitPlan, string) {
+	pollCtx, cancel := p.pollContext(ctx)
+	defer cancel()
 	last := fallback
 	for {
-		plan, err := p.Compozy.ExitPlan(ctx, scope, ref)
+		plan, err := p.Compozy.ExitPlan(pollCtx, scope, ref)
 		if err != nil {
 			return last, ""
 		}
 		last = plan
 		if prURL, ok := observedPRURL(plan); ok {
-			if p.upstreamMatches(ctx, path, expectedHead) {
+			if p.upstreamMatches(pollCtx, path, expectedHead) {
 				return plan, prURL
 			}
 			return plan, ""
 		}
-		if !p.wait(ctx) {
+		if !p.wait(pollCtx) {
 			return last, ""
 		}
 	}
@@ -283,6 +291,14 @@ func (p Publisher) wait(ctx context.Context) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+func (p Publisher) pollContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := p.PollTimeout
+	if timeout <= 0 {
+		timeout = publicationPollTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func actionEnabled(plan ExitPlan, action string) bool {
