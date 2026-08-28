@@ -12,7 +12,7 @@ trap cleanup EXIT
 cat > "$TMP/compozy" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$PWD" > "$BATUTA_FAKE_CWD_LOG"
-printf '%s\n' '{"Version":"v0.3.0-beta.16-9-ga35eda6d","Commit":"a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c","BuildDate":"test"}'
+printf '%s\n' '{"Version":"v0.3.0-beta.21-9-ga35eda6d","Commit":"a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c","BuildDate":"test"}'
 SH
 chmod +x "$TMP/compozy"
 

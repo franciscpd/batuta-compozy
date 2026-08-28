@@ -33,11 +33,11 @@ As únicas releases remotas publicadas são `v0.1.0-beta.2` e
 prepara `v0.1.0-beta.6` como a próxima candidata. O SDK Go upstream
 `v0.3.0-beta.21` é usado diretamente, sem `replace` nem dependência de fork.
 
-A compatibilidade é testada contra o commit do fonte Compozy
-`382976d4b43274630a4b67445812fd4a0216dbcc`. Trate esse commit e o SDK
-`v0.3.0-beta.21` como a baseline mínima de desenvolvimento compatível até uma
-release pública mais nova do Compozy cobrir explicitamente a superfície de
-grafo/ask.
+Os contratos de build e lint são testados contra o commit do fonte Compozy
+`382976d4b43274630a4b67445812fd4a0216dbcc`. Seu binário ainda se identifica
+como beta.20 e não concluiu a qualificação de Start, portanto isso não é uma
+afirmação de runtime compatível. A instalação runtime permanece bloqueada até
+um binário Compozy beta.21 ou posterior cobrir a superfície de grafo/ask.
 
 Pré-requisitos:
 

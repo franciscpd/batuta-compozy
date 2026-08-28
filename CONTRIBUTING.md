@@ -26,7 +26,7 @@ foreign state and is preserved. Contract ownership spans the
 `test_00_*` through `test_07_*` families; update the owning contract when
 changing its public behavior.
 
-Beta.5 is code-backed: staging contains production Go source and resources,
+The current beta.6 candidate is code-backed: staging contains production Go source and resources,
 then `compozy extension build` produces the only directory that may be
 validated or installed. `scripts/republish.sh` automates that path (see
 `docs/verify.md`) with the official beta.21 SDK. Do not add a local `replace`,

@@ -82,7 +82,8 @@ publication.
 ## Compatibility
 
 Batuta depends directly on the official Compozy Go SDK `v0.3.0-beta.21` and
-uses source commit `382976d4b43274630a4b67445812fd4a0216dbcc` as its tested
-minimum compatible development baseline. Check the installed daemon's public
-extension validation before production use; this source pin is not a claim
-about untested public Compozy releases.
+uses source commit `382976d4b43274630a4b67445812fd4a0216dbcc` only as its tested
+build/lint baseline. That commit's binary reports beta.20 and failed runtime
+Start qualification, so the minimum runtime remains a released beta.21-or-
+later binary. Check the installed daemon's public version and extension
+validation before production use.

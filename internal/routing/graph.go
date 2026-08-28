@@ -1859,8 +1859,10 @@ func graphEntirelyWaitingForHuman(tasks []GraphTask) bool {
 		switch task.State {
 		case GraphTaskWaitingInput:
 			waiting = true
-		case GraphTaskIntegrated, GraphTaskBlocked:
+		case GraphTaskPending, GraphTaskCandidate, GraphTaskIntegrated, GraphTaskBlocked:
 			continue
+		case GraphTaskPreparing, GraphTaskRunning:
+			return false
 		default:
 			return false
 		}

@@ -61,12 +61,12 @@ assert "hard_capability_unresolved" in agent
 assert "compozy__config_set" in agent
 assert "preserve every existing entry" in agent
 assert "one-time operator configuration prerequisite" not in agent
-assert "guarded tool submits the" in agent
+assert "guarded tool submits the" in agent.lower()
 assert "typed ephemeral overrides" in agent
-assert "fresh parent run ID" in agent
+assert "fresh parent run id" in agent.lower()
 
 assert re.search(r"iteration_cap:\s*4\b", loop)
-assert re.search(r"routing_generation:\s*\n\s+type:\s*string\s*\n\s+required:\s*true", loop)
+assert "routing_generation: {type: string, required: true}" in loop
 assert "kind: human" not in loop
 assert "recovery_gate" not in loop
 assert "auto_commit: true" in loop

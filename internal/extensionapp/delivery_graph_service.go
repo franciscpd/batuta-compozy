@@ -922,6 +922,9 @@ func (s *deliveryGraphService) recordCandidate(
 		if _, err := current.Graph.RecordCandidate(input.TaskID, input.Execution, evidence); err != nil {
 			return err
 		}
+		if _, err := current.Graph.ReconcileHumanPause(s.now()); err != nil {
+			return err
+		}
 		tx.Journal.Deliveries[input.DeliveryID] = current
 		return tx.Persist()
 	})

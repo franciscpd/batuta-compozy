@@ -16,6 +16,9 @@ case "$*" in
   "extension list -o json")
     printf '%s\n' '[]'
     ;;
+  "extension build "*)
+    printf '%s\n' '{"generation_dir":"/tmp/batuta-lifecycle-generated"}'
+    ;;
   "extension install "*)
     printf '%s\n' 'not-json-after-install-mutation'
     ;;

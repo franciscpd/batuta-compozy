@@ -2,8 +2,12 @@
 
 The published remote release remains `v0.1.0-beta.3`; `v0.1.0-beta.6` is the
 next candidate and is not a tag or release yet. Its compatibility baseline is
-the official Compozy Go SDK `v0.3.0-beta.21` and source commit
-`382976d4b43274630a4b67445812fd4a0216dbcc`.
+the official Compozy Go SDK `v0.3.0-beta.21`; source commit
+`382976d4b43274630a4b67445812fd4a0216dbcc` is only the build/lint baseline.
+
+The public runtime floor remains `v0.3.0-beta.21`. A source build that identifies
+itself as beta.20 remains below that floor even when its source includes some
+later contracts; lint success alone is not runtime compatibility.
 
 ## What `--allow-unverified` means
 

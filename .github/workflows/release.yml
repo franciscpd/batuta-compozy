@@ -104,7 +104,28 @@ jobs:
           git fetch origin main --tags
           git merge-base --is-ancestor "$RELEASE_REF" origin/main
 
-          manifest_version=$(python3 - extension.toml <<'PY'
+          package_dir="${RUNNER_TEMP}/package"
+          mkdir "$package_dir"
+          [[ -d $package_dir && ! -L $package_dir ]]
+          [[ -z $(find "$package_dir" -mindepth 1 -print -quit) ]]
+          scripts/stage-extension.sh "$package_dir"
+          build_json=$(compozy extension build "$package_dir" -o json)
+          generation_dir=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_dir"])' <<<"$build_json")
+          [[ -d $generation_dir && ! -L $generation_dir ]]
+          package_canonical=$(cd "$package_dir" && pwd -P)
+          generation_canonical=$(cd "$generation_dir" && pwd -P)
+          case "$generation_canonical" in
+            "$package_canonical"/dist/gen-*) ;;
+            *) printf 'generated package escaped staged source: %s\n' "$generation_canonical" >&2; exit 1 ;;
+          esac
+          compozy extension validate "$generation_canonical" -o json | python3 -c '
+          import json, sys
+          issues = json.load(sys.stdin).get("issues", [])
+          errors = [row for row in issues if row.get("severity") == "error"]
+          assert not errors, f"generated package is invalid: {errors}"
+          '
+          echo "BATUTA_GENERATION_DIR=$generation_canonical" >> "$GITHUB_ENV"
+          manifest_version=$(python3 - "$generation_canonical/extension.toml" <<'PY'
           import sys
           import tomllib
 
@@ -144,23 +165,13 @@ jobs:
             git push origin "refs/tags/${tag}:refs/tags/${tag}"
           unset auth
 
-      - name: Stage extension package
-        run: |
-          set -euo pipefail
-          package_dir="${RUNNER_TEMP}/package"
-          mkdir "$package_dir"
-          [[ -d $package_dir && ! -L $package_dir ]]
-          [[ -z $(find "$package_dir" -mindepth 1 -print -quit) ]]
-          scripts/stage-extension.sh "$package_dir"
-
       - name: Publish extension release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="v${RELEASE_VERSION}"
-          package_dir="${RUNNER_TEMP}/package"
-          publish_json=$(compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json)
+          publish_json=$(compozy extension publish "$BATUTA_GENERATION_DIR" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json)
           python3 - "$publish_json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import json
           import sys

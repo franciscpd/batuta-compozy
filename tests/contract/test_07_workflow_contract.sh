@@ -266,7 +266,7 @@ if ! grep -qF -- 'GITHUB_TOKEN: ${{ github.token }}' <<<"$publish_step_block"; t
   printf 'compozy publish step lacks GITHUB_TOKEN\n' >&2
   exit 1
 fi
-for tokenless_step in 'Stage extension package' 'Verify GitHub installation'; do
+for tokenless_step in 'Verify release preconditions' 'Verify GitHub installation'; do
   tokenless_block=$(release_step_block "$tokenless_step")
   if grep -qE -- 'GH_TOKEN:|GITHUB_TOKEN:' <<<"$tokenless_block"; then
     printf 'release step receives an unneeded token: %s\n' "$tokenless_step" >&2
@@ -280,6 +280,18 @@ require_release '[[ $GITHUB_SHA == "$RELEASE_REF" ]]'
 require_release '[[ $RELEASE_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.(0|[1-9][0-9]*)$ ]]'
 require_release 'git fetch origin main --tags'
 require_release 'git merge-base --is-ancestor "$RELEASE_REF" origin/main'
+if grep -qF -- 'python3 - extension.toml' "$RELEASE_WORKFLOW"; then
+  printf 'release workflow reads removed root extension.toml\n' >&2
+  exit 1
+fi
+require_release 'scripts/stage-extension.sh "$package_dir"'
+require_release 'compozy extension build "$package_dir" -o json'
+require_release 'package_canonical=$(cd "$package_dir" && pwd -P)'
+require_release 'generation_canonical=$(cd "$generation_dir" && pwd -P)'
+require_release '"$package_canonical"/dist/gen-*'
+require_release 'compozy extension validate "$generation_canonical" -o json'
+require_release 'echo "BATUTA_GENERATION_DIR=$generation_canonical" >> "$GITHUB_ENV"'
+require_release '"$generation_canonical/extension.toml"'
 require_release 'tomllib.load(manifest_file)["extension"]["version"]'
 require_release '[[ $manifest_version == "$RELEASE_VERSION" ]]'
 require_release 'notes_file="docs/releases/${RELEASE_VERSION}.md"'
@@ -300,7 +312,7 @@ require_release 'mkdir "$package_dir"'
 require_release '[[ -d $package_dir && ! -L $package_dir ]]'
 require_release '[[ -z $(find "$package_dir" -mindepth 1 -print -quit) ]]'
 require_release 'scripts/stage-extension.sh "$package_dir"'
-require_release 'compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json'
+require_release 'compozy extension publish "$BATUTA_GENERATION_DIR" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json'
 require_release 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"'
 
 require_release 'peeled=$(git ls-remote --tags origin "refs/tags/${tag}^{}" | cut -f1)'
@@ -353,9 +365,12 @@ require_step_sequence 'release daemon cleanup' "$cleanup_block" \
 
 require_release_order '! gh release view "$tag" >/dev/null 2>&1' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
 require_release_order 'git merge-base --is-ancestor "$expected_source_commit" origin/main' 'make build-go'
-require_release_order 'git push origin "refs/tags/${tag}:refs/tags/${tag}"' 'scripts/stage-extension.sh "$package_dir"'
-require_release_order 'scripts/stage-extension.sh "$package_dir"' 'compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json'
-require_release_order 'compozy extension publish "$package_dir" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json' 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"'
+require_release_order 'scripts/stage-extension.sh "$package_dir"' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
+require_release_order 'compozy extension build "$package_dir" -o json' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
+require_release_order 'compozy extension validate "$generation_canonical" -o json' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
+require_release_order '"$generation_canonical/extension.toml"' 'git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}" "$RELEASE_REF"'
+require_release_order 'echo "BATUTA_GENERATION_DIR=$generation_canonical" >> "$GITHUB_ENV"' 'compozy extension publish "$BATUTA_GENERATION_DIR" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json'
+require_release_order 'compozy extension publish "$BATUTA_GENERATION_DIR" --repository "$GITHUB_REPOSITORY" --tag "$tag" -o json' 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"'
 require_release_order 'gh release edit "$tag" --title "Batuta ${RELEASE_VERSION}" --notes-file "$notes_file"' 'peeled=$(git ls-remote --tags origin "refs/tags/${tag}^{}" | cut -f1)'
 require_release_order 'gh release view "$tag" --json isDraft,isPrerelease,tagName,assets' 'compozy daemon start'
 require_release_order 'compozy daemon start' 'for source in "github:${GITHUB_REPOSITORY}@${tag}" "github:${GITHUB_REPOSITORY}"; do'

@@ -89,9 +89,11 @@ actual = {(item["kind"], item["name"]) for item in items}
 expected = {
     ("agent", "batuta"),
     ("loop", "batuta-deliver"),
+    ("loop", "batuta-task"),
     ("skill", "batuta-routing"),
     ("tool", "ext__batuta__executor_inventory"),
     ("tool", "ext__batuta__delivery_budget_context"),
+    ("tool", "ext__batuta__delivery_graph"),
     ("tool", "ext__batuta__publication_plan"),
     ("tool", "ext__batuta__publication_verify"),
     ("tool", "ext__batuta__publish_worktree"),
@@ -101,7 +103,7 @@ expected = {
 }
 assert actual == expected, f"inventory inesperado: {sorted(actual)}"
 assert all(item["live"] for item in items), f"recursos nao-live: {items}"
-print("OK: inventory publica recursos e oito tools live")
+print("OK: inventory publica recursos e nove tools live")
 PY
 rm -f "$INV_OUT"
 

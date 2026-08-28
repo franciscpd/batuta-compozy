@@ -202,6 +202,120 @@ func TestParallelDeliveryHarnessContinuesTypedQuestionOnSameChildAndWorktree(t *
 	}
 }
 
+func TestParallelDeliveryServicePausesActiveWallAfterSiblingsBecomeQuiescent(t *testing.T) {
+	ctx := context.Background()
+	h := newParallelDeliveryHarness(t)
+	clock := time.Now().UTC()
+	h.graph.Now = func() time.Time { return clock }
+	prepared, err := h.graph.Execute(ctx, h.scope, DeliveryGraphInput{
+		Operation: GraphOpPrepareWave, DeliveryID: h.deliveryID,
+	})
+	if err != nil || len(prepared.Tasks) != 4 {
+		t.Fatalf("prepare_wave = %#v, error=%v", prepared, err)
+	}
+	h.startPreparedChildren(t, prepared)
+
+	frontend := preparedTask(t, prepared, "task_02")
+	delivery, wave, task := h.graphTask(t, "task_02")
+	run := deliveryRun{
+		ID: "run_parallel_pause", WorkspaceID: h.scope.WorkspaceID, LoopName: "batuta-task", Status: "running",
+		CreatedAt: clock, StartedAt: clock, Inputs: graphTaskRunInputs(delivery, wave, task, 1),
+	}
+	h.runs.recent = []deliveryRun{run}
+	questionInput := DeliveryGraphInput{
+		Operation: GraphOpRecordQuestion, DeliveryID: h.deliveryID, Wave: frontend.Wave,
+		TaskID: "task_02", Execution: 1, Prompt: "Which frontend contract should remain stable?",
+		Choices: []string{"Preserve", "Replace"},
+	}
+	question, err := h.graph.Execute(ctx, h.scope, questionInput)
+	if err != nil || question.Disposition != GraphDispositionWaitingInput {
+		t.Fatalf("record_question = %#v, error=%v", question, err)
+	}
+	journal, _, _ := h.store.Load(h.scope.WorkspaceID)
+	if pauses := journal.Deliveries[h.deliveryID].Graph.Pauses; len(pauses) != 0 {
+		t.Fatalf("pause opened while siblings were running: %#v", pauses)
+	}
+
+	for _, candidate := range []struct {
+		taskID string
+		path   string
+	}{
+		{taskID: "task_01", path: "project/pause-backend.txt"},
+		{taskID: "task_03", path: "project/pause-tests.txt"},
+		{taskID: "task_04", path: "project/pause-docs.txt"},
+	} {
+		descriptor := preparedTask(t, prepared, candidate.taskID)
+		h.repository.writeAndCommit(t, descriptor.WorktreeRoot, candidate.path, candidate.taskID+"=candidate\n", "feat("+candidate.taskID+"): prepare pause fixture")
+		if err := h.recordRealCandidate(ctx, candidate.taskID, 1, "run_pause_"+candidate.taskID); err != nil {
+			t.Fatalf("record %s candidate: %v", candidate.taskID, err)
+		}
+	}
+	journal, _, _ = h.store.Load(h.scope.WorkspaceID)
+	record := journal.Deliveries[h.deliveryID]
+	if len(record.Graph.Pauses) != 1 || record.Graph.Pauses[0].EndedAt != nil ||
+		record.Graph.Pauses[0].RequestID != question.QuestionOperationID {
+		t.Fatalf("quiescent sibling pause = %#v", record.Graph.Pauses)
+	}
+	remainingAtOpen, err := record.RemainingActiveWall(clock)
+	if err != nil {
+		t.Fatalf("remaining active wall at pause: %v", err)
+	}
+
+	clock = clock.Add(7 * time.Minute)
+	h.runs.statuses[run.ID] = deliveryRunDetail{
+		Run: run,
+		Requests: []deliveryRequest{{
+			LoopRunID: run.ID, LoopName: "batuta-task", Generation: 2, NodeID: "ask_operator", ItemIndex: 0,
+			Kind: "ask", State: "answered", Prompt: questionInput.Prompt, Context: json.RawMessage(`{"task_id":"task_02"}`),
+			Expect: taskAnswerExpectation(), Decisions: []string{"respond"}, Agents: "deny", AnsweredDecision: "respond",
+			ActorKind: "human", ActorID: "operator-pause", AnsweredAt: timePointer(clock), ResolvedAt: timePointer(clock),
+		}},
+		Generations: []deliveryGeneration{{Generation: 2, Outputs: []deliveryOutput{{
+			NodeID: "ask_operator", ItemIndex: 0, Status: "succeeded", OutputRef: answeredAskOutputRef("Preserve"),
+		}}}},
+	}
+	answerInput := DeliveryGraphInput{
+		Operation: GraphOpRecordAnswer, DeliveryID: h.deliveryID, Wave: frontend.Wave,
+		TaskID: "task_02", Execution: 1, QuestionOperationID: question.QuestionOperationID, Answer: "Preserve",
+	}
+	answer, err := h.graph.Execute(ctx, h.scope, answerInput)
+	if err != nil || answer.Disposition != GraphDispositionTaskReady || answer.Execution != 2 {
+		t.Fatalf("record_answer = %#v, error=%v", answer, err)
+	}
+	journal, _, _ = h.store.Load(h.scope.WorkspaceID)
+	record = journal.Deliveries[h.deliveryID]
+	if len(record.Graph.Pauses) != 1 || record.Graph.Pauses[0].EndedAt == nil ||
+		record.Graph.Pauses[0].EndedAt.Sub(record.Graph.Pauses[0].StartedAt) != 7*time.Minute {
+		t.Fatalf("closed pause = %#v", record.Graph.Pauses)
+	}
+	remainingAfterAnswer, err := record.RemainingActiveWall(clock)
+	if err != nil || remainingAfterAnswer != remainingAtOpen {
+		t.Fatalf("remaining active wall after answer = %v, %v; want %v", remainingAfterAnswer, err, remainingAtOpen)
+	}
+	beforeReplay, _, _ := h.store.Load(h.scope.WorkspaceID)
+	replay, err := h.graph.Execute(ctx, h.scope, answerInput)
+	afterReplay, _, _ := h.store.Load(h.scope.WorkspaceID)
+	if err != nil || !replay.Replayed || !reflect.DeepEqual(afterReplay, beforeReplay) {
+		t.Fatalf("record_answer replay = %#v, error=%v", replay, err)
+	}
+
+	delivery, wave, task = h.graphTask(t, "task_02")
+	run.Inputs = graphTaskRunInputs(delivery, wave, task, 1)
+	h.runs.recent = []deliveryRun{run}
+	second, err := h.graph.Execute(ctx, h.scope, DeliveryGraphInput{
+		Operation: GraphOpRecordQuestion, DeliveryID: h.deliveryID, Wave: frontend.Wave,
+		TaskID: "task_02", Execution: 1, Prompt: "Which rollout should remain stable?", Choices: []string{"Gradual"},
+	})
+	if err != nil || second.Disposition != GraphDispositionWaitingInput {
+		t.Fatalf("second record_question = %#v, error=%v", second, err)
+	}
+	journal, _, _ = h.store.Load(h.scope.WorkspaceID)
+	pauses := journal.Deliveries[h.deliveryID].Graph.Pauses
+	if len(pauses) != 2 || pauses[0].EndedAt == nil || pauses[1].EndedAt != nil || pauses[1].RequestID != second.QuestionOperationID {
+		t.Fatalf("reopened pause archive = %#v", pauses)
+	}
+}
+
 func TestParallelDeliveryHarnessIntegratesRealGitPrefixAndCreatesCumulativeConflictRetry(t *testing.T) {
 	ctx := context.Background()
 	harness := newParallelDeliveryHarness(t)

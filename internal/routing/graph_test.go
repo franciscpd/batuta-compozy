@@ -671,6 +671,22 @@ func TestDeliveryGraphReconcilesRepeatedGlobalPauseIntervals(t *testing.T) {
 	}
 }
 
+func TestDeliveryGraphHumanPauseTreatsCandidateAndPendingDependentsAsQuiescent(t *testing.T) {
+	t.Parallel()
+	tasks := []GraphTask{
+		{TaskID: "waiting", State: GraphTaskWaitingInput},
+		{TaskID: "candidate", State: GraphTaskCandidate},
+		{TaskID: "dependent", State: GraphTaskPending},
+	}
+	if !graphEntirelyWaitingForHuman(tasks) {
+		t.Fatal("waiting question with candidate sibling and pending dependent must open the active-wall pause")
+	}
+	tasks[1].State = GraphTaskRunning
+	if graphEntirelyWaitingForHuman(tasks) {
+		t.Fatal("running sibling must keep active-wall accounting live")
+	}
+}
+
 func TestDeliveryGraphRecordsCandidateAndSuccessfulUsageOnce(t *testing.T) {
 	t.Parallel()
 
