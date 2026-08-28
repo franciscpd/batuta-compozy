@@ -168,6 +168,7 @@ assert_inventory() {
       './go.mod' \
       './go.sum' \
       './loops/batuta-deliver/loop.yaml' \
+      './loops/batuta-task/loop.yaml' \
       './main.go' \
       './resources/skills/batuta-routing/SKILL.md'
     find internal -type f -name '*.go' ! -name '*_test.go' -print | sed 's#^#./#'

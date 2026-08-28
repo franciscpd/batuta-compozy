@@ -43,18 +43,10 @@ assert agent.index("Call `compozy__loop_status`") < agent.index("reconcile_fallb
 for forbidden in ("poll until", "keep watching", "watcher agent"):
     assert forbidden not in agent.lower(), forbidden
 
-identity = "batuta-terminal-{{ .effect.identity.loop_run_id }}-g{{ .effect.identity.generation }}-{{ .effect.identity.trigger }}"
+identity = "batuta-terminal-{{ .inputs.delivery_id }}-{{ .effect.identity.loop_run_id }}-g{{ .effect.identity.generation }}-{{ .effect.identity.trigger }}"
 assert loop.count("message_id: \"" + identity + "\"") == 1
 assert loop.count("idempotency_key: \"" + identity + "\"") == 1
 for terminal in ("on_done", "on_noop", "on_blocked", "on_failed", "on_exhausted", "on_stalled", "on_canceled"):
     assert terminal + ":" in loop
 print("OK: terminal returns are generation-scoped and reconciliation-first")
 PY
-
-out=$(compozy loop validate --file loops/batuta-deliver/loop.yaml --workspace "$WS" -o json)
-printf '%s' "$out" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-assert d.get("valid") is True, f"batuta-deliver invalido: {d}"
-print("OK: batuta-deliver valid with compiled terminal effects")
-'

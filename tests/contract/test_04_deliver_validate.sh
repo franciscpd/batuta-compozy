@@ -67,7 +67,7 @@ if ! run=$(timeout 120s compozy loop run --workspace "$WS" --name batuta-deliver
 fi
 SMOKE_RUN_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["id"])' <<<"$run")
 
-routing_observed=false
+routing_invoked=false
 for _ in {1..100}; do
   if timeout 10s compozy loop status --workspace "$WS" --run-id "$SMOKE_RUN_ID" -o json > "$SMOKE_STATUS"; then
     if grep -q 'unknown_action_kind' "$SMOKE_STATUS"; then
@@ -79,21 +79,24 @@ import json, sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 outputs = [row for generation in payload.get("generations", []) for row in generation.get("outputs", [])]
 load_succeeded = any(row.get("node_id") == "load_check" and row.get("status") == "succeeded" for row in outputs)
-routing_terminal = any(
-    row.get("node_id") == "routing_context" and row.get("status") in {"failed", "blocked"}
+routing_started = any(
+    row.get("node_id") == "routing_context"
+    and row.get("status") in {"retrying", "failed", "blocked"}
+    and isinstance(row.get("task_run_id"), str)
+    and row["task_run_id"]
     for row in outputs
 )
-raise SystemExit(0 if load_succeeded and routing_terminal else 1)
+raise SystemExit(0 if load_succeeded and routing_started else 1)
 PY
     then
-      routing_observed=true
+      routing_invoked=true
       break
     fi
   fi
   sleep 0.1
 done
-if [[ $routing_observed != true ]]; then
-  printf 'installed public Batuta Loop never reached routing_context: %s\n' "$(cat "$SMOKE_STATUS")" >&2
+if [[ $routing_invoked != true ]]; then
+  printf 'installed public Batuta Loop never invoked routing_context: %s\n' "$(cat "$SMOKE_STATUS")" >&2
   exit 1
 fi
 if grep -q 'unknown_action_kind' <<<"$run"; then
@@ -107,7 +110,8 @@ outputs = [row for generation in payload.get("generations", []) for row in gener
 load = [row for row in outputs if row.get("node_id") == "load_check"]
 routing = [row for row in outputs if row.get("node_id") == "routing_context"]
 assert load and load[-1].get("status") == "succeeded", load
-assert routing and routing[-1].get("status") in {"failed", "blocked"}, routing
+assert routing and routing[-1].get("status") in {"retrying", "failed", "blocked"}, routing
+assert isinstance(routing[-1].get("task_run_id"), str) and routing[-1]["task_run_id"], routing
 print("OK: installed batuta-deliver resolved and invoked routing_context")
 PY
 
