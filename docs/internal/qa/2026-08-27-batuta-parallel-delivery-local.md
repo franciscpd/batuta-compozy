@@ -29,52 +29,25 @@ and mutation counters where the operation owns them.
 
 ## Identity and reproducibility
 
-The tested Batuta base was `2b26c29b9e58aa506a3c8a3f099846a326a31ad4`.
-The candidate worktree identity was
-`sha256:d75f7c277fc148ccfa3cfaa65bfd5d3b858eddf8f333d52e9b1b24cac92f2d5a`,
-computed from the binary implementation diff plus sorted content hashes of
-untracked implementation files, excluding this mutable QA evidence document;
-it deliberately is not a self-referential future commit SHA. The extension
-identity is `batuta@0.1.0-beta.5`.
+The tested Batuta implementation commit is
+`fc32c1f6a3df608519ab28edb86007eda5fc4612`
+(`fix: close parallel delivery release gates`) on branch
+`worktree-batuta-delivery-hardening`. The extension identity is
+`batuta@0.1.0-beta.6`.
 
-The documented `go test -json` verification run emitted this concrete canonical
-scenario evidence: `scenario_id=parallel-demo`,
-`delivery_id=sha256:e81a2047955bdc63ddd842f6c861a22e0ca700dbf9cf45a7a9f9ff3f4419d3c7`,
-`question_operation_id=sha256:1615c612ab0639b1e137799a7a330e6195b9b8033ba6dd266f2f55c1c5cd6656`,
-`reviewed_head=f1c62ad18d8521a2c00c96c0fad4897e9ea9c516`, and retained
-`wt_parallel_03` at
-`/tmp/TestParallelDeliveryHarnessIntegratesRealGitPrefixAndCreatesCumu2569618141/002/batuta-parallel-demo-task-03-a1-ab837f0f`.
+The final `go test -v` scenario emitted:
+`scenario_id=parallel-demo`,
+`delivery_id=sha256:7566a26f95a67697a8e4c08b2176db7e56b0e55689192cfdd671fb9ed530f2c2`,
+`question_operation_id=sha256:bf6b8ad8bdd7de2e03b00ce7de3b8fb60af39722a630502a7d1d59413ea2997a`,
+`reviewed_head=6d2f45c94a4dfde33ad14b6d01ccbf74a309f55f`, and retained
+`wt_parallel_03`. Its disposable retained path was
+`/tmp/TestParallelDeliveryHarnessIntegratesRealGitPrefixAndCreatesCumu1652904410/002/batuta-parallel-demo-task-03-a1-4f21048f`
+and was removed by test teardown.
 The four initial child starts were `run_started_task_01_1`,
 `run_started_task_02_1`, `run_started_task_03_1`, and
-`run_started_task_04_1`. The Go harness derives the extension version from the
-production extension descriptor (`batuta@0.1.0-beta.5`), and Python checks its
-format rather than echoing a second hard-coded version. The disposable
-repository/worktrees and all task-owned test directories are removed by
-`testing.T` teardown.
-
-The implementation identity uses digest framing v2: header
-`batuta-task8-implementation-digest-v2\0`; then `D\0`, an unsigned 64-bit
-big-endian byte length, and the exact `git diff --binary --no-ext-diff HEAD`
-payload; then one `F\0`, 64-bit path length, UTF-8 path bytes, 64-bit content
-length, and raw content bytes for each untracked implementation file in byte
-sorted path order. The QA document itself is excluded so recording the digest
-does not change it. Reproduce it exactly with:
-
-```text
-rtk zsh -c 'python3 - <<'\''PY'\''
-import hashlib, pathlib, subprocess
-exclude = "docs/internal/qa/2026-08-27-batuta-parallel-delivery-local.md"
-diff = subprocess.check_output(["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--", ".", f":(exclude){exclude}"])
-files = sorted(path for path in subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], text=True).splitlines() if path != exclude)
-h = hashlib.sha256(); h.update(b"batuta-task8-implementation-digest-v2\0")
-h.update(b"D\0"); h.update(len(diff).to_bytes(8, "big")); h.update(diff)
-for path in files:
-    name, body = path.encode(), pathlib.Path(path).read_bytes()
-    h.update(b"F\0"); h.update(len(name).to_bytes(8, "big")); h.update(name)
-    h.update(len(body).to_bytes(8, "big")); h.update(body)
-print("sha256:" + h.hexdigest())
-PY'
-```
+`run_started_task_04_1`. The Go harness derives the version from the production
+descriptor; Python only validates the emitted evidence. All disposable Git
+repositories, worktrees, and task-owned directories were removed.
 
 ## Stop boundaries
 
@@ -94,27 +67,25 @@ PY'
   as blocked and replay without a recovery start. The pinned public surface
   provides no separate no-progress reason metadata; that authority remains the
   Compozy runtime/configuration.
-- A one-task production graph opens an exact seven-minute human pause; answer
-  continuation excludes that interval from active wall time and replays with no
-  journal or run-read mutation. The five-task DAG cannot globally pause while
-  its dependent task is pending.
+- The five-task production service opens one pause only after the question is
+  waiting, three independent siblings have become candidates, and the dependent
+  task remains pending. A seven-minute answer interval is excluded exactly,
+  candidate/answer replay does not mutate the journal, and a second question
+  reopens one new interval.
 - A real untracked parent Git file is rejected by `prepare_wave` with unchanged
   delivery boundaries.
 
 ## Commands and current results
 
 ```text
-rtk go test -tags=integration ./internal/extensionapp -run '<Task8 focused set>' -count=1 -v
-PASS: 49 focused integration tests.
-
-rtk go test -race -tags=integration ./internal/extensionapp -run '<Task8 focused set>' -count=1 -v
-PASS: 49 focused integration tests, including compatibility boundaries.
-
 rtk go test -tags=integration ./...
-PASS: 521 tests in 8 packages; 2 intentional skips.
+PASS: 523 tests in 8 packages.
 
-rtk go test ./...
-PASS: 499 tests in 8 packages.
+rtk go test ./... -count=1
+PASS: 500 tests in 8 packages.
+
+rtk go test -race ./... -count=1
+PASS: 500 tests in 8 packages.
 
 PYTHONPYCACHEPREFIX=<owned /tmp cache> python3 -m unittest discover -s tests/e2e -p 'test_*.py' -v
 PASS: 31 tests; cache removed.
@@ -122,7 +93,7 @@ PASS: 31 tests; cache removed.
 rtk tests/contract/test_06_parallel_delivery.sh
 PASS.
 
-rtk go vet ./internal/extensionapp; rtk git diff --check
+rtk go vet ./...; rtk git diff --check
 PASS.
 ```
 
@@ -135,13 +106,20 @@ graph authority after graph execution starts.
 
 ## Exact pin
 
-Compozy `382976d4b43274630a4b67445812fd4a0216dbcc` was archived and built in
-an owned scratch directory. Binary SHA-256:
-`a3923ecc240c4abb73f8c1756a05418e91395ae226bfe44d4aa46ff59a5f4f7c`.
-An isolated `COMPOZY_HOME`, workspace, port 39128, dev-linked staged Batuta
-extension, and bounded installed `loop run --name batuta-deliver` were used.
-The direct run stopped in four seconds with
-`loop definition has 13 lint error(s): unknown_action_kind`; this is not a
-successful public-loop claim. All task-owned processes and scratch were torn
-down. No Compozy source/configuration, shared daemon, live provider, or live
-forge was changed.
+Compozy source `382976d4b43274630a4b67445812fd4a0216dbcc` built as
+`v0.3.0-beta.20-49-g382976d4b` (`Commit=382976d4b`), binary SHA-256
+`128e34b28829df08341bed31cc02de3d28c3bf700d040c05591293033ecd0072`.
+In a fully isolated home/daemon/workspace, `claude/base-model` was
+`available_live`, Batuta installed with all 13 live resources, and
+`batuta-deliver` passed lint+compile. Runtime Start then failed before run
+persistence: the UDS `POST .../loops/batuta-deliver/run` reached the internal
+client deadline after about 64 seconds, and the daemon logged
+`workspace.resolve.error` with `context_canceled`. There was no
+`unknown_action_kind`, no run row, and no `routing_context` dispatch.
+
+Therefore the exact pin is a **build/lint baseline only**. Runtime/release QA is
+`blocked-verify` until an actual Compozy beta.21-or-later binary passes the same
+public smoke. The strict Batuta guard has no beta.20 exception. Every isolated
+daemon, extension, workspace, PID, scratch directory, and temporary contract
+root was removed; the shared Batuta and Compozy checkouts/configuration were not
+mutated.
