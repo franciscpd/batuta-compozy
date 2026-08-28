@@ -94,6 +94,12 @@ worktree and Loop surfaces:
 - validate task results and their single implementation commits;
 - preflight and apply deterministic integration;
 - record questions, answers, attempts, conflicts, and cleanup evidence;
+- resolve answered human-request identity from the persisted authoritative child
+  run instead of trusting caller-authored request coordinates;
+- derive the canonical `{task_id}` ask-context digest server-side, prove one
+  answered human request plus one same-generation/item succeeded `ask_operator`
+  cell with a valid content-addressed output reference, and resolve a same-child
+  continuation from immutable run execution to its newest attempt;
 - expose the next disposition to the Loop graph.
 
 These operations extend the existing workspace-owned delivery journal. They do
@@ -198,6 +204,16 @@ is recorded in the delivery journal and supplied to the next execution of that
 same task on the same owned worktree. Invalid, expired, canceled, duplicated,
 or contradictory responses use Compozy's structured request result and never
 become guessed implementation input.
+
+The answer value is trusted through the typed dataflow of the executed Loop
+definition, `ask_operator.output.answer -> record_answer`. The pinned public
+status surface publishes a content-addressed output reference, not the blob
+payload, so the Batuta extension validates child ownership, request provenance,
+and the unique succeeded ask cell without pretending it can resolve or
+byte-compare that blob. This is a Batuta-only authority ruling: `delivery_graph`
+is an extension action, not a model-facing tool of the Batuta/code implementer;
+a manual operator invocation has workspace authority and is trusted after those
+structural checks.
 
 A clarification consumes an execution turn but no work occurs while it is
 parked. Each task therefore has at most four execution attempts across child

@@ -462,7 +462,7 @@ const (
 )
 ```
 
-Every operation requires `delivery_id`; task operations additionally require exact `wave`, `task_id`, and `execution`. Candidate and failure operations require `child_run_id`; candidate additionally requires base/commit SHA and verification evidence. Question accepts at most four choices and bounded context. Answer requires the deterministic question operation ID and the Compozy human-request result identity.
+Every operation requires `delivery_id`; task operations additionally require exact `wave`, `task_id`, and immutable child `execution` (the run execution). Candidate and failure operations require `child_run_id`; candidate additionally requires base/commit SHA and verification evidence. Question accepts at most four choices; its bounded ask context is canonically `{task_id}` and Batuta derives its digest, so no model or caller supplies `context_digest`. Answer accepts the deterministic question operation ID and the schema-valid answer; the service, not the Loop template, resolves the Compozy human-request result identity from the authoritative child run persisted by `record_question`.
 
 The output always contains `operation` and one disposition from:
 
@@ -496,7 +496,7 @@ Because no extension call polls or sleeps, `batuta-deliver` advances generations
 
 Because an action template does not expose its own Loop run ID, `record_question` resolves exactly one live `batuta-task` run by daemon-trusted workspace plus immutable inputs (`delivery_id`, wave, task ID, execution), then persists that authoritative child run ID. Zero or multiple matches block before opening a pause.
 
-`record_answer` rereads that exact child and validates the public request composite identity (`loop_run_id`, generation, node, item index), answered state, and the schema-valid answer passed directly from the `ask` node. It closes exactly one pause, stores the answer, increments execution only when a new implementation turn begins, and returns replay for duplicates. Do not invent a random request ID that the public Compozy contract does not expose.
+`record_answer` accepts only the deterministic question operation ID and the schema-valid answer passed directly from the executed `ask_operator` dataflow. It rereads the exact child persisted by `record_question`, requires exactly one matching answered human request and exactly one same-generation/item succeeded `ask_operator` cell with a valid content-addressed `sha256:` output reference, then derives the public request composite identity (`loop_run_id`, generation, node, item index) from daemon-owned status. The public pin exposes the cell reference, not its blob bytes; Batuta therefore trusts the typed executed Loop edge `ask_operator.output.answer -> record_answer` and does not pretend to resolve or byte-compare the blob. Same-child operations resolve immutable run execution to the newest matching journal attempt and use that attempt's actual execution for graph transitions and child completed-output validation; a conflict reexecution has a fresh run execution. It closes exactly one pause, stores the derived identity with the answer, increments execution only when a new implementation turn begins, and returns truthful current disposition with `replayed: true` for duplicates. Do not require the Loop template to restate identity that its public namespace does not expose, and do not invent a random request ID.
 
 `record_failure` is designed for `batuta-task` terminal effects. It validates child run ownership/status, records usage once, advances only the failed task's immutable fallback chain, and blocks when no candidate or budget remains.
 
@@ -603,7 +603,7 @@ expect:
 
 Set `responders.agents: deny` explicitly so the starter and its agent descendants cannot answer their own task question.
 
-Render proposed choices into the human prompt, but allow the typed free-text answer. The next generation obtains the journaled answer from `task_context` and resumes the same task/worktree.
+Render proposed choices into the human prompt, but allow the typed free-text answer. The next generation obtains the journaled answer from `task_context` and resumes the same task/worktree. Render that bounded history explicitly with `{{ toJson .nodes.task_context.output.answers }}`; no implicit node-output namespace exists inside the isolated `run-agent` prompt.
 
 ### Step 3: Update SDD interaction in the Batuta agent
 
