@@ -263,10 +263,11 @@ func TestGenerationBoundsSafeCandidateRejectionsPerCell(t *testing.T) {
 	}
 }
 
-func TestBuildCandidateBindingsUsesOnlyUnambiguousInventoryCatalogPairs(t *testing.T) {
+func TestBuildCandidateBindingsUsesOnlyLiveCompozyCatalogPairs(t *testing.T) {
 	t.Parallel()
 
 	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
 		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "models", State: inventory.ResolutionResolved, Identifiers: []string{"cursor/cursor-grok-4.6-high", "shared"}}}},
 		{ID: inventory.ExecutorOpenCode, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "models", State: inventory.ResolutionResolved, Identifiers: []string{"openai/gpt-5.6-terra"}}}},
 	})
@@ -284,11 +285,181 @@ func TestBuildCandidateBindingsUsesOnlyUnambiguousInventoryCatalogPairs(t *testi
 		t.Fatalf("BuildCandidateBindings() error = %v", err)
 	}
 	want := []CandidateBinding{
-		{ExecutorID: inventory.ExecutorCursorAgent, ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", PermissionScore: 1},
-		{ExecutorID: inventory.ExecutorOpenCode, ProviderID: "openai", ModelID: "gpt-5.6-terra", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "first", ModelID: "shared", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "openai", ModelID: "gpt-5.6-terra", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "second", ModelID: "shared", PermissionScore: 1},
 	}
-	if !slices.Equal(bindings, want) {
-		t.Fatalf("bindings = %#v, want %#v (ambiguous shared model excluded)", bindings, want)
+	if !equalCandidateBindings(bindings, want) {
+		t.Fatalf("bindings = %#v, want all and only live catalog pairs %#v", bindings, want)
+	}
+}
+
+func TestBuildCandidateBindingsIncludesLivePairWithoutDedicatedAdapter(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{{
+		ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable,
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "claude", ModelID: "claude-fixture", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialConfigured},
+		{ProviderID: "gemini", ModelID: "gemini-fixture", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialUnknown},
+	}}
+	got, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	want := []CandidateBinding{
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: "claude-fixture", PermissionScore: 2},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "gemini", ModelID: "gemini-fixture", PermissionScore: 1},
+	}
+	if !equalCandidateBindings(got, want) {
+		t.Fatalf("bindings = %#v, want generic live pairs %#v", got, want)
+	}
+}
+
+func equalCandidateBindings(left, right []CandidateBinding) bool {
+	return slices.EqualFunc(left, right, func(a, b CandidateBinding) bool {
+		return a.ExecutorID == b.ExecutorID && a.ProviderID == b.ProviderID && a.ModelID == b.ModelID &&
+			a.PermissionScore == b.PermissionScore && a.CostScore == b.CostScore && slices.Equal(a.EnrichmentIDs, b.EnrichmentIDs)
+	})
+}
+
+func TestBuildCandidateBindingsRejectsAdapterOnlyPairAbsentFromLiveCatalog(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorOpenCode, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "invented", ModelID: "model"}}},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	got, err := BuildCandidateBindings(snapshot, LiveCatalog{Generation: "catalog-generation"})
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("bindings = %#v, want adapter-only pair rejected", got)
+	}
+}
+
+func TestBuildCandidateBindingsRejectsCatalogWithoutCompozyAuthority(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{{
+		ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable,
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	_, err = BuildCandidateBindings(snapshot, LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{{
+		ProviderID: "cursor", ModelID: "grok-4.6", Availability: inventory.AvailabilityAvailable,
+	}}})
+	if !errors.Is(err, ErrNoEligibleCandidate) {
+		t.Fatalf("BuildCandidateBindings(no Compozy authority) error = %v, want ErrNoEligibleCandidate", err)
+	}
+}
+
+func TestBuildCandidateBindingsDeduplicatesExactRuntimeAcrossEnrichers(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "cursor"}}},
+		{ID: inventory.ExecutorOpenCode, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "cursor", ModelID: "grok-4.6"}}},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	got, err := BuildCandidateBindings(snapshot, LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{{
+		ProviderID: "cursor", ModelID: "grok-4.6", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialConfigured,
+	}}})
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ExecutorID != inventory.ExecutorCompozy || !slices.Equal(got[0].EnrichmentIDs, []inventory.ExecutorID{inventory.ExecutorCursorAgent, inventory.ExecutorOpenCode}) {
+		t.Fatalf("bindings = %#v, want one Compozy-owned pair with ordered enrichers", got)
+	}
+}
+
+func TestBuildCandidateBindingsRejectsHiddenDeprecatedAndUnavailableModels(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "ok", ModelID: "model", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialConfigured},
+		{ProviderID: "hidden", ModelID: "model", Availability: inventory.AvailabilityAvailable, Hidden: true},
+		{ProviderID: "deprecated", ModelID: "model", Availability: inventory.AvailabilityAvailable, Deprecated: true},
+		{ProviderID: "unavailable", ModelID: "model", Availability: inventory.AvailabilityMissing},
+	}}
+	got, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ProviderID != "ok" {
+		t.Fatalf("bindings = %#v, want only visible live model", got)
+	}
+}
+
+func TestBuildCandidateBindingsRejectsAuthoritativeMissingProviderAuth(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "ready", ModelID: "model", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialConfigured},
+		{ProviderID: "degraded", ModelID: "model", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialUnknown},
+		{ProviderID: "missing", ModelID: "model", Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialMissing},
+	}}
+	got, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if gotIDs := []string{got[0].ProviderID, got[1].ProviderID}; !slices.Equal(gotIDs, []string{"degraded", "ready"}) {
+		t.Fatalf("providers = %#v, want degraded+ready and missing rejected", gotIDs)
+	}
+}
+
+func TestFitUniverseUsesProviderAndModelInsteadOfAdapterIdentity(t *testing.T) {
+	t.Parallel()
+
+	bindings := []CandidateBinding{{ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: "claude-fixture"}}
+	legacyFit := []CellFitRecommendation{{Domain: DomainFrontend, Complexity: ComplexityLow, Candidates: []FitCandidate{{
+		ExecutorID: inventory.ExecutorCodex, ProviderID: "claude", ModelID: "claude-fixture", Score: 0.9,
+	}}}}
+	if err := validateFitUniverse(legacyFit, bindings); err != nil {
+		t.Fatalf("validateFitUniverse(legacy executor) error = %v", err)
+	}
+	legacyFit[0].Candidates = append(legacyFit[0].Candidates, FitCandidate{
+		ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: "claude-fixture", Score: 0.8,
+	})
+	if err := validateFitUniverse(legacyFit, bindings); !errors.Is(err, ErrSelectionRetryable) {
+		t.Fatalf("validateFitUniverse(duplicate runtime pair) error = %v, want ErrSelectionRetryable", err)
+	}
+}
+
+func TestNewRoutingGenerationWritesCompozyAsExecutionOwner(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixture()
+	fixture.Bindings[0].ExecutorID = inventory.ExecutorCompozy
+	fixture.Inventory.Executors[0].ID = inventory.ExecutorCompozy
+	fixture.Fit[0].Candidates[0].ExecutorID = inventory.ExecutorCursorAgent
+	generation, err := fixture.Select()
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	if got := generation.Cells[0].Selected.ExecutorID; got != inventory.ExecutorCompozy {
+		t.Fatalf("selected execution owner = %q, want compozy", got)
 	}
 }
 

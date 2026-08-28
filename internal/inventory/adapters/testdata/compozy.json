@@ -1,8 +1,8 @@
 {
   "version": "{\"Version\":\"0.3.0-beta.21\",\"Commit\":\"fixture\"}",
   "status": "{\"schema_version\":\"1\",\"daemon\":{\"status\":\"running\",\"version\":\"0.3.0-beta.21\"},\"token\":\"BATUTA_ADAPTER_SECRET_91ef\"}",
-  "providers": "{\"providers\":[{\"name\":\"cursor\",\"auth_status\":{\"state\":\"configured\"}}]}",
-  "models": "{\"models\":[{\"provider_id\":\"cursor\",\"model_id\":\"grok-4.6\",\"availability_state\":\"available\",\"supports_tools\":true,\"hidden\":false,\"deprecated\":false}]}",
+  "providers": "{\"providers\":[{\"name\":\"cursor\",\"auth_status\":{\"state\":\"configured\"}},{\"name\":\"claude\",\"auth_status\":{\"state\":\"authenticated\"}},{\"name\":\"gemini\",\"auth_status\":{\"state\":\"none\"}},{\"name\":\"missing\",\"auth_status\":{\"state\":\"missing_credential\",\"message\":\"BATUTA_ADAPTER_SECRET_91ef\"}}]}",
+  "models": "{\"models\":[{\"provider_id\":\"cursor\",\"model_id\":\"grok-4.6\",\"availability_state\":\"available\",\"supports_tools\":true,\"hidden\":false,\"deprecated\":false},{\"provider_id\":\"claude\",\"model_id\":\"claude-fixture\",\"availability_state\":\"available_live\"},{\"provider_id\":\"gemini\",\"model_id\":\"gemini-fixture\",\"availability_state\":\"available_live\"},{\"provider_id\":\"hidden\",\"model_id\":\"hidden-fixture\",\"availability_state\":\"available_live\",\"hidden\":true},{\"provider_id\":\"deprecated\",\"model_id\":\"deprecated-fixture\",\"availability_state\":\"available_live\",\"deprecated\":true},{\"provider_id\":\"stale\",\"model_id\":\"stale-fixture\",\"availability_state\":\"available_stale\"},{\"provider_id\":\"unavailable\",\"model_id\":\"unavailable-fixture\",\"availability_state\":\"unavailable_live\"}]}",
   "agents": "{\"agents\":[{\"name\":\"frontend\"}]}",
   "skills": "{\"skills\":[{\"name\":\"impeccable\",\"source\":\"bundled\",\"instructions\":\"BATUTA_ADAPTER_SECRET_91ef\"}]}",
   "toolsets": "{\"toolsets\":[{\"name\":\"web\"}]}",

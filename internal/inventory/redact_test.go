@@ -96,3 +96,36 @@ func TestRedactPreservesSafeIdentifiersAndProvenance(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactPreservesSafeProviderBindingsAndDropsUnknownCanaries(t *testing.T) {
+	t.Parallel()
+
+	const canary = "BATUTA_PROVIDER_SECRET_8ab1"
+	redacted := Redact(map[string]any{
+		"executor_id": "cursor-agent",
+		"provider_bindings": []any{
+			map[string]any{
+				"provider_id": "cursor",
+				"model_id":    "grok-4.6[effort=high,fast=true]",
+				"login":       canary,
+				"command":     "cursor-agent auth " + canary,
+			},
+		},
+		"raw_provider": map[string]any{"token": canary},
+	}, canary)
+	payload, err := json.Marshal(redacted)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	text := string(payload)
+	for _, required := range []string{`"provider_bindings"`, `"provider_id":"cursor"`, `"model_id":"grok-4.6[effort=high,fast=true]"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("redacted JSON missing safe provider binding %s: %s", required, text)
+		}
+	}
+	for _, forbidden := range []string{canary, "8ab1", "login", "command", "raw_provider", "token"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("redacted JSON contains provider canary %q: %s", forbidden, text)
+		}
+	}
+}

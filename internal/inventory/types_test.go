@@ -65,6 +65,35 @@ func TestSnapshotDigestIsStableAcrossInputOrder(t *testing.T) {
 	}
 }
 
+func TestSnapshotCanonicalizesAndValidatesProviderBindings(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
+		ID:           ExecutorCursorAgent,
+		Availability: AvailabilityAvailable,
+		ProviderBindings: []ProviderBinding{
+			{ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]"},
+			{ProviderID: "cursor"},
+			{ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	want := []ProviderBinding{{ProviderID: "cursor"}, {ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]"}}
+	if !slices.Equal(snapshot.Executors[0].ProviderBindings, want) {
+		t.Fatalf("provider bindings = %#v, want canonical %#v", snapshot.Executors[0].ProviderBindings, want)
+	}
+
+	for _, invalid := range []ProviderBinding{{}, {ProviderID: "cursor\nsecret"}, {ProviderID: "cursor", ModelID: "model\tsecret"}} {
+		if _, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
+			ID: ExecutorCursorAgent, Availability: AvailabilityAvailable, ProviderBindings: []ProviderBinding{invalid},
+		}}); err == nil {
+			t.Fatalf("NewSnapshot(provider binding %#v) error = nil", invalid)
+		}
+	}
+}
+
 func TestSnapshotRejectsUnknownExecutorAndResolutionState(t *testing.T) {
 	t.Parallel()
 

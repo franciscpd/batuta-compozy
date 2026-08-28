@@ -59,6 +59,11 @@ type Diagnostic struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+type ProviderBinding struct {
+	ProviderID string `json:"provider_id"`
+	ModelID    string `json:"model_id,omitempty"`
+}
+
 type ExecutorSnapshot struct {
 	ID                   ExecutorID        `json:"executor_id"`
 	Availability         AvailabilityState `json:"availability"`
@@ -68,6 +73,7 @@ type ExecutorSnapshot struct {
 	InstructionDigests   []Evidence        `json:"instructions,omitempty"`
 	Capabilities         []Evidence        `json:"capabilities,omitempty"`
 	CredentialState      CredentialState   `json:"credential_state,omitempty"`
+	ProviderBindings     []ProviderBinding `json:"provider_bindings,omitempty"`
 	Diagnostics          []Diagnostic      `json:"diagnostics,omitempty"`
 }
 
@@ -174,7 +180,30 @@ func validateExecutor(executor ExecutorSnapshot) error {
 		executor.CredentialState != CredentialUnknown {
 		return errors.New("unsupported credential state")
 	}
+	for _, binding := range executor.ProviderBindings {
+		if !validProviderID(binding.ProviderID) || binding.ModelID != "" && !validModelID(binding.ModelID) {
+			return errors.New("invalid provider binding")
+		}
+	}
 	return nil
+}
+
+func validProviderID(value string) bool { return validBindingID(value, "-._/+") }
+
+func validModelID(value string) bool { return validBindingID(value, "-._/+[],:=") }
+
+func validBindingID(value, punctuation string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 256 || strings.ContainsAny(value, "\r\n\t") {
+		return false
+	}
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune(punctuation, char) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (e Evidence) empty() bool {
@@ -195,6 +224,7 @@ func cloneExecutors(executors []ExecutorSnapshot) []ExecutorSnapshot {
 		cloned[i].Capabilities = cloneEvidence(executors[i].Capabilities)
 		cloned[i].Version.Identifiers = slices.Clone(executors[i].Version.Identifiers)
 		cloned[i].Health.Identifiers = slices.Clone(executors[i].Health.Identifiers)
+		cloned[i].ProviderBindings = slices.Clone(executors[i].ProviderBindings)
 		cloned[i].Diagnostics = slices.Clone(executors[i].Diagnostics)
 	}
 	return cloned
@@ -216,6 +246,8 @@ func canonicalizeExecutors(executors []ExecutorSnapshot) {
 		canonicalizeEvidence(executors[i].Capabilities)
 		slices.Sort(executors[i].Version.Identifiers)
 		slices.Sort(executors[i].Health.Identifiers)
+		slices.SortFunc(executors[i].ProviderBindings, compareProviderBindings)
+		executors[i].ProviderBindings = slices.Compact(executors[i].ProviderBindings)
 		slices.SortFunc(executors[i].Diagnostics, func(a, b Diagnostic) int {
 			if value := strings.Compare(a.Code, b.Code); value != 0 {
 				return value
@@ -226,6 +258,13 @@ func canonicalizeExecutors(executors []ExecutorSnapshot) {
 	slices.SortFunc(executors, func(a, b ExecutorSnapshot) int {
 		return strings.Compare(string(a.ID), string(b.ID))
 	})
+}
+
+func compareProviderBindings(a, b ProviderBinding) int {
+	if value := strings.Compare(a.ProviderID, b.ProviderID); value != 0 {
+		return value
+	}
+	return strings.Compare(a.ModelID, b.ModelID)
 }
 
 func canonicalizeEvidence(values []Evidence) {

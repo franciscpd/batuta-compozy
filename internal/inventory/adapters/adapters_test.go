@@ -272,6 +272,63 @@ func TestCompozyAdapterIncludesOnlyLiveAvailableModels(t *testing.T) {
 	t.Fatal("models capability missing")
 }
 
+func TestCompozyNormalizationPreservesExactLiveModelEvidence(t *testing.T) {
+	t.Parallel()
+
+	const secret = "BATUTA_PROVIDER_STATUS_SECRET_20bc"
+	adapter := mustNewCompozy(t, "/opt/compozy", "workspace-1")
+	outputs := map[inventory.ProbeID][]byte{
+		adapter.ProbeID("version"): []byte("0.3.0-beta.21"),
+		adapter.ProbeID("providers"): []byte(`{"providers":[
+			{"name":"claude","auth_status":{"state":"authenticated","message":"` + secret + `","command":"login ` + secret + `"}},
+			{"name":"configured","auth_status":{"state":"configured"}},
+			{"name":"gemini","auth_status":{"state":"none"}},
+			{"name":"cursor","auth_status":{"state":"permission_denied"}},
+			{"name":"missing-cli","auth_status":{"state":"missing_cli"}},
+			{"name":"bedrock","auth_status":{"state":"missing_credential"}},
+			{"name":"needs-login","auth_status":{"state":"needs_login"}},
+			{"name":"rate-limited","auth_status":{"state":"rate_limited"}},
+			{"name":"transient","auth_status":{"state":"transient"}},
+			{"name":"unknown","auth_status":{"state":"unknown"}},
+			{"name":"future","auth_status":{"state":"future_auth_state"}}
+		]}`),
+		adapter.ProbeID("models"): []byte(`{"models":[
+			{"provider_id":"claude","model_id":"claude-fixture","availability_state":"available_live"},
+			{"provider_id":"gemini","model_id":"gemini/fixture-v1","availability_state":"available"}
+		]}`),
+	}
+	snapshot := adapter.Normalize(outputs)
+	if got := evidenceIdentifiers(snapshot.Capabilities, "models"); !slices.Equal(got, []string{"claude/claude-fixture", "gemini/gemini/fixture-v1"}) {
+		t.Fatalf("models = %#v, want exact live identifiers", got)
+	}
+	wantAuth := []string{
+		"bedrock=missing", "claude=configured", "configured=configured", "cursor=missing", "future=unknown",
+		"gemini=configured", "missing-cli=missing", "needs-login=missing", "rate-limited=unknown",
+		"transient=unknown", "unknown=unknown",
+	}
+	if got := evidenceIdentifiers(snapshot.Capabilities, "provider_auth"); !slices.Equal(got, wantAuth) {
+		t.Fatalf("provider auth = %#v, want reduced enum-only evidence %#v", got, wantAuth)
+	}
+	payload, err := json.Marshal(inventory.Redact(snapshot, secret))
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, forbidden := range []string{secret, "20bc", "message", "command", "future_auth_state"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("normalized Compozy output contains %q: %s", forbidden, payload)
+		}
+	}
+}
+
+func evidenceIdentifiers(values []inventory.Evidence, name string) []string {
+	for _, value := range values {
+		if value.Name == name {
+			return value.Identifiers
+		}
+	}
+	return nil
+}
+
 func TestExecutorAdaptersEmitUnambiguousCompozyRuntimePairs(t *testing.T) {
 	t.Parallel()
 

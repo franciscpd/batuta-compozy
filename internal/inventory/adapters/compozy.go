@@ -59,6 +59,28 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 		snapshot.Capabilities = append(snapshot.Capabilities, unknownEvidence("models", "compozy provider models list", "probe_unavailable"))
 	}
 
+	var providers struct {
+		Providers []struct {
+			Name       string `json:"name"`
+			AuthStatus struct {
+				State string `json:"state"`
+			} `json:"auth_status"`
+		} `json:"providers"`
+	}
+	providerRaw := outputs[ids["providers"]]
+	providerAuth := make([]string, 0)
+	if len(providerRaw) > 0 && json.Unmarshal(providerRaw, &providers) == nil {
+		for _, provider := range providers.Providers {
+			if !safePublicIdentifier(provider.Name) {
+				continue
+			}
+			providerAuth = append(providerAuth, provider.Name+"="+string(reducedProviderCredentialState(provider.AuthStatus.State)))
+		}
+		snapshot.Capabilities = append(snapshot.Capabilities, evidence("provider_auth", "compozy provider list", inventory.ResolutionResolved, providerRaw, providerAuth))
+	} else {
+		snapshot.Capabilities = append(snapshot.Capabilities, unknownEvidence("provider_auth", "compozy provider list", "probe_unavailable"))
+	}
+
 	for _, entry := range []struct{ key, name, source string }{
 		{"agents", "agents", "compozy agent list"}, {"skills", "skills", "compozy skill list"},
 		{"toolsets", "toolsets", "compozy toolsets list"}, {"tools", "tools", "compozy tool list"},
@@ -78,6 +100,17 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 	snapshot.CredentialState = inventory.CredentialUnknown
 	appendSkew(&snapshot, schemaSkewed(outputs[ids["status"]]))
 	return snapshot
+}
+
+func reducedProviderCredentialState(state string) inventory.CredentialState {
+	switch strings.TrimSpace(state) {
+	case "configured", "authenticated", "none":
+		return inventory.CredentialConfigured
+	case "missing_cli", "missing_credential", "needs_login", "permission_denied":
+		return inventory.CredentialMissing
+	default:
+		return inventory.CredentialUnknown
+	}
 }
 
 func liveAvailableModel(state string) bool {

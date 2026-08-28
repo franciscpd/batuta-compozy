@@ -33,11 +33,12 @@ type RuntimeValue struct {
 }
 
 type RuntimeCandidate struct {
-	ExecutorID inventory.ExecutorID `json:"executor_id"`
-	ProviderID string               `json:"provider_id"`
-	ModelID    string               `json:"model_id"`
-	Reasoning  string               `json:"reasoning"`
-	ModelTier  ModelTier            `json:"model_tier"`
+	ExecutorID    inventory.ExecutorID   `json:"executor_id"`
+	ProviderID    string                 `json:"provider_id"`
+	ModelID       string                 `json:"model_id"`
+	EnrichmentIDs []inventory.ExecutorID `json:"enrichment_ids,omitempty"`
+	Reasoning     string                 `json:"reasoning"`
+	ModelTier     ModelTier              `json:"model_tier"`
 }
 
 type RoutingCell struct {
@@ -57,12 +58,13 @@ type LoopBudgetCeiling struct {
 }
 
 type CandidateRejection struct {
-	Domain     Domain               `json:"domain"`
-	Complexity Complexity           `json:"complexity"`
-	ExecutorID inventory.ExecutorID `json:"executor_id"`
-	ProviderID string               `json:"provider_id"`
-	ModelID    string               `json:"model_id"`
-	Code       string               `json:"code"`
+	Domain        Domain                 `json:"domain"`
+	Complexity    Complexity             `json:"complexity"`
+	ExecutorID    inventory.ExecutorID   `json:"executor_id"`
+	ProviderID    string                 `json:"provider_id"`
+	ModelID       string                 `json:"model_id"`
+	EnrichmentIDs []inventory.ExecutorID `json:"enrichment_ids,omitempty"`
+	Code          string                 `json:"code"`
 }
 
 type GenerationTask struct {

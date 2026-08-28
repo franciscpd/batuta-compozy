@@ -19,11 +19,12 @@ var (
 const maxSafeRejectionsPerCell = 16
 
 type CatalogModel struct {
-	ProviderID   string                      `json:"provider_id"`
-	ModelID      string                      `json:"model_id"`
-	Availability inventory.AvailabilityState `json:"availability"`
-	Hidden       bool                        `json:"hidden,omitempty"`
-	Deprecated   bool                        `json:"deprecated,omitempty"`
+	ProviderID      string                      `json:"provider_id"`
+	ModelID         string                      `json:"model_id"`
+	Availability    inventory.AvailabilityState `json:"availability"`
+	Hidden          bool                        `json:"hidden,omitempty"`
+	Deprecated      bool                        `json:"deprecated,omitempty"`
+	CredentialState inventory.CredentialState   `json:"credential_state,omitempty"`
 }
 
 type LiveCatalog struct {
@@ -32,11 +33,12 @@ type LiveCatalog struct {
 }
 
 type CandidateBinding struct {
-	ExecutorID      inventory.ExecutorID `json:"executor_id"`
-	ProviderID      string               `json:"provider_id"`
-	ModelID         string               `json:"model_id"`
-	PermissionScore int                  `json:"permission_score"`
-	CostScore       int                  `json:"cost_score"`
+	ExecutorID      inventory.ExecutorID   `json:"executor_id"`
+	ProviderID      string                 `json:"provider_id"`
+	ModelID         string                 `json:"model_id"`
+	PermissionScore int                    `json:"permission_score"`
+	CostScore       int                    `json:"cost_score"`
+	EnrichmentIDs   []inventory.ExecutorID `json:"enrichment_ids,omitempty"`
 }
 
 type CapabilityProbeResult struct {
@@ -84,58 +86,46 @@ func BuildCandidateBindings(snapshot inventory.InventorySnapshot, catalog LiveCa
 	if catalog.Generation == "" || catalog.Generation != snapshot.CompozyCatalogGeneration {
 		return nil, ErrCatalogDrift
 	}
-	modelsByID := make(map[string][]CatalogModel)
-	modelsByPair := make(map[string]CatalogModel)
-	for _, model := range catalog.Models {
-		if model.ProviderID == "" || model.ModelID == "" || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated {
-			continue
-		}
-		modelsByID[model.ModelID] = append(modelsByID[model.ModelID], model)
-		modelsByPair[model.ProviderID+"/"+model.ModelID] = model
+	executors := indexExecutors(snapshot.Executors)
+	compozy, exists := executors[inventory.ExecutorCompozy]
+	if !exists || compozy.Availability != inventory.AvailabilityAvailable {
+		return nil, ErrNoEligibleCandidate
 	}
-
-	bindings := make([]CandidateBinding, 0)
-	for _, executor := range snapshot.Executors {
-		if executor.Availability != inventory.AvailabilityAvailable {
+	bindings := make([]CandidateBinding, 0, len(catalog.Models))
+	for _, model := range catalog.Models {
+		if model.ProviderID == "" || model.ModelID == "" || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated || model.CredentialState == inventory.CredentialMissing {
 			continue
 		}
 		permissionScore := 1
-		if executor.CredentialState == inventory.CredentialConfigured {
+		if model.CredentialState == inventory.CredentialConfigured {
 			permissionScore = 2
 		}
-		if executor.ID == inventory.ExecutorCursorAgent {
-			for _, model := range modelsByPair {
-				if model.ProviderID != "cursor" {
-					continue
-				}
-				bindings = append(bindings, CandidateBinding{
-					ExecutorID: executor.ID, ProviderID: model.ProviderID, ModelID: model.ModelID,
-					PermissionScore: permissionScore,
-				})
-			}
-		}
-		for _, evidence := range executor.Capabilities {
-			if evidence.Name != "models" || evidence.State != inventory.ResolutionResolved {
+		enrichments := make([]inventory.ExecutorID, 0)
+		for _, executor := range executors {
+			if executor.ID == inventory.ExecutorCompozy || executor.Availability != inventory.AvailabilityAvailable {
 				continue
 			}
-			for _, identifier := range evidence.Identifiers {
-				model, ok := modelsByPair[identifier]
-				if !ok {
-					matches := modelsByID[identifier]
-					if len(matches) != 1 {
-						continue
-					}
-					model = matches[0]
-				}
-				bindings = append(bindings, CandidateBinding{
-					ExecutorID: executor.ID, ProviderID: model.ProviderID, ModelID: model.ModelID,
-					PermissionScore: permissionScore,
-				})
+			if executorMatchesProviderBinding(executor, model.ProviderID, model.ModelID) {
+				enrichments = append(enrichments, executor.ID)
 			}
 		}
+		slices.Sort(enrichments)
+		bindings = append(bindings, CandidateBinding{
+			ExecutorID: inventory.ExecutorCompozy, ProviderID: model.ProviderID, ModelID: model.ModelID,
+			PermissionScore: permissionScore, EnrichmentIDs: slices.Compact(enrichments),
+		})
 	}
 	bindings = canonicalBindings(bindings)
 	return bindings, nil
+}
+
+func executorMatchesProviderBinding(executor inventory.ExecutorSnapshot, providerID, modelID string) bool {
+	for _, binding := range executor.ProviderBindings {
+		if binding.ProviderID == providerID && (binding.ModelID == "" || binding.ModelID == modelID) {
+			return true
+		}
+	}
+	return false
 }
 
 type cellKey struct {
@@ -207,7 +197,7 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 				if recordedRejections < maxSafeRejectionsPerCell {
 					generation.Rejections = append(generation.Rejections, CandidateRejection{
 						Domain: key.domain, Complexity: key.complexity, ExecutorID: binding.ExecutorID,
-						ProviderID: binding.ProviderID, ModelID: binding.ModelID, Code: reason,
+						ProviderID: binding.ProviderID, ModelID: binding.ModelID, EnrichmentIDs: slices.Clone(binding.EnrichmentIDs), Code: reason,
 					})
 					recordedRejections++
 				}
@@ -271,7 +261,7 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 	if !exists || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated {
 		return "catalog_pair_unavailable"
 	}
-	if !executorHasModel(executor, binding.ProviderID, binding.ModelID) && !catalogModelOwnedByExecutor(binding.ExecutorID, binding.ProviderID) {
+	if binding.ExecutorID != inventory.ExecutorCompozy && !executorHasModel(executor, binding.ProviderID, binding.ModelID) && !catalogModelOwnedByExecutor(binding.ExecutorID, binding.ProviderID) {
 		return "executor_model_unproven"
 	}
 	if policy.modelTier(binding.ProviderID, binding.ModelID) < modelFloor(key.complexity) {
@@ -367,6 +357,11 @@ func indexCatalog(models []CatalogModel) map[string]CatalogModel {
 
 func canonicalBindings(bindings []CandidateBinding) []CandidateBinding {
 	result := slices.Clone(bindings)
+	for i := range result {
+		result[i].EnrichmentIDs = slices.Clone(result[i].EnrichmentIDs)
+		slices.Sort(result[i].EnrichmentIDs)
+		result[i].EnrichmentIDs = slices.Compact(result[i].EnrichmentIDs)
+	}
 	slices.SortFunc(result, func(a, b CandidateBinding) int {
 		return strings.Compare(bindingKey(a.ExecutorID, a.ProviderID, a.ModelID), bindingKey(b.ExecutorID, b.ProviderID, b.ModelID))
 	})
@@ -461,11 +456,11 @@ func sortRankedCandidates(candidates []rankedCandidate) {
 }
 
 func runtimeCandidate(candidate rankedCandidate, reasoning string) RuntimeCandidate {
-	return RuntimeCandidate{ExecutorID: candidate.binding.ExecutorID, ProviderID: candidate.binding.ProviderID, ModelID: candidate.binding.ModelID, Reasoning: reasoning, ModelTier: candidate.tier}
+	return RuntimeCandidate{ExecutorID: candidate.binding.ExecutorID, ProviderID: candidate.binding.ProviderID, ModelID: candidate.binding.ModelID, EnrichmentIDs: slices.Clone(candidate.binding.EnrichmentIDs), Reasoning: reasoning, ModelTier: candidate.tier}
 }
 
 func bindingKey(executorID inventory.ExecutorID, providerID, modelID string) string {
-	return string(executorID) + "\x00" + providerID + "\x00" + modelID
+	return providerID + "\x00" + modelID
 }
 
 func compareRejections(a, b CandidateRejection) int {

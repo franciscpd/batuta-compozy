@@ -158,6 +158,45 @@ func TestRoutingOutputSchemasDeclareOnlyClosedSafeEvidence(t *testing.T) {
 	}
 }
 
+func TestCompozyNormalizationProjectsAuthoritativeProviderAuth(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-digest", []inventory.ExecutorSnapshot{{
+		ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable,
+		Capabilities: []inventory.Evidence{
+			{Name: "models", State: inventory.ResolutionResolved, Digest: "catalog-digest", Identifiers: []string{
+				"claude/claude-fixture", "cursor/grok-4.6", "future/model", "gemini/gemini-fixture",
+			}},
+			{Name: "provider_auth", State: inventory.ResolutionResolved, Identifiers: []string{
+				"claude=configured", "cursor=missing", "future=unknown", "gemini=configured",
+			}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog, err := liveCatalogFromInventory(snapshot)
+	if err != nil {
+		t.Fatalf("liveCatalogFromInventory() error = %v", err)
+	}
+	want := map[string]inventory.CredentialState{
+		"claude/claude-fixture": inventory.CredentialConfigured,
+		"cursor/grok-4.6":       inventory.CredentialMissing,
+		"future/model":          inventory.CredentialUnknown,
+		"gemini/gemini-fixture": inventory.CredentialConfigured,
+	}
+	for _, model := range catalog.Models {
+		key := model.ProviderID + "/" + model.ModelID
+		if model.CredentialState != want[key] {
+			t.Fatalf("catalog model %q auth = %q, want %q", key, model.CredentialState, want[key])
+		}
+		delete(want, key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("catalog missing models: %#v", want)
+	}
+}
+
 func TestRoutingHandlersRequireTrustedWorkspaceAndPreserveTypedInputs(t *testing.T) {
 	t.Parallel()
 

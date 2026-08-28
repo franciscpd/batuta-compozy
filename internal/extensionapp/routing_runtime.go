@@ -213,6 +213,22 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 		if executor.ID != inventory.ExecutorCompozy || executor.Availability != inventory.AvailabilityAvailable {
 			continue
 		}
+		providerAuth := make(map[string]inventory.CredentialState)
+		for _, capability := range executor.Capabilities {
+			if capability.Name != "provider_auth" || capability.State != inventory.ResolutionResolved {
+				continue
+			}
+			for _, identifier := range capability.Identifiers {
+				provider, state, ok := strings.Cut(identifier, "=")
+				if !ok {
+					continue
+				}
+				switch inventory.CredentialState(state) {
+				case inventory.CredentialConfigured, inventory.CredentialMissing, inventory.CredentialUnknown:
+					providerAuth[provider] = inventory.CredentialState(state)
+				}
+			}
+		}
 		for _, capability := range executor.Capabilities {
 			if capability.Name != "models" || capability.State != inventory.ResolutionResolved || capability.Digest != snapshot.CompozyCatalogGeneration {
 				continue
@@ -224,6 +240,7 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 				}
 				catalog.Models = append(catalog.Models, routing.CatalogModel{
 					ProviderID: provider, ModelID: model, Availability: inventory.AvailabilityAvailable,
+					CredentialState: providerAuth[provider],
 				})
 			}
 		}
