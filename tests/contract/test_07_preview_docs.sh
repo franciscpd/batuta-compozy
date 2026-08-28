@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-release_notes=docs/releases/0.1.0-beta.4.md
+release_notes=docs/releases/0.1.0-beta.6.md
 documents=(README.md README.pt-BR.md "$release_notes")
 preview_design=docs/internal/specs/2026-08-15-batuta-preview-release-design.md
 preview_plan=docs/internal/plans/2026-08-15-batuta-preview-release.md
@@ -35,7 +35,8 @@ update_command='compozy extension update batuta --allow-unverified --yes'
 for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
   require "$document" 'franciscpd/batuta-compozy'
-  require "$document" 'v0.1.0-beta.4'
+  require "$document" 'v0.1.0-beta.6'
+  require "$document" '382976d4b43274630a4b67445812fd4a0216dbcc'
   require "$document" "$install_command"
   require "$document" 'compozy extension enable batuta'
   require "$document" "$update_command"
@@ -44,7 +45,7 @@ for document in "${documents[@]}"; do
   for obsolete in \
     'SHA256SUMS' \
     'gh release download' \
-    'batuta-compozy_0.1.0-beta.4.tar.gz' \
+    'batuta-compozy_0.1.0-beta.6.tar.gz' \
     'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c' \
     'check-compozy-version.sh' \
     'batuta-republish.lock'; do
@@ -53,8 +54,8 @@ for document in "${documents[@]}"; do
       exit 1
     fi
   done
-  if grep -qE '[0-9a-f]{40}' "$document"; then
-    printf 'obsolete 40-hex commit hash in %s\n' "$document" >&2
+  if grep -oE '[0-9a-f]{40}' "$document" | grep -qvFx '382976d4b43274630a4b67445812fd4a0216dbcc'; then
+    printf 'unexpected 40-hex commit hash in %s\n' "$document" >&2
     exit 1
   fi
 done

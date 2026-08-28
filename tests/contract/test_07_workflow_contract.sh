@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 
 WORKFLOW=.github/workflows/ci.yml
 RELEASE_WORKFLOW=.github/workflows/release.yml
-RELEASE_NOTES=docs/releases/0.1.0-beta.3.md
+RELEASE_NOTES=docs/releases/0.1.0-beta.6.md
 CHECKOUT_SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 SETUP_GO_SHA=924ae3a1cded613372ab5595356fb5720e22ba16
 UPLOAD_SHA=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -326,8 +326,10 @@ require_release 'expected={'
 for expected_inventory_item in \
   "('agent','batuta')" \
   "('loop','batuta-deliver')" \
+  "('loop','batuta-task')" \
   "('skill','batuta-routing')" \
   "('tool','ext__batuta__delivery_budget_context')" \
+  "('tool','ext__batuta__delivery_graph')" \
   "('tool','ext__batuta__executor_inventory')" \
   "('tool','ext__batuta__publication_plan')" \
   "('tool','ext__batuta__publication_verify')" \

@@ -180,7 +180,7 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 	app := application{services: services}
 	extension := compozysdk.NewExtension(compozysdk.ExtensionDefinition{
 		Name:        "batuta",
-		Version:     "0.1.0-beta.5",
+		Version:     "0.1.0-beta.6",
 		Description: "Batuta conducts implementation, review, and verified publication on CompozyOS.",
 		Resources: compozysdk.DescribeResources{
 			Agents: []compozysdk.DescribeResourcePath{{Path: "agents"}},

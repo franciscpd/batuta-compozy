@@ -21,7 +21,7 @@ require_text() {
 require_file docs/architecture.md
 require_file docs/case-studies/version-subcommand.md
 require_file CONTRIBUTING.md
-require_file docs/releases/0.1.0-beta.5.md
+require_file docs/releases/0.1.0-beta.6.md
 
 for text in \
   'independent community project' \
@@ -35,8 +35,11 @@ for text in \
   'https://github.com/compozy/compozy' \
   'automatic executor inventory' \
   'domain × complexity' \
-  '`auto_commit=true`' \
-  'bounded fresh-run fallback' \
+  'max-four dependency-safe parallelism' \
+  'task worktrees' \
+  'canonical conflict reexecution' \
+  'one final review' \
+  '382976d4b43274630a4b67445812fd4a0216dbcc' \
   'no human publication gate' \
   'merge remains manual'; do
   require_text README.md "$text"
@@ -54,9 +57,11 @@ for text in \
   'https://github.com/compozy/compozy' \
   'inventário automático de executores' \
   'domínio × complexidade' \
-  '`auto_commit=true`' \
-  'fallback limitado em novo run' \
-  'sem gate humano de publicação' \
+  'paralelismo seguro de no máximo quatro' \
+  'worktrees de task' \
+  'reexecução canônica de conflito' \
+  'uma revisão final' \
+  '382976d4b43274630a4b67445812fd4a0216dbcc' \
   'merge continua manual'; do
   require_text README.pt-BR.md "$text"
 done
@@ -74,16 +79,17 @@ for text in \
   'Operator' \
   'Batuta session' \
   'spec-cycle' \
-  'ext__spec_cycle__import_tasks' \
   'batuta-deliver' \
-  'implement-tasks' \
+  'batuta-task' \
+  'nine hosted Batuta tools' \
+  'ext__batuta__delivery_graph' \
   'review-and-fix' \
   'compozy__session_prompt' \
-  'Resource and authority boundaries' \
   'ext__batuta__publish_worktree' \
   'delivery_id' \
-  'fresh-run recovery' \
-  'one PR per delivery phase'; do
+  'canonical conflict reexecution' \
+  'retained diagnostic worktree' \
+  'merge remains manual'; do
   require_text docs/architecture.md "$text"
 done
 
@@ -103,9 +109,7 @@ for text in \
   '`ext__batuta__executor_inventory`' \
   '`ext__batuta__routing_plan`' \
   '`ext__batuta__routing_apply`' \
-  '`ext__spec_cycle__import_tasks`' \
   '`batuta-deliver`' \
-  'one PR per delivery phase' \
   'domain × complexity' \
   'Never run concurrent writers in one worktree.' \
   'merge remains manual'; do
@@ -119,29 +123,30 @@ require_file tests/e2e/SMOKE.md
 for text in \
   'cy-create-spec' \
   'cy-create-tasks' \
-  'full workspace' \
   'SDD' \
   'ext__batuta__executor_inventory' \
   'ext__batuta__routing_plan' \
   'ext__batuta__routing_apply' \
-  'ext__spec_cycle__import_tasks' \
   'batuta-deliver' \
+  'batuta-task' \
   'origin_session_id' \
   'compozy__loop_status' \
   'agents/batuta/AGENT.md' \
   'resources/skills/batuta-routing/SKILL.md' \
   'ext__batuta__publish_worktree' \
   'publication_verify' \
-  'batuta/<slug>' \
-  'wall-clock budget' \
+  'active wall-clock' \
   'domain × complexity' \
   'backend/low' \
   'frontend/medium' \
   'delivery_id' \
-  'fresh parent run' \
-  'stored Compozy Loop configuration is never mutated' \
-  'one commit per task' \
-  'one PR per delivery phase' \
+  'canonical conflict reexecution' \
+  'max-four dependency-safe parallelism' \
+  'task worktree' \
+  'integration worktree' \
+  'Stored Compozy Loop configuration is never mutated' \
+  'one commit' \
+  'one final review' \
   'merge remains manual'; do
   require_text docs/how-it-works.md "$text"
 done
@@ -166,9 +171,10 @@ for text in \
   'start_delivery' \
   'delivery_id' \
   'one commit per task' \
-  'one PR per delivery phase' \
-  'no human publication gate' \
-  'merge remains manual'; do
+  'one final review' \
+  'max-four dependency-safe parallelism' \
+  'batuta-task' \
+  'Merge remains manual'; do
   require_text tests/e2e/SMOKE.md "$text"
 done
 
@@ -186,16 +192,16 @@ for text in \
   'unverified' \
   'digest_matched' \
   'compozy extension provenance batuta' \
-  'batuta-v0.1.0-beta.4.tar.gz' \
-  'batuta-v0.1.0-beta.4.tar.gz.sha256' \
-  'sha256sum --check' \
   'compozy extension validate' \
   'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
   'compozy extension enable batuta' \
   'scripts/republish.sh'; do
   require_text docs/verify.md "$text"
 done
-require_text docs/verify.md 'all eight hosted Batuta tools'
+require_text docs/verify.md 'all nine hosted Batuta tools'
+require_text docs/verify.md 'loops/batuta-task/loop.yaml'
+require_text docs/verify.md 'staged Go sources'
+require_text docs/verify.md '382976d4b43274630a4b67445812fd4a0216dbcc'
 
 for text in \
   'bash -n scripts/*.sh tests/contract/*.sh' \
@@ -232,7 +238,7 @@ done
 python3 - README.md README.pt-BR.md docs/architecture.md CONTRIBUTING.md \
   docs/case-studies/version-subcommand.md docs/releases/0.1.0-beta.2.md \
   docs/releases/0.1.0-beta.3.md docs/releases/0.1.0-beta.4.md \
-  docs/releases/0.1.0-beta.5.md <<'PY'
+  docs/releases/0.1.0-beta.5.md docs/releases/0.1.0-beta.6.md <<'PY'
 import re
 import sys
 

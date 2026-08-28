@@ -84,8 +84,10 @@ actual={(it['kind'], it['name']) for it in items}
 expected={
   ('agent','batuta'),
   ('loop','batuta-deliver'),
+  ('loop','batuta-task'),
   ('skill','batuta-routing'),
   ('tool','ext__batuta__delivery_budget_context'),
+  ('tool','ext__batuta__delivery_graph'),
   ('tool','ext__batuta__executor_inventory'),
   ('tool','ext__batuta__publication_plan'),
   ('tool','ext__batuta__publication_verify'),

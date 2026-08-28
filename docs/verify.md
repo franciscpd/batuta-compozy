@@ -1,85 +1,78 @@
 # Verifying and installing Batuta
 
-The GitHub instructions below describe the current published
-`v0.1.0-beta.4`. The `v0.1.0-beta.5` candidate changes the package to a
-code-backed Linux/amd64 generation and uses the official Compozy Go SDK
-`v0.3.0-beta.21` directly. It has no `replace`, pseudo-version, or fork-only
-dependency. Public beta.5 promotion still waits for an official Compozy binary
-release containing child `run-loop` `config_overrides`; current end-to-end
-validation uses an isolated compatible preview.
+The published remote release remains `v0.1.0-beta.3`; `v0.1.0-beta.6` is the
+next candidate and is not a tag or release yet. Its compatibility baseline is
+the official Compozy Go SDK `v0.3.0-beta.21` and source commit
+`382976d4b43274630a4b67445812fd4a0216dbcc`.
 
 ## What `--allow-unverified` means
 
-CompozyOS installs extensions from a curated catalog, from GitHub, from a git
-URL, or from a local path. Anything that is not an official or community
-catalog entry — including a direct GitHub install like Batuta — is in the
-`unverified` registry tier and needs two things: the live policy
-`extensions.trust.allow_unverified` (default `true`) and your explicit
-`--allow-unverified` on the command (`--yes` skips the confirmation prompt).
-That flag is the whole consent; it does not disable integrity checks.
-
-Every Batuta release carries a `.sha256` sidecar next to its archive. When
-the daemon finds it, it verifies the archive against that digest before
-extraction and records `digest_matched: true` in the extension's provenance.
-Inspect the decision at any time:
+Direct GitHub installs are in CompozyOS's `unverified` registry tier. The live
+policy `extensions.trust.allow_unverified` and your explicit
+`--allow-unverified` consent are required; `--yes` only skips the confirmation.
+The flag does not disable integrity checks. Inspect provenance after installation:
 
 ```bash
 compozy extension provenance batuta -o json
 ```
 
-Expected for a GitHub install: `installed_from: "github"`,
-`digest_matched: true`, `registry_tier: "unverified"`.
+Expected GitHub provenance includes `installed_from: "github"` and, when the
+release provides an archive sidecar, `digest_matched: true`.
 
-## Install from GitHub (recommended)
+## Install from GitHub
 
 ```bash
 compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 
-Pin a version with `github:franciscpd/batuta-compozy@v0.1.0-beta.4`.
-
-## Manual path
-
-If you prefer to inspect the archive before the daemon does:
-
-```bash
-version=0.1.0-beta.4
-work=$(mktemp -d)
-gh release download "v$version" --repo franciscpd/batuta-compozy --dir "$work"
-(cd "$work" && sha256sum --check "batuta-v$version.tar.gz.sha256")
-extracted=$(mktemp -d)
-tar -xzf "$work/batuta-v$version.tar.gz" -C "$extracted"
-compozy extension validate "$extracted" -o json
-compozy extension install "$extracted" --allow-unverified --yes
-compozy extension enable batuta
-```
-
-The release assets are exactly `batuta-v0.1.0-beta.4.tar.gz` and
-`batuta-v0.1.0-beta.4.tar.gz.sha256`. The archive contains six files:
-`LICENSE`, `extension.toml`, `agents/batuta/AGENT.md`,
-`agents/batuta-publisher/AGENT.md`, `resources/skills/batuta-routing/SKILL.md`,
-`loops/batuta-deliver/loop.yaml`.
-
-## Update and remove
+The current published pin is
+`github:franciscpd/batuta-compozy@v0.1.0-beta.3`. Do not claim beta.6 as
+installable until its remote tag and release exist.
 
 ```bash
 compozy extension update batuta --allow-unverified --yes
 compozy extension remove batuta --global
 ```
 
-## Local development install
+## Candidate and local development verification
 
-For beta.5, `scripts/republish.sh` checks the beta.21 runtime floor, stages
-only production Go source plus the declared agent/skill/Loop resources, runs
-`compozy extension build`, validates that immutable generated directory, and
-installs the same generation it validated. Its live inventory must contain
-the agent, Loop, skill, and all eight hosted Batuta tools. The source directory
-is never installed as a resource-only fallback.
+`scripts/stage-extension.sh` creates an immutable candidate generation. Its
+staged Go sources include `go.mod`, `go.sum`, the `batuta` agent, the
+`batuta-routing` skill, and both Loop files:
 
-The script deliberately builds with `GOWORK=off` against the official SDK.
-For the current local lab, run it with the compatible preview binary, validate
-the returned `generation_dir`, and install that exact directory. See
-`CONTRIBUTING.md`.
-A local install records a local path, so `compozy extension update` does not
-apply to it — rebuild and reinstall instead.
+```text
+agents/batuta/AGENT.md
+resources/skills/batuta-routing/SKILL.md
+loops/batuta-deliver/loop.yaml
+loops/batuta-task/loop.yaml
+```
+
+It deliberately excludes repository plans, specs, QA reports, and SDD artifacts
+from the extension package. Build and validate the staged generation, not the
+source checkout:
+
+```bash
+stage=$(mktemp -d)
+scripts/stage-extension.sh "$stage"
+compozy extension build "$stage" -o json
+compozy extension validate "$stage" -o json
+```
+
+For a complete local install, use `scripts/republish.sh` against an isolated
+`COMPOZY_HOME`. It stages the same Go source generation, validates it, installs
+it, and requires this exact inventory: one `batuta` agent, `batuta-deliver` and
+`batuta-task` Loops, `batuta-routing`, and all nine hosted Batuta tools,
+including `ext__batuta__delivery_graph`.
+
+The exact source pin is a development compatibility floor; validate the public
+surface of the daemon you will operate. A local path install cannot use
+`compozy extension update`; rebuild and reinstall the validated generation.
+
+## Release verification
+
+The release workflow accepts only a full candidate SHA and an unused beta SemVer.
+It verifies the candidate through CI before an annotated tag, stages the same
+immutable package, publishes it, then re-installs from GitHub and checks
+inventory/provenance. It never packages source-only plans or swaps a live
+workspace daemon for a release check.

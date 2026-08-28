@@ -2,40 +2,42 @@
 
 > 🇺🇸 [English version](README.md)
 
-O Batuta é um agente maestro para o
-[CompozyOS](https://www.compozy.com/docs/). Você descreve o resultado; o
-Batuta escreve o SDD pelo `spec-cycle` bundled, cria as tasks, faz o
-inventário automático de executores, classifica cada task por domínio × complexidade,
-arquiva uma matriz imutável de runtimes e conduz uma entrega limitada por runs
-novos do Compozy. Ele nunca implementa o código da feature diretamente.
-
-A entrega usa `auto_commit=true`, fallback limitado em novo run, revisão
-independente e publicação automática do HEAD exato, sem gate humano de publicação
-no caminho saudável. Push e abertura do PR são automáticos; o merge continua manual.
-O operador participa apenas quando faltam requisitos de
-produto ou existe um bloqueio externo real, como credenciais ou remote.
-
 O Batuta é um projeto independente da comunidade, não um componente oficial
-ou endossado do CompozyOS. O CompozyOS vive em
-[github.com/compozy/compozy](https://github.com/compozy/compozy).
+ou endossado do CompozyOS. É uma extensão Go para o
+[CompozyOS](https://www.compozy.com/docs/)
+([github.com/compozy/compozy](https://github.com/compozy/compozy)) que conduz
+uma entrega sem escrever o código de produto diretamente.
 
-![Batuta no CompozyOS](docs/images/batuta-no-compozy.png)
+Ele inclui o agente `batuta`, a skill `batuta-routing`, dois Loops
+(`batuta-deliver` e `batuta-task`) e exatamente nove ferramentas hospedadas,
+incluindo `ext__batuta__delivery_graph`. O Batuta escreve o SDD e as tasks
+canônicas, coleta o inventário automático de executores e seleciona cada task
+por domínio × complexidade.
+
+![Roadmap de entrega do Batuta](docs/images/batuta-next-roadmap.png)
 
 ```text
-conversa → SDD → tasks → inventário → matriz domínio × complexidade
-                                         ↓
-relatório ← verificar PR ← publicar ← revisar ← tentativa 1 no worktree isolado
-                                         ↓ somente task falha
-                                  tentativa 2 (novo run)
+conversa -> cards interativos de SDD -> tasks -> inventário -> grafo de roteamento
+                                                        |
+                                      até quatro worktrees de task
+                                                        |
+                       ask/retomada da task -> worktree canônico de integração
+                                                        |
+                       uma revisão final -> push + um PR automáticos -> verificar
 ```
 
 ## Instalar
 
-A `v0.1.0-beta.4` continua sendo a release publicada no GitHub. Esta branch
-prepara a `v0.1.0-beta.5`. O SDK Go oficial `v0.3.0-beta.21` é usado diretamente,
-sem `replace` ou dependência de fork. A promoção pública ainda aguarda um
-binário oficial do Compozy com `config_overrides` em filhos `run-loop`; o
-preview local compatível é suportado para desenvolvimento.
+As únicas releases remotas publicadas são `v0.1.0-beta.2` e
+`v0.1.0-beta.3`; a beta.3 continua sendo a release atual no GitHub. Esta branch
+prepara `v0.1.0-beta.6` como a próxima candidata. O SDK Go upstream
+`v0.3.0-beta.21` é usado diretamente, sem `replace` nem dependência de fork.
+
+A compatibilidade é testada contra o commit do fonte Compozy
+`382976d4b43274630a4b67445812fd4a0216dbcc`. Trate esse commit e o SDK
+`v0.3.0-beta.21` como a baseline mínima de desenvolvimento compatível até uma
+release pública mais nova do Compozy cobrir explicitamente a superfície de
+grafo/ask.
 
 Pré-requisitos:
 
@@ -48,46 +50,54 @@ compozy extension install github:franciscpd/batuta-compozy --allow-unverified --
 compozy extension enable batuta
 ```
 
-`--allow-unverified` é o consentimento explícito para uma fonte da comunidade;
-a verificação de integridade do archive continua ativa. Veja
-[docs/verify.md](docs/verify.md).
+`--allow-unverified` é consentimento explícito para uma fonte da comunidade; a
+verificação de integridade do archive continua ativa. Veja [docs/verify.md](docs/verify.md).
 
-Atualizar: `compozy extension update batuta --allow-unverified --yes` ·
-Remover: `compozy extension remove batuta --global`
+Atualizar: `compozy extension update batuta --allow-unverified --yes` · Remover: `compozy extension remove batuta --global`
 
-Release publicada atual: [`v0.1.0-beta.4`](docs/releases/0.1.0-beta.4.md).
-Próxima candidata: [`v0.1.0-beta.5`](docs/releases/0.1.0-beta.5.md).
+Release publicada atual: [`v0.1.0-beta.3`](docs/releases/0.1.0-beta.3.md) · Próxima candidata: [`v0.1.0-beta.6`](docs/releases/0.1.0-beta.6.md).
+
 ## Uso
 
-Abra uma sessão Compozy com o agente `batuta` no workspace do projeto e
-descreva a mudança. O Batuta pergunta apenas sobre requisitos e depois:
+Abra uma sessão Compozy com `batuta` no workspace do projeto e descreva o
+resultado. Durante o SDD, o Batuta usa cards interativos de esclarecimento só
+para ambiguidade material de produto. Depois que as tasks são aprovadas, um
+`batuta-task` em execução usa seu `ask` de entrega apenas para uma decisão
+material ou valor externo indisponível; a resposta retoma a mesma task/worktree.
 
-1. roda `cy-create-spec` e aguarda a aprovação do contrato de produto;
-2. roda `cy-create-tasks` e valida os metadados canônicos;
-3. inventaria Compozy, Codex, OpenCode e Cursor Agent sem expor secrets;
-4. escolhe IDs exatos de provider/model presentes no catálogo vivo do Compozy;
-5. arquiva regras exatas de `type + complexity` sem alterar config armazenada;
-6. inicia a tentativa 1 de `batuta-deliver` com cap 4 e um deadline de 14.400 segundos;
-7. implementa, revisa, tenta novamente só as tasks falhas em novo run dentro do orçamento original, commita e
-   abre um PR para a fase de entrega.
+O Batuta então:
 
-Por exemplo, uma célula frontend pode selecionar Cursor Agent com o ID ACP
+1. cria e aprova o SDD e o grafo canônico de tasks;
+2. inventaria Compozy, Codex, OpenCode e Cursor Agent sem expor secrets, e faz
+   escolhas de runtime por domínio × complexidade;
+3. admite ondas de tasks dependentes com paralelismo seguro de no máximo quatro
+   em worktrees de task isolados, nunca dois writers no mesmo worktree;
+4. integra cada commit verificado no worktree canônico de integração; um conflito
+   recebe reexecução canônica de conflito com nova tentativa imutável;
+5. executa uma revisão final, publica e verifica automaticamente o HEAD exato
+   revisado e abre ou reutiliza um PR. O merge continua manual.
+
+O caminho saudável não possui gate humano rotineiro de publicação. Stops como
+orçamento esgotado, evidência ambígua/desatualizada, cancelamento, publicação
+bloqueada ou worktrees de diagnóstico retidos param o grafo e preservam a
+evidência verdadeira no journal, sem iniciar outra geração.
+
+Por exemplo, uma célula frontend pode selecionar Cursor Agent com o ID ACP vivo
 exato `cursor/grok-4.6[effort=high,fast=true]`, enquanto backend usa outro
-executor/modelo. Configurações dos executores externos informam a seleção de
-capacidade, mas somente bindings exatos reportados pelo Compozy executam.
+executor/modelo. Configuração externa informa capacidade, mas somente bindings
+reportados pelo Compozy podem executar.
 
 Os contratos completos estão em [docs/how-it-works.md](docs/how-it-works.md) e
-[docs/architecture.md](docs/architecture.md). O roadmap da apresentação está
-em [docs/images/batuta-next-roadmap.png](docs/images/batuta-next-roadmap.png).
+[docs/architecture.md](docs/architecture.md).
 
 ## Limitações conhecidas
 
-- A promoção pública beta.5 aguarda um binário oficial do Compozy com
-  `config_overrides` em filhos `run-loop`; a validação local usa um preview compatível.
 - As sessões dos executores não são visualmente aninhadas e permanecem
   active/idle após a conclusão terminal normal.
-- Forge provider, remote ou credencial ausente vira blocker; uma compare URL
-  nunca é tratada como PR publicado.
+- Forge provider, remote ou credencial ausente vira blocker; o Batuta nunca
+  trata uma compare URL como PR publicado.
+- O pin de fonte compatível é uma baseline de desenvolvimento, não a afirmação
+  de que toda build pública do Compozy já lançou a superfície de ação do grafo.
 
 ## Saiba mais
 

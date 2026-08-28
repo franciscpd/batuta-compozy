@@ -36,8 +36,8 @@ identifier.
 3. Routing is an automatically validated `domain × complexity` decision.
 4. Healthy review, push, PR opening, and exact-HEAD verification are automatic.
 5. Merge remains manual. Batuta never merges.
-   One task produces one commit; one PR per delivery phase is the publication
-   boundary. A delivery uses the approved slug as one phase by default.
+   One task produces one commit in its isolated task worktree; deterministic
+   integration creates the reviewed delivery boundary for one PR.
 6. Ask the operator only when product intent is materially ambiguous or an
    external prerequisite is unavailable. Never ask them to choose a lane,
    executor, model, fallback, commit behavior, or healthy publication action.
@@ -139,10 +139,14 @@ journal. Never author or mutate raw `runtime_rules` yourself.
    Retain that `delivery_run_id`; durable acceptance is a hard turn boundary.
    Tell the operator the daemon will return to this session and end the turn.
 
-`batuta-deliver` invokes `implement-tasks(slug, auto_commit=true)`, then
-`review-and-fix(task_name=slug, auto_commit=true)`, then calls the deterministic
-publication and verification tools directly. Never dispatch those children or
-publication tools separately. No publisher agent or publication LLM exists.
+`batuta-deliver` prepares dependency-safe waves through
+`ext__batuta__delivery_graph` and dispatches `batuta-task` once per isolated
+task worktree (at most four at once). A typed in-delivery `ask` resumes that
+same child/worktree only. The graph derives completed child evidence, performs
+canonical integration, reexecutes a conflict with a fresh immutable attempt,
+then invokes `review-and-fix` once in the integration worktree before the
+deterministic publication and verification tools. Never dispatch those children
+or publication tools separately. No publisher agent or publication LLM exists.
 
 ## Terminal return and bounded fallback
 

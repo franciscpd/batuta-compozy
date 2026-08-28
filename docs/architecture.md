@@ -2,85 +2,93 @@
 
 ## Purpose and boundaries
 
-Batuta is an independent community project for CompozyOS. It conducts the
-engineering lifecycle but does not implement feature code itself.
+Batuta is an independent community project for CompozyOS. The `batuta` session
+has full trusted-workspace authority to research and write the SDD; it never
+implements feature code. Implementation, commits, review, integration, and
+publication are owned by bounded executor Loops and deterministic extension
+tools.
 
-The Batuta session has the full tool scope inside its authenticated workspace.
-It researches the repository and authors the complete SDD with the bundled
-`spec-cycle` skills. Product-code implementation and review remain owned by the
-executor Loops.
+## Resource inventory
 
-## Components
+The Go extension exposes exactly these executable resources:
 
-Batuta packages one `batuta` agent, one `batuta-routing` skill, one
-`batuta-deliver` Loop, and deterministic extension tools for inventory,
-routing, publication, and verification. The bundled `spec-cycle` extension
-supplies `cy-create-spec`, `cy-create-tasks`,
-`ext__spec_cycle__import_tasks`, `implement-tasks`, and `review-and-fix`.
+- agent: `batuta`;
+- skill: `batuta-routing`;
+- Loops: `batuta-deliver` and `batuta-task`;
+- nine hosted Batuta tools: `ext__batuta__delivery_budget_context`,
+  `ext__batuta__delivery_graph`, `ext__batuta__executor_inventory`,
+  `ext__batuta__publication_plan`, `ext__batuta__publication_verify`,
+  `ext__batuta__publish_worktree`, `ext__batuta__routing_apply`,
+  `ext__batuta__routing_context`, and `ext__batuta__routing_plan`.
+
+The bundled `spec-cycle` supplies SDD authoring and canonical task import. It
+does not authorize Batuta to edit implementation files.
 
 ## Data flow
 
 ```text
 Operator
   -> Batuta session
-  -> spec-cycle SDD and task artifacts
-  -> executor inventory
-  -> domain x complexity routing plan
-  -> immutable matrix archive and delivery_id
-  -> delivery worktree
-  -> batuta-deliver attempt 1 (fresh Compozy run)
-     -> implement-tasks: one commit per task
-     -> on recoverable failure: settle exact evidence
-  -> batuta-deliver attempt N (fresh run, same worktree, failed tasks only)
-     -> review-and-fix: review the complete phase after implementation succeeds
-     -> publication plan
-     -> ext__batuta__publish_worktree
-     -> independent publication verification
+  -> interactive SDD clarification cards, spec-cycle SDD, and task artifacts
+  -> automatic executor inventory and domain x complexity routing generation
+  -> integration worktree and stable delivery_id
+  -> batuta-deliver parent run
+     -> dependency-safe wave (at most four isolated task worktrees)
+        -> batuta-task run-agent implementation
+        -> optional typed ask -> durable answer -> same child/worktree resume
+        -> one implementation commit and completed evidence
+     -> deterministic canonical integration
+        -> conflict: new immutable execution and task worktree
+     -> one review-and-fix child
+     -> exact-HEAD publication plan, push/PR, and independent verification
   -> compozy__session_prompt terminal return
   -> original Batuta conversation
 ```
 
-## Task, phase, and PR boundaries
+## Task, integration, review, and PR boundaries
 
-A task is one implementation item and produces one commit. One execution of
-`batuta-deliver` is a delivery phase and produces at most one pull request. The
-approved slug is one phase by default; explicit multi-phase graph engineering
-is a later extension. This gives one PR per delivery phase without publishing
-each task independently.
+One approved task produces one Conventional Commit in its task worktree. The
+graph integrates it into the canonical integration worktree only after the
+recorded candidate is verified. Tasks that do not depend on one another may run
+in parallel, but the graph has max-four dependency-safe parallelism and never
+runs concurrent writers in one worktree.
 
-## Resource and authority boundaries
+An integration conflict is not merged by guesswork: the journal allocates a
+canonical conflict reexecution with a fresh immutable execution, base SHA, and
+task worktree. Once every task is integrated, `review-and-fix` runs once for the
+delivery. Publication plans and publishes the exact reviewed HEAD, opens or
+reuses one PR, and verifies it independently; merge remains manual.
 
-Batuta may read and write SDD artifacts anywhere inside the trusted workspace.
-It must not implement feature code. `implement-tasks` and `review-and-fix`
-perform product mutations in the managed worktree.
+## Clarification paths
 
-Publication has no human gate and no publisher agent. The Loop passes the exact
-reviewed HEAD from the read-only publication plan directly to
-`ext__batuta__publish_worktree`, then passes that structured result to an
-independent verifier. Push and PR creation are automatic; merge remains manual.
+Interactive SDD clarification cards belong to the parent Batuta conversation:
+they settle material product intent before task approval. The in-delivery `ask`
+belongs only to a parked `batuta-task` child. `record_question` persists the
+child identity and canonical prompt/context/expect; `record_answer` accepts the
+typed answer from that exact `ask_operator` cell and resumes the same task
+attempt. An answer never becomes a cross-task instruction or a new worktree.
 
-Routing configuration is not stored in Compozy. Batuta's guarded matrix tool
-archives one immutable generation and a stable `delivery_id` in its local
-journal. Every attempt receives typed ephemeral child overrides. A recovery
-starts a new parent run with a new `run_id`, keeps the same delivery, worktree,
-task snapshot, and routing generation, and advances only exact failed tasks to
-their next candidate. No Batuta-specific Compozy migration or config CAS is
-required.
+## Stop conditions and retained evidence
 
-## Session lifecycle
+The journal prevents another generation/review/publication when capacity,
+physical-attempt cap, fresh-parent cap, token ceiling, active wall-clock,
+fallback exhaustion, cancellation, no-progress/stall, open human pause,
+ambiguous worktree/Git/journal evidence, or a terminal publication state stops
+the delivery. Safe cleanup is the sole successful terminal path. If cleanup
+must retain a diagnostic worktree, the retained diagnostic worktree has stable
+blocked evidence rather than claiming success or retrying it.
 
-Terminal effects return idempotently to the origin conversation. Batuta reads
-the exact run, reconciles it into the delivery journal, starts at most one
-eligible fresh-run recovery, or reports the authoritative result. Attempt cap,
-token ceiling, absolute deadline, fallback exhaustion, drift, cancellation,
-stalled execution, review failure, and ambiguous mutation evidence stop before
-another submission. There is no reporting agent or poller.
+All create, question/answer, candidate, settlement, retry, review, publication,
+verification, and cleanup operations are journaled and replay-safe.
 
 ## Trust and compatibility
 
-For CompozyOS concepts and compatibility, use the
-[official documentation](https://www.compozy.com/docs/) and
-[official repository](https://github.com/compozy/compozy). The Go dependency is
-the upstream SDK `v0.3.0-beta.21`. Public promotion additionally requires an
-official Compozy binary carrying child `run-loop` `config_overrides`; until
-then, the branch is locally integrated against a compatible preview.
+For CompozyOS concepts, use the [official documentation](https://www.compozy.com/docs/)
+and [official repository](https://github.com/compozy/compozy). The direct Go
+dependency is upstream `v0.3.0-beta.21`; Batuta's tested minimum compatible
+source baseline is commit `382976d4b43274630a4b67445812fd4a0216dbcc`.
+
+That pin is a development compatibility statement, not a claim that every
+public Compozy binary already supports every Batuta graph action. Stored
+Compozy Loop configuration is never mutated: routing and graph state live in
+Batuta's immutable journal.

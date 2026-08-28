@@ -1,86 +1,73 @@
-# Smoke E2E — Batuta Next
+# Smoke E2E — parallel Batuta delivery
 
-Este roteiro valida a nova versão de ponta a ponta em um workspace descartável.
-O objetivo é observar o Batuta criar o SDD e as tasks, classificar as lanes,
-executar a entrega e abrir um PR sem ações manuais no caminho saudável.
+This UI-first smoke route demonstrates a small disposable project. It is an
+operator walkthrough, not a claim that an external provider or forge is being
+exercised by a deterministic fixture.
 
-## Pré-condições
+## Preconditions
 
-- CompozyOS compatível em execução.
-- Extensões `spec-cycle` e `batuta` instaladas e habilitadas.
-- Providers desejados autenticados; nenhuma credencial entra no roteiro.
-- Repositório cobaia pequeno, registrado como workspace, com `origin` e forge
-  disponíveis.
-- `.compozy/tasks` coberto por `worktrees.copy_list`.
+- Use an isolated, compatible CompozyOS daemon and project workspace.
+- Enable `spec-cycle` and `batuta`; diagnose setup with `compozy extension
+  validate`, `status`, and `inventory` only.
+- Supply an authenticated provider/model catalog and a small Git repository with
+  an `origin` only when demonstrating real publication.
+- The tested development baseline is SDK `v0.3.0-beta.21` at Compozy source
+  commit `382976d4b43274630a4b67445812fd4a0216dbcc`.
 
-## Roteiro pela interface do CompozyOS
+## Route through the Compozy UI
 
-1. Abra o workspace cobaia e crie uma sessão usando o agente `batuta`.
-2. Peça uma feature pequena com duas partes independentes, uma de backend e
-   outra de frontend. Não crie task files manualmente.
-3. Observe o Batuta conduzir `cy-create-spec`, escrever o SDD e pedir apenas as
-   decisões de produto realmente ambíguas. Aprove os documentos quando eles
-   expressarem o pedido corretamente.
-4. Observe `cy-create-tasks` criar `_tasks.md` e `task_NN.md`, com domínio e
-   complexidade canônicos em cada task.
-5. Confirme pela timeline que o agente chama `executor_inventory`,
-   `routing_plan` e `routing_apply` (`apply_matrix`, depois `start_delivery`).
-   O snapshot deve ser redigido, a matriz deve cobrir cada task exatamente uma
-   vez e nenhuma config armazenada de Loop deve ser alterada.
-6. Confira no resultado de routing que a task frontend usa o executor/modelo
-   configurado para sua lane e que a task backend usa sua própria lane.
-7. O Batuta cria o worktree `batuta-<slug>` na branch `batuta/<slug>`, importa
-   as tasks e inicia a tentativa 1 de `batuta-deliver` com cap 4, token ceiling
-   e deadline absolutos.
-8. Após a submissão real, o daemon executa implementação e review. A evidência
-   esperada é one commit per task, seguida de eventuais commits de correção do
-   review.
-9. No caminho saudável existe no human publication gate. O Loop chama
-   diretamente a ferramenta determinística de publicação, verifica o HEAD
-   remoto e abre ou reutiliza o pull request.
-10. O retorno terminal chega à sessão original. O Batuta informa outcomes,
-    commits, HEAD revisado, operação de publicação e URL do PR. A fronteira é
-    one PR per delivery phase e merge remains manual.
+1. Create a small workspace/project and open a `batuta` session. Ask Batuta to
+   author an SDD for five tasks: four independent changes and one dependent
+   change. Do not create task files manually.
+2. Select a single interactive SDD clarification card when product intent is
+   materially ambiguous. Confirm it is distinct from a task-level `ask`.
+3. Approve the SDD and task graph. In the timeline, inspect
+   `executor_inventory`, `routing_plan`, and `routing_apply`; verify each task
+   has one canonical domain × complexity lane and the immutable `delivery_id`.
+4. Start delivery through `start_delivery`. The graph has max-four dependency-safe parallelism and must create at most four isolated task worktrees
+   for independent eligible tasks; the fifth remains pending. View the routing
+   graph and child-run IDs in the UI rather than asking an operator to choose
+   executors.
+5. While one sibling progresses, park one `batuta-task` with a material typed
+   question. Answer it in the UI. Confirm the same child run and same task
+   worktree resume with the stored answer; do not turn it into an SDD card or a
+   new task run.
+6. Inspect each completed task's one Conventional Commit and its task worktree.
+   The graph integrates verified commits into the canonical integration worktree.
+   If a deterministic prefix conflict is shown, inspect the newly allocated
+   execution/base/worktree for canonical conflict reexecution.
+7. After the graph is integrated, inspect the one final review (`review-and-fix`) child, the
+   exact reviewed HEAD, the publication plan, one push/PR operation, and
+   independent publication verification. Merge remains manual.
+8. Inspect cleanup. Eligible task worktrees disappear; a named diagnostic
+   worktree may be retained only with terminal blocked evidence.
 
-## Evidências obrigatórias
+## Required evidence
 
-- Os arquivos do SDD e das tasks foram criados pelo Batuta no workspace.
-- Nenhum feature code foi escrito pela sessão do agente principal.
-- O inventário contém apenas capacidades redigidas; nenhum secret ou config
-  bruta aparece na conversa.
-- A classificação usa a matriz fechada de domínio × complexidade.
-- O runtime aplicado a cada task corresponde ao plano e ao generation digest.
-- O journal mostra um `delivery_id` estável e um `run_id` diferente por
-  tentativa; replay não cria run adicional.
-- Os writers são sequenciais no worktree compartilhado.
-- O HEAD verificado é o mesmo publicado no remote e associado ao PR.
-- Nenhum agente publicador, LLM de publicação ou aprovação saudável aparece na
-  timeline.
+- The SDD and `_tasks.md`/`task_NN.md` files came from `cy-create-spec` and
+  `cy-create-tasks`; Batuta did not write feature code.
+- Interactive SDD cards and in-delivery `ask` have separate identities and
+  audiences.
+- Four distinct eligible child starts occur and no fifth concurrent start does.
+- Task and integration worktrees are distinct; no worktree has concurrent
+  writers.
+- Every implementation has one commit per task (a Conventional Commit); integration ancestry has
+  one task commit per task plus a separately identified review commit if present.
+- Replays of prepare/start, question/answer, candidate, settlement/retry,
+  publication/verification, and cleanup create no duplicate journal entries,
+  child runs, worktrees, commits, pushes, or PRs.
+- Stops for capacity, physical attempt cap, fresh parent cap, token ceiling,
+  active wall clock, cancellation/stall/no-progress, human pause, exhausted
+  fallback, or ambiguity preserve journal/Git/worktree/run evidence and do not
+  start another generation or review.
 
-## Casos negativos mínimos
+## Negative checks
 
-Execute separadamente, sem misturar com a demonstração saudável:
-
-- Altere o inventário entre plan e apply: o generation digest antigo deve ser
-  rejeitado sem mudar a matriz.
-- Torne o worktree sujo antes da publicação: o planner deve bloquear antes de
-  push ou criação de PR.
-- Faça uma lane falhar com runtime recuperável: o Batuta deve assentar o run,
-  iniciar outro parent run no mesmo worktree e submeter somente tasks
-  incompletas; commits bem-sucedidos permanecem.
-- Esgote a cadeia de fallback ou o orçamento: o Loop deve parar e retornar a
-  evidência, sem geração adicional.
-- Remova a credencial/forge: a entrega deve retornar o prerequisite externo
-  ausente sem pedir uma ação de publicação saudável nem tentar merge.
-
-## Critérios de reprovação
-
-- O Batuta implementa feature code em vez de limitar-se ao SDD e à orquestração.
-- Uma task fica sem classificação ou é classificada fora do vocabulário.
-- Um executor/modelo inexistente no inventário é aplicado.
-- Duas tentativas mutam o mesmo worktree simultaneamente.
-- Um fallback altera config armazenada, reutiliza o mesmo run ou ultrapassa os
-  limites globais da entrega.
-- Push ou PR usa um HEAD diferente do congelado após o review.
-- O caminho saudável pede escolha de executor, commit, fallback ou publicação.
-- O Batuta faz merge do PR.
+- A fifth independent task is not started until capacity frees.
+- A task after four physical executions is rejected before a liveness or
+  worktree mutation; replays of historical answers/candidates stay truthful.
+- A fourth terminal fresh-parent attempt prevents a fifth Start/Recover.
+- A retained cleanup cannot be reported as `cleaned` and cannot repeat review,
+  publication, or worktree removal.
+- A missing forge provider, remote, or credential is a durable blocker; a
+  compare URL is never evidence of a published PR.

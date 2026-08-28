@@ -78,7 +78,7 @@ assert not Path("agents/batuta-publisher").exists()
 assert "auto_commit=true" in conductor
 assert "publication" in conductor.lower() and "automatic" in conductor.lower()
 assert "merge remains manual" in conductor
-assert "one PR per delivery phase" in conductor
+assert "reviewed delivery boundary for one PR" in conductor
 assert "Never call `compozy__loop_recover_nested`" in conductor
 assert "operation `start_delivery`" in conductor
 assert "operation `reconcile_fallbacks`" in conductor

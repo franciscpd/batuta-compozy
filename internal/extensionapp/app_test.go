@@ -47,7 +47,7 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Describe() error = %v", err)
 	}
-	if describe.Name != "batuta" || describe.Version != "0.1.0-beta.5" {
+	if describe.Name != "batuta" || describe.Version != "0.1.0-beta.6" {
 		t.Fatalf("identity = %q@%q", describe.Name, describe.Version)
 	}
 	if !reflect.DeepEqual(describe.Resources.Agents, []compozysdk.DescribeResourcePath{{Path: "agents"}}) ||

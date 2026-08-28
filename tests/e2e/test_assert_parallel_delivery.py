@@ -19,7 +19,7 @@ def emitted_evidence() -> dict:
         "identity": {
             "scenario_id": "parallel-demo",
             "delivery_id": "sha256:" + "a" * 64,
-            "extension_version": "0.1.0-beta.5",
+            "extension_version": "0.1.0-beta.6",
             "question_operation_id": "sha256:" + "b" * 64,
             "reviewed_head": "c" * 40,
             "retained_worktree_id": "wt_parallel_03",

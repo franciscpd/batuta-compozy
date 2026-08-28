@@ -35,7 +35,7 @@ issues = d.get("issues") or []
 errors = [i for i in issues if i.get("severity") == "error"]
 assert not errors, f"validate retornou erros: {errors}"
 manifest = d.get("manifest") or {}
-assert manifest.get("version") == "0.1.0-beta.5", manifest
+assert manifest.get("version") == "0.1.0-beta.6", manifest
 assert isinstance(manifest.get("min_compozy_version"), str) and manifest["min_compozy_version"], manifest
 '
 
