@@ -754,7 +754,7 @@ rtk git commit -m "feat: run dependency-safe task waves"
 
 **Files:**
 
-- Create: `tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo/_manifest.json`
+- Create: `tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo/_tasks.md`
 - Create: `tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo/task_01.md`
 - Create: `tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo/task_02.md`
 - Create: `tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo/task_03.md`
@@ -769,6 +769,12 @@ rtk git commit -m "feat: run dependency-safe task waves"
 
 ### Step 1: Build the five-task fixture
 
+**Task 8 fixture ruling:** the pinned Compozy `spec-cycle` contract and the
+Batuta artifact loader both make `_tasks.md` with `compozy.tasks/v2` YAML
+frontmatter the sole canonical task graph manifest. The earlier
+`_manifest.json` filename was incorrect and is omitted; adding an inert second
+format or loader is forbidden.
+
 Use at least:
 
 - backend task;
@@ -781,7 +787,12 @@ Use two dependency levels. Make four tasks initially ready. One task must reques
 
 ### Step 2: Write the RED integration assertion
 
-Before wiring the real service, require a deterministic trace proving:
+Before wiring the real service, require a coherent Go integration harness that
+uses production Batuta routing/journal/delivery-graph/integration/cleanup and
+publication services with a disposable real Git repository and worktrees. Only
+provider/child-run/review/forge boundaries may be deterministic adapters. Python
+may consume evidence emitted by the Go harness but must not author lifecycle
+truth. Require it to prove:
 
 1. four distinct managed task worktree IDs share one recorded base;
 2. four child runs start without a fifth concurrent task;

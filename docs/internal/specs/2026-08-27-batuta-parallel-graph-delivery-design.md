@@ -427,6 +427,10 @@ same-file conflict. It proves:
 9. publication verifies the exact reviewed remote HEAD and one PR URL;
 10. every temporary process and safely removable task worktree is torn down.
 
+Its task fixture uses the exact `compozy.tasks/v2` `_tasks.md` YAML graph
+manifest consumed by the pinned `spec-cycle` extension and Batuta artifact
+loader. No parallel JSON manifest or alternative loader is introduced.
+
 The Go race suite, E2E assertions, contract suite from a disposable detached
 worktree, extension build/validate/install inventory, and documentation/site
 tests must pass. Real-provider and real-forge release claims require separate

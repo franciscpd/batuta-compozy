@@ -441,6 +441,12 @@ func (s *deliveryGraphService) recordQuestion(
 		}
 		return s.questionOutput(delivery, input, operationID)
 	}
+	// An answered question materializes another physical attempt. Durable
+	// historical and open-question replays above remain truthful; only a new
+	// question at the fourth attempt is refused before liveness I/O.
+	if attempt.Execution >= routing.MaxTaskExecutions {
+		return DeliveryGraphOutput{}, routing.ErrInvalidDeliveryTransition
+	}
 	if task.State != routing.GraphTaskRunning || attempt.State != routing.GraphTaskRunning {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}

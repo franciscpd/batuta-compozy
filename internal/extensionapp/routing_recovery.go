@@ -291,7 +291,8 @@ func (s deliveryAttemptService) Reconcile(
 			result.State = "in_progress"
 			return nil
 		}
-		if delivery.Graph != nil &&
+		graphOwnsSettlement := graphOwnsParentSettlement(delivery.Graph) || parentReportsGraphTask(detail)
+		if graphOwnsSettlement &&
 			(detail.Run.Status == "done" || detail.Run.Status == "no-op") && !graphAllIntegrated(delivery.Graph) {
 			return routing.ErrDeliveryConflict
 		}
@@ -302,7 +303,7 @@ func (s deliveryAttemptService) Reconcile(
 		var childIDs, failedTaskIDs []string
 		var tokens, graphTokens, reviewTokens int64
 		publicationMutation := false
-		if delivery.Graph != nil {
+		if graphOwnsSettlement {
 			// The graph service has already recorded and validated every task
 			// transition. Its fan-out batuta-task children are never legacy
 			// settlement evidence; the journal graph is the authority even when
@@ -343,14 +344,14 @@ func (s deliveryAttemptService) Reconcile(
 				// terminalize proved and persisted this graph disposition before
 				// intentionally failing the parent action. Do not reinterpret that
 				// failure as a recoverable or generic parent failure.
-			} else if delivery.Graph != nil && len(failedTaskIDs) > 0 {
+			} else if graphOwnsSettlement && len(failedTaskIDs) > 0 {
 				delivery.State = routing.DeliveryStateActive
-			} else if delivery.Graph != nil && graphHasExhaustedTasks(delivery.Graph) {
+			} else if graphOwnsSettlement && graphHasExhaustedTasks(delivery.Graph) {
 				delivery.State = routing.DeliveryStateExhausted
 				attempt.BlockerCode = "graph_task_exhausted"
 			} else if len(failedTaskIDs) == 0 || publicationMutation {
 				delivery.State = routing.DeliveryStateBlocked
-				if delivery.Graph != nil {
+				if graphOwnsSettlement {
 					attempt.BlockerCode = "non_recoverable_graph_failure"
 				} else {
 					attempt.BlockerCode = "non_recoverable_failure"
@@ -441,6 +442,40 @@ func graphFallbackTaskIDs(graph *routing.DeliveryGraph) []string {
 		}
 	}
 	return failed
+}
+
+// graphOwnsParentSettlement becomes true only after a graph wave or task
+// transition has been durably recorded. Matrix creation preallocates a graph
+// for every delivery, including legacy parent loops that have not invoked any
+// graph operation yet; treating that empty graph as task-settlement authority
+// would discard the parent implement-child evidence before migration begins.
+func graphOwnsParentSettlement(graph *routing.DeliveryGraph) bool {
+	if graph == nil {
+		return false
+	}
+	if len(graph.Waves) > 0 || len(graph.Integrations) > 0 || len(graph.Cleanups) > 0 || len(graph.Pauses) > 0 {
+		return true
+	}
+	for _, task := range graph.Tasks {
+		if task.State != routing.GraphTaskPending || len(task.Attempts) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// A graph parent can also establish authority in its first generation: the
+// public run_task cell is sufficient even before its graph action has persisted
+// a wave. Legacy parents use implement instead and remain on settlementEvidence.
+func parentReportsGraphTask(parent deliveryRunDetail) bool {
+	for _, generation := range parent.Generations {
+		for _, output := range generation.Outputs {
+			if output.NodeID == "run_task" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func graphHasExhaustedTasks(graph *routing.DeliveryGraph) bool {

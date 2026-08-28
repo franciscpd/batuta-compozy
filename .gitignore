@@ -1,2 +1,6 @@
 .worktrees/
 .compozy/
+!tests/fixtures/parallel-delivery/.compozy/
+!tests/fixtures/parallel-delivery/.compozy/**
+!tests/fixtures/parallel-width/.compozy/
+!tests/fixtures/parallel-width/.compozy/**
