@@ -45,6 +45,7 @@ func NewCursor(executable string) (Adapter, error) {
 func normalizeCursor(ids map[string]inventory.ProbeID, outputs map[inventory.ProbeID][]byte) inventory.ExecutorSnapshot {
 	version, versionOK := versionEvidence(outputs[ids["version"]], "agent --version", "")
 	snapshot := inventory.ExecutorSnapshot{ID: inventory.ExecutorCursorAgent, Version: version, Diagnostics: diagnosticForVersion(versionOK)}
+	snapshot.ProviderBindings = []inventory.ProviderBinding{{ProviderID: "cursor"}}
 	modelRaw := outputs[ids["models"]]
 	models := make([]string, 0)
 	for _, line := range strings.Split(string(modelRaw), "\n") {

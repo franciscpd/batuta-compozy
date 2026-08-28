@@ -29,13 +29,16 @@ func normalizeCodex(ids map[string]inventory.ProbeID, outputs map[inventory.Prob
 	}
 	if len(raw) > 0 && json.Unmarshal(raw, &models) == nil {
 		ids := make([]string, 0, len(models.Models))
+		snapshot.ProviderBindings = append(snapshot.ProviderBindings, inventory.ProviderBinding{ProviderID: "codex"})
 		for _, model := range models.Models {
 			if safePublicIdentifier(model.Slug) {
 				ids = append(ids, "codex/"+model.Slug)
+				snapshot.ProviderBindings = append(snapshot.ProviderBindings, inventory.ProviderBinding{ProviderID: "codex", ModelID: model.Slug})
 			}
 		}
 		snapshot.Capabilities = append(snapshot.Capabilities, evidence("models", "codex debug models --bundled", inventory.ResolutionResolved, raw, ids))
 	} else {
+		snapshot.ProviderBindings = append(snapshot.ProviderBindings, inventory.ProviderBinding{ProviderID: "codex"})
 		snapshot.Capabilities = append(snapshot.Capabilities, unknownEvidence("models", "codex debug models --bundled", "probe_unavailable"))
 	}
 	snapshot.Capabilities = append(snapshot.Capabilities, evidence("config", "CODEX_HOME config", inventory.ResolutionDeclared, nil, nil))

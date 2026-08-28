@@ -44,7 +44,11 @@ func ModelKey(providerID, modelID string) string {
 }
 
 func (p SelectionPolicy) modelTier(providerID, modelID string) ModelTier {
-	return p.ModelTiers[ModelKey(providerID, modelID)]
+	tier := p.ModelTiers[ModelKey(providerID, modelID)]
+	if tier == ModelTierUnknown {
+		return ModelTierStandard
+	}
+	return tier
 }
 
 func modelFloor(complexity Complexity) ModelTier {

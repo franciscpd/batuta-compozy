@@ -411,7 +411,10 @@ func TestBuildCandidateBindingsRejectsHiddenDeprecatedAndUnavailableModels(t *te
 func TestBuildCandidateBindingsRejectsAuthoritativeMissingProviderAuth(t *testing.T) {
 	t.Parallel()
 
-	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable}})
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, CredentialState: inventory.CredentialConfigured, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "missing"}}},
+	})
 	if err != nil {
 		t.Fatalf("NewSnapshot() error = %v", err)
 	}
@@ -427,6 +430,161 @@ func TestBuildCandidateBindingsRejectsAuthoritativeMissingProviderAuth(t *testin
 	if gotIDs := []string{got[0].ProviderID, got[1].ProviderID}; !slices.Equal(gotIDs, []string{"degraded", "ready"}) {
 		t.Fatalf("providers = %#v, want degraded+ready and missing rejected", gotIDs)
 	}
+}
+
+func TestBuildCandidateBindingsKeepsCatalogPairsWhenEveryOptionalEnricherIsMissing(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCodex, Availability: inventory.AvailabilityMissing},
+		{ID: inventory.ExecutorOpenCode, Availability: inventory.AvailabilityMissing},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityMissing},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "claude", ModelID: "claude-fixture", Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "gemini", ModelID: "gemini-fixture", Availability: inventory.AvailabilityAvailable},
+	}}
+	bindings, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(bindings) != 2 || bindings[0].ProviderID != "claude" || bindings[1].ProviderID != "gemini" {
+		t.Fatalf("bindings = %#v, want both live pairs without enrichers", bindings)
+	}
+}
+
+func TestEnricherFailureChangesEvidenceButNotCandidateUniverse(t *testing.T) {
+	t.Parallel()
+
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{{
+		ProviderID: "cursor", ModelID: "grok-4.6", Availability: inventory.AvailabilityAvailable,
+	}}}
+	withEnricher, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "cursor"}}},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot(with enricher) error = %v", err)
+	}
+	withoutEnricher, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityMissing},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot(without enricher) error = %v", err)
+	}
+	with, err := BuildCandidateBindings(withEnricher, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings(with) error = %v", err)
+	}
+	without, err := BuildCandidateBindings(withoutEnricher, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings(without) error = %v", err)
+	}
+	if len(with) != 1 || len(without) != 1 || with[0].ProviderID != without[0].ProviderID || with[0].ModelID != without[0].ModelID || len(with[0].EnrichmentIDs) != 1 || len(without[0].EnrichmentIDs) != 0 {
+		t.Fatalf("candidate universe changed: with=%#v without=%#v", with, without)
+	}
+}
+
+func TestEnricherInstallChangesRankingButNotRuntimeIdentity(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixtureWithCandidates(2)
+	fixture.Inventory.Executors = []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, Health: inventory.Evidence{Name: "health", State: inventory.ResolutionResolved}},
+	}
+	fixture.Bindings = []CandidateBinding{
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "provider-1", ModelID: "model-1"},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "provider-2", ModelID: "model-2", EnrichmentIDs: []inventory.ExecutorID{inventory.ExecutorCursorAgent}},
+	}
+	for i := range fixture.Fit[0].Candidates {
+		fixture.Fit[0].Candidates[i].ExecutorID = inventory.ExecutorCompozy
+		fixture.Fit[0].Candidates[i].Score = 0.9
+	}
+	generation, err := fixture.Select()
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	selected := generation.Cells[0].Selected
+	if selected.ExecutorID != inventory.ExecutorCompozy || selected.ProviderID != "provider-2" || selected.ModelID != "model-2" {
+		t.Fatalf("selected = %#v, want enriched exact runtime owned by Compozy", selected)
+	}
+}
+
+func TestSecuritySensitiveRequirementNeedsResolvedEnrichmentOrExactProbe(t *testing.T) {
+	t.Parallel()
+
+	fixture := providerAuthorityCapabilityFixture(t, inventory.ResolutionDeclared, true)
+	if _, err := fixture.Select(); !errors.Is(err, ErrSelectionRetryable) {
+		t.Fatalf("Select(declared security evidence plus probe) error = %v, want ErrSelectionRetryable", err)
+	}
+	fixture.Inventory.Executors[1].Capabilities[0].State = inventory.ResolutionResolved
+	if _, err := fixture.Select(); err != nil {
+		t.Fatalf("Select(resolved security evidence) error = %v", err)
+	}
+}
+
+func TestDeclaredEnrichmentCannotSatisfySecuritySensitiveRequirement(t *testing.T) {
+	t.Parallel()
+
+	fixture := providerAuthorityCapabilityFixture(t, inventory.ResolutionDeclared, false)
+	fixture.Fit[0].Candidates = nil
+	if _, err := fixture.Select(); !errors.Is(err, ErrNoEligibleCandidate) {
+		t.Fatalf("Select(declared enrichment) error = %v, want ErrNoEligibleCandidate", err)
+	}
+}
+
+func TestExactProbeFromAttachedEnricherSatisfiesRequirement(t *testing.T) {
+	t.Parallel()
+
+	fixture := providerAuthorityCapabilityFixture(t, inventory.ResolutionUnknown, false)
+	fixture.Graph.Tasks[0].Requirements[0].SecuritySensitive = false
+	fixture.Probes = []CapabilityProbeResult{{
+		ExecutorID: inventory.ExecutorCursorAgent, Kind: CapabilityMCP, ID: "playwright", InventoryDigest: fixture.Inventory.Digest, Success: true,
+	}}
+	if _, err := fixture.Select(); err != nil {
+		t.Fatalf("Select(attached exact probe) error = %v", err)
+	}
+}
+
+func TestExactProbeFromUnattachedExecutorIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	fixture := providerAuthorityCapabilityFixture(t, inventory.ResolutionUnknown, false)
+	fixture.Graph.Tasks[0].Requirements[0].SecuritySensitive = false
+	fixture.Bindings[0].EnrichmentIDs = nil
+	fixture.Fit[0].Candidates = nil
+	fixture.Probes = []CapabilityProbeResult{{
+		ExecutorID: inventory.ExecutorCursorAgent, Kind: CapabilityMCP, ID: "playwright", InventoryDigest: fixture.Inventory.Digest, Success: true,
+	}}
+	if _, err := fixture.Select(); !errors.Is(err, ErrNoEligibleCandidate) {
+		t.Fatalf("Select(unattached exact probe) error = %v, want ErrNoEligibleCandidate", err)
+	}
+}
+
+func providerAuthorityCapabilityFixture(t *testing.T, state inventory.ResolutionState, withProbe bool) selectorFixture {
+	t.Helper()
+	fixture := selectionFixture()
+	fixture.Inventory.Executors = []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, Capabilities: []inventory.Evidence{{Name: "mcp", State: state, Identifiers: []string{"playwright"}}}},
+	}
+	fixture.Bindings[0] = CandidateBinding{
+		ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: "grok-4.6", EnrichmentIDs: []inventory.ExecutorID{inventory.ExecutorCursorAgent},
+	}
+	fixture.Fit[0].Candidates[0].ExecutorID = inventory.ExecutorCompozy
+	fixture.Graph.Tasks[0].Requirements = []CapabilityRequirement{{Kind: CapabilityMCP, ID: "playwright", Hard: true, SecuritySensitive: true}}
+	if withProbe {
+		fixture.Probes = []CapabilityProbeResult{{
+			ExecutorID: inventory.ExecutorCursorAgent, Kind: CapabilityMCP, ID: "playwright", InventoryDigest: fixture.Inventory.Digest, Success: true,
+		}}
+	}
+	return fixture
 }
 
 func TestFitUniverseUsesProviderAndModelInsteadOfAdapterIdentity(t *testing.T) {

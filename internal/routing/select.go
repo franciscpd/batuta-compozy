@@ -203,14 +203,9 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 				}
 				continue
 			}
-			executor := executors[binding.ExecutorID]
-			health := 0
-			if executor.Health.State == inventory.ResolutionResolved {
-				health = 1
-			}
 			eligible = append(eligible, rankedCandidate{
 				binding: binding, fit: fitScores[bindingKey(binding.ExecutorID, binding.ProviderID, binding.ModelID)],
-				health: health, tier: s.policy.modelTier(binding.ProviderID, binding.ModelID),
+				health: candidateHealthScore(binding, executors), tier: s.policy.modelTier(binding.ProviderID, binding.ModelID),
 			})
 		}
 		if len(eligible) == 0 {
@@ -272,16 +267,43 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 			if !requirement.Hard {
 				continue
 			}
-			if resolvedCapability(executor, requirement) {
+			if candidateResolvedCapability(binding, executors, requirement) {
 				continue
 			}
-			if !requirement.SecuritySensitive && successfulExactProbe(probes, inventoryDigest, binding.ExecutorID, requirement) {
+			if !requirement.SecuritySensitive && successfulExactProbe(probes, inventoryDigest, binding, requirement) {
 				continue
 			}
 			return "hard_capability_unresolved"
 		}
 	}
 	return ""
+}
+
+func candidateHealthScore(binding CandidateBinding, executors map[inventory.ExecutorID]inventory.ExecutorSnapshot) int {
+	score := 0
+	for _, executorID := range candidateEvidenceExecutors(binding) {
+		if executor, ok := executors[executorID]; ok && executor.Health.State == inventory.ResolutionResolved {
+			score++
+		}
+	}
+	return score
+}
+
+func candidateResolvedCapability(binding CandidateBinding, executors map[inventory.ExecutorID]inventory.ExecutorSnapshot, requirement CapabilityRequirement) bool {
+	for _, executorID := range candidateEvidenceExecutors(binding) {
+		if executor, ok := executors[executorID]; ok && resolvedCapability(executor, requirement) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateEvidenceExecutors(binding CandidateBinding) []inventory.ExecutorID {
+	ids := make([]inventory.ExecutorID, 0, len(binding.EnrichmentIDs)+1)
+	ids = append(ids, binding.ExecutorID)
+	ids = append(ids, binding.EnrichmentIDs...)
+	slices.Sort(ids)
+	return slices.Compact(ids)
 }
 
 func catalogModelOwnedByExecutor(executorID inventory.ExecutorID, providerID string) bool {
@@ -316,9 +338,10 @@ func evidenceMatchesID(evidence inventory.Evidence, id, prefix string) bool {
 	return false
 }
 
-func successfulExactProbe(probes []CapabilityProbeResult, digest string, executorID inventory.ExecutorID, requirement CapabilityRequirement) bool {
+func successfulExactProbe(probes []CapabilityProbeResult, digest string, binding CandidateBinding, requirement CapabilityRequirement) bool {
+	owners := candidateEvidenceExecutors(binding)
 	for _, probe := range probes {
-		if probe.Success && probe.InventoryDigest == digest && probe.ExecutorID == executorID && probe.Kind == requirement.Kind && probe.ID == requirement.ID {
+		if probe.Success && probe.InventoryDigest == digest && slices.Contains(owners, probe.ExecutorID) && probe.Kind == requirement.Kind && probe.ID == requirement.ID {
 			return true
 		}
 	}

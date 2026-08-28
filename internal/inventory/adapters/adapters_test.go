@@ -352,6 +352,22 @@ func TestExecutorAdaptersEmitUnambiguousCompozyRuntimePairs(t *testing.T) {
 	}
 }
 
+func TestCollectorRejectsDynamicProviderBindingFromRawOutput(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewOpenCode(t, "/opt/opencode")
+	outputs := fixtureOutputs(t, "opencode")
+	outputs[adapter.ProbeID("models")] = []byte("invented/model\nopencode/safe-model\n")
+	snapshot := adapter.Normalize(outputs)
+	want := []inventory.ProviderBinding{
+		{ProviderID: "opencode", ModelID: "invented/model"},
+		{ProviderID: "opencode", ModelID: "opencode/safe-model"},
+	}
+	if !slices.Equal(snapshot.ProviderBindings, want) {
+		t.Fatalf("provider bindings = %#v, want fixed constructor owner with exact models %#v", snapshot.ProviderBindings, want)
+	}
+}
+
 func TestUnknownEvidenceDoesNotDigestRejectedVolatileOutput(t *testing.T) {
 	t.Parallel()
 

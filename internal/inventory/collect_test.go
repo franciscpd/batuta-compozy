@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,6 +76,38 @@ func TestCollectorKeepsHealthyExecutorsWhenOneAdapterIsMalformed(t *testing.T) {
 	for _, id := range []inventory.ExecutorID{inventory.ExecutorCompozy, inventory.ExecutorOpenCode, inventory.ExecutorCursorAgent} {
 		if states[id] != inventory.ResolutionResolved {
 			t.Fatalf("%s version state = %q, want resolved", id, states[id])
+		}
+	}
+}
+
+func TestCollectorAssociatesConstructorOwnedProviderBindings(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	collector, err := adapters.NewCollector(&fixtureCollectorRunner{}, adapters.CollectorOptions{
+		TrustedWorkspace:   workspace,
+		WorkspaceID:        "ws-fixture",
+		CompozyExecutable:  filepath.Join(workspace, "compozy"),
+		CodexExecutable:    filepath.Join(workspace, "codex"),
+		OpenCodeExecutable: filepath.Join(workspace, "opencode"),
+		CursorExecutable:   filepath.Join(workspace, "agent"),
+	})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	snapshot, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	want := map[inventory.ExecutorID][]inventory.ProviderBinding{
+		inventory.ExecutorCompozy:     nil,
+		inventory.ExecutorCodex:       {{ProviderID: "codex"}, {ProviderID: "codex", ModelID: "gpt-5.6-sol"}},
+		inventory.ExecutorOpenCode:    {{ProviderID: "opencode", ModelID: "openai/gpt-5.6-terra"}},
+		inventory.ExecutorCursorAgent: {{ProviderID: "cursor"}},
+	}
+	for _, executor := range snapshot.Executors {
+		if got := executor.ProviderBindings; !slices.Equal(got, want[executor.ID]) {
+			t.Fatalf("%s provider bindings = %#v, want %#v", executor.ID, got, want[executor.ID])
 		}
 	}
 }
@@ -199,6 +232,8 @@ func (r *fixtureCollectorRunner) Run(_ context.Context, command publication.Comm
 		output = `{`
 	case "codex doctor --json --summary":
 		output = `{"schema_version":1}`
+	case "codex debug models --bundled":
+		output = `{"models":[{"slug":"gpt-5.6-sol"}]}`
 	case "opencode --version":
 		output = `1.0.95`
 	case "opencode debug config":

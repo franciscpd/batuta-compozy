@@ -54,6 +54,7 @@ func normalizeOpenCode(ids map[string]inventory.ProbeID, outputs map[inventory.P
 	for _, modelID := range nonemptyLines(modelRaw) {
 		if strings.Contains(modelID, "/") && safePublicIdentifier(modelID) {
 			modelIDs = append(modelIDs, "opencode/"+modelID)
+			snapshot.ProviderBindings = append(snapshot.ProviderBindings, inventory.ProviderBinding{ProviderID: "opencode", ModelID: modelID})
 		}
 	}
 	if len(modelIDs) > 0 {
