@@ -4,6 +4,7 @@
 import argparse
 from dataclasses import dataclass
 import json
+import re
 import subprocess
 import sys
 
@@ -155,6 +156,20 @@ def terminal_prompts(
         message = "".join(content(fragment)["text"] for fragment in fragments)
         if f"parent run\n{run_id} reached trigger" not in message:
             continue
+        trigger = re.search(
+            rf"parent run\n{re.escape(run_id)} reached trigger ([a-z-]+) in generation",
+            message,
+        )
+        if trigger and trigger.group(1) not in {
+            "done",
+            "no-op",
+            "blocked",
+            "failed",
+            "canceled",
+            "exhausted",
+            "stalled",
+        }:
+            raise AssertionError(f"unknown parent terminal trigger {trigger.group(1)!r}")
         matches.extend((sequence(fragments[0]), event_turn) for _ in range(message.count(prefix)))
     return matches
 

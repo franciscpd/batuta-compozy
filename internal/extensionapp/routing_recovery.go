@@ -188,7 +188,7 @@ func (s deliveryAttemptService) start(
 			DeliveryID: deliveryID, Attempt: attemptNumber, Slug: delivery.Slug, OriginSessionID: delivery.OriginSessionID,
 			WorktreeRef: delivery.WorktreeID, RoutingGeneration: delivery.RoutingGenerationDigest,
 			AbsoluteDeadline: delivery.AbsoluteDeadline, TokenCeiling: delivery.TokenCeiling,
-			RecoveryOperationID: planned.OperationID, IterationCap: delivery.AttemptCeiling - attemptNumber + 1,
+			RecoveryOperationID: planned.OperationID, IterationCap: deliveryParentIterationCap(delivery.Graph),
 			BudgetTokens: remainingTokens, BudgetWallSec: int(remainingWall),
 		}
 		if attemptNumber == 1 {
@@ -231,6 +231,13 @@ func (s deliveryAttemptService) start(
 		return nil
 	})
 	return result, err
+}
+
+func deliveryParentIterationCap(graph *routing.DeliveryGraph) int {
+	if graph == nil {
+		return 4
+	}
+	return 64
 }
 
 func (s deliveryAttemptService) Recover(
@@ -284,13 +291,36 @@ func (s deliveryAttemptService) Reconcile(
 			result.State = "in_progress"
 			return nil
 		}
+		if delivery.Graph != nil &&
+			(detail.Run.Status == "done" || detail.Run.Status == "no-op") && !graphAllIntegrated(delivery.Graph) {
+			return routing.ErrDeliveryConflict
+		}
 		fingerprint, err := s.WorktreeState(ctx, delivery.WorktreeRoot)
 		if err != nil {
 			return err
 		}
-		childIDs, failedTaskIDs, tokens, publicationMutation, err := s.settlementEvidence(ctx, scope.WorkspaceID, delivery, detail)
-		if err != nil {
-			return err
+		var childIDs, failedTaskIDs []string
+		var tokens, graphTokens, reviewTokens int64
+		publicationMutation := false
+		if delivery.Graph != nil {
+			// The graph service has already recorded and validated every task
+			// transition. Its fan-out batuta-task children are never legacy
+			// settlement evidence; the journal graph is the authority even when
+			// a failed parent did not retain a run_task output marker.
+			graphTokens, reviewTokens, childIDs, err = s.graphParentUsage(ctx, scope.WorkspaceID, delivery, detail)
+			if err != nil {
+				return err
+			}
+			if graphTokens > int64(^uint64(0)>>1)-reviewTokens {
+				return routing.ErrDeliveryConflict
+			}
+			tokens = graphTokens + reviewTokens
+			failedTaskIDs = graphFallbackTaskIDs(delivery.Graph)
+		} else {
+			childIDs, failedTaskIDs, tokens, publicationMutation, err = s.settlementEvidence(ctx, scope.WorkspaceID, delivery, detail)
+			if err != nil {
+				return err
+			}
 		}
 		terminalAt := now
 		attempt.State = routing.AttemptTerminal
@@ -299,6 +329,8 @@ func (s deliveryAttemptService) Reconcile(
 		attempt.ChildRunIDs = childIDs
 		attempt.FailedTaskIDs = failedTaskIDs
 		attempt.TokensUsed = tokens
+		attempt.GraphTokensUsed = graphTokens
+		attempt.ReviewTokensUsed = reviewTokens
 		attempt.PublicationMutation = publicationMutation
 		attempt.WorktreeFingerprint = &routing.WorktreeFingerprint{
 			HeadSHA: fingerprint.HeadSHA, PorcelainSHA256: fingerprint.PorcelainSHA256, ContentSHA256: fingerprint.ContentSHA256,
@@ -307,9 +339,22 @@ func (s deliveryAttemptService) Reconcile(
 		case "done", "no-op":
 			delivery.State = routing.DeliveryStateDone
 		case "failed":
-			if len(failedTaskIDs) == 0 || publicationMutation {
+			if delivery.State == routing.DeliveryStateBlocked || delivery.State == routing.DeliveryStateExhausted {
+				// terminalize proved and persisted this graph disposition before
+				// intentionally failing the parent action. Do not reinterpret that
+				// failure as a recoverable or generic parent failure.
+			} else if delivery.Graph != nil && len(failedTaskIDs) > 0 {
+				delivery.State = routing.DeliveryStateActive
+			} else if delivery.Graph != nil && graphHasExhaustedTasks(delivery.Graph) {
+				delivery.State = routing.DeliveryStateExhausted
+				attempt.BlockerCode = "graph_task_exhausted"
+			} else if len(failedTaskIDs) == 0 || publicationMutation {
 				delivery.State = routing.DeliveryStateBlocked
-				attempt.BlockerCode = "non_recoverable_failure"
+				if delivery.Graph != nil {
+					attempt.BlockerCode = "non_recoverable_graph_failure"
+				} else {
+					attempt.BlockerCode = "non_recoverable_failure"
+				}
 			}
 		case "exhausted":
 			delivery.State = routing.DeliveryStateExhausted
@@ -327,6 +372,90 @@ func (s deliveryAttemptService) Reconcile(
 		return nil
 	})
 	return result, err
+}
+
+func (s deliveryAttemptService) graphParentUsage(
+	ctx context.Context,
+	workspaceID string,
+	delivery routing.DeliveryRecord,
+	parent deliveryRunDetail,
+) (int64, int64, []string, error) {
+	if delivery.Graph == nil {
+		return 0, 0, nil, routing.ErrDeliveryConflict
+	}
+	totalGraphTokens, err := delivery.Graph.CumulativeTokens()
+	if err != nil {
+		return 0, 0, nil, routing.ErrDeliveryConflict
+	}
+	accountedGraphTokens := int64(0)
+	for _, attempt := range delivery.Attempts {
+		if attempt.State != routing.AttemptTerminal {
+			continue
+		}
+		if attempt.GraphTokensUsed < 0 || attempt.GraphTokensUsed > totalGraphTokens-accountedGraphTokens {
+			return 0, 0, nil, routing.ErrDeliveryConflict
+		}
+		accountedGraphTokens += attempt.GraphTokensUsed
+	}
+	reviewTokens := int64(0)
+	childIDs := make([]string, 0, 1)
+	seenReview := false
+	for _, generation := range parent.Generations {
+		for _, output := range generation.Outputs {
+			if output.NodeID != "review" || output.ChildLoopRunID == "" {
+				continue
+			}
+			if seenReview || (output.Status != "succeeded" && output.Status != "failed") {
+				return 0, 0, nil, routing.ErrDeliveryConflict
+			}
+			seenReview = true
+			child, statusErr := s.Client.Status(ctx, workspaceID, output.ChildLoopRunID)
+			if statusErr != nil || child.Run.ID != output.ChildLoopRunID || child.Run.WorkspaceID != workspaceID || child.Run.ParentLoopRunID != parent.Run.ID || child.Run.LoopName != "review-and-fix" || !terminalDeliveryStatus(child.Run.Status) || !child.Run.TokensUsedPresent || child.Run.TokensUsed < 0 || child.Run.TokensUsed > int64(^uint64(0)>>1)-reviewTokens {
+				return 0, 0, nil, routing.ErrDeliveryConflict
+			}
+			succeededChild := child.Run.Status == "done" || child.Run.Status == "no-op"
+			if (output.Status == "succeeded") != succeededChild {
+				return 0, 0, nil, routing.ErrDeliveryConflict
+			}
+			reviewTokens += child.Run.TokensUsed
+			childIDs = append(childIDs, child.Run.ID)
+		}
+	}
+	return totalGraphTokens - accountedGraphTokens, reviewTokens, childIDs, nil
+}
+
+func graphFallbackTaskIDs(graph *routing.DeliveryGraph) []string {
+	if graph == nil {
+		return nil
+	}
+	failed := make([]string, 0)
+	for _, task := range graph.Tasks {
+		if task.State != routing.GraphTaskPreparing || len(task.Attempts) < 2 {
+			continue
+		}
+		previous := task.Attempts[len(task.Attempts)-2]
+		current := task.Attempts[len(task.Attempts)-1]
+		if previous.State == routing.GraphTaskBlocked && previous.TokensUsed != nil && previous.TerminalStatus != "" &&
+			current.State == routing.GraphTaskPreparing && current.Execution == previous.Execution+1 {
+			failed = append(failed, task.TaskID)
+		}
+	}
+	return failed
+}
+
+func graphHasExhaustedTasks(graph *routing.DeliveryGraph) bool {
+	if graph == nil {
+		return false
+	}
+	for _, task := range graph.Tasks {
+		if task.State != routing.GraphTaskBlocked || len(task.Attempts) == 0 {
+			continue
+		}
+		if len(task.Attempts) >= routing.MaxTaskExecutions || task.BlockerCode == "integration_conflict_exhausted" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s deliveryAttemptService) settlementEvidence(

@@ -104,6 +104,30 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 	}
 }
 
+func TestDeliveryClientSeparatesParentGenerationCapFromFreshRunCeiling(t *testing.T) {
+	t.Parallel()
+
+	request := validDeliveryStartRequest()
+	request.IterationCap = 64
+	run := deliveryRun{
+		ID: "run_parent_64", WorkspaceID: "ws_demo", LoopName: "batuta-deliver", Status: "queued",
+		CreatedAt: time.Date(2026, time.August, 27, 12, 0, 0, 0, time.UTC), Inputs: deliveryInputs(request),
+	}
+	runner := &deliveryRecordingRunner{results: []publication.CommandResult{{Stdout: mustJSON(t, map[string]any{"run": run})}}}
+	client := deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: runner}
+
+	if _, err := client.Start(context.Background(), "ws_demo", request); err != nil {
+		t.Fatalf("Start(parent generation cap 64) error = %v", err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(runner.config, &config); err != nil {
+		t.Fatalf("decode parent config: %v", err)
+	}
+	if got := config["iteration_cap"]; got != float64(64) {
+		t.Fatalf("parent iteration_cap = %#v, want 64 generations", got)
+	}
+}
+
 func TestDeliveryClientRejectsUnsafeInputsAndMalformedResponses(t *testing.T) {
 	t.Parallel()
 

@@ -63,6 +63,8 @@ type DeliveryAttempt struct {
 	TerminalAt          *time.Time           `json:"terminal_at,omitempty"`
 	TerminalStatus      string               `json:"terminal_status,omitempty"`
 	TokensUsed          int64                `json:"tokens_used,omitempty"`
+	GraphTokensUsed     int64                `json:"graph_tokens_used,omitempty"`
+	ReviewTokensUsed    int64                `json:"review_tokens_used,omitempty"`
 	WorktreeFingerprint *WorktreeFingerprint `json:"worktree_fingerprint,omitempty"`
 	PublicationMutation bool                 `json:"publication_mutation"`
 	BlockerCode         string               `json:"blocker_code,omitempty"`
@@ -353,7 +355,7 @@ func validateAttempt(attempt DeliveryAttempt, expectedNumber int) error {
 	if attempt.Attempt != expectedNumber || attempt.Attempt < 1 || attempt.Attempt > deliveryAttemptCeiling ||
 		!canonicalSHA256.MatchString(attempt.OperationID) || !canonicalSHA256.MatchString(attempt.RequestDigest) ||
 		!attempt.State.valid() || attempt.PlannedAt.IsZero() || attempt.PlannedAt.Location() != time.UTC ||
-		attempt.TokensUsed < 0 || len(attempt.RuntimeRules) == 0 {
+		attempt.TokensUsed < 0 || attempt.GraphTokensUsed < 0 || attempt.ReviewTokensUsed < 0 || len(attempt.RuntimeRules) == 0 {
 		return ErrDeliveryConflict
 	}
 	seenTasks := make(map[string]struct{}, len(attempt.RuntimeRules))
@@ -370,12 +372,12 @@ func validateAttempt(attempt DeliveryAttempt, expectedNumber int) error {
 	switch attempt.State {
 	case AttemptPlanned:
 		if attempt.RunID != "" || len(attempt.ChildRunIDs) != 0 || attempt.StartedAt != nil || attempt.TerminalAt != nil ||
-			attempt.TerminalStatus != "" || attempt.TokensUsed != 0 || attempt.WorktreeFingerprint != nil || attempt.PublicationMutation || attempt.BlockerCode != "" {
+			attempt.TerminalStatus != "" || attempt.TokensUsed != 0 || attempt.GraphTokensUsed != 0 || attempt.ReviewTokensUsed != 0 || attempt.WorktreeFingerprint != nil || attempt.PublicationMutation || attempt.BlockerCode != "" {
 			return ErrDeliveryConflict
 		}
 	case AttemptSubmitted:
 		if !boundedArgument(attempt.RunID) || attempt.StartedAt == nil || attempt.StartedAt.Location() != time.UTC ||
-			attempt.TerminalAt != nil || attempt.TerminalStatus != "" || attempt.WorktreeFingerprint != nil || attempt.BlockerCode != "" {
+			attempt.TerminalAt != nil || attempt.TerminalStatus != "" || attempt.TokensUsed != 0 || attempt.GraphTokensUsed != 0 || attempt.ReviewTokensUsed != 0 || attempt.WorktreeFingerprint != nil || attempt.BlockerCode != "" {
 			return ErrDeliveryConflict
 		}
 	case AttemptTerminal:
@@ -386,6 +388,9 @@ func validateAttempt(attempt DeliveryAttempt, expectedNumber int) error {
 		}
 		if err := validateWorktreeFingerprint(*attempt.WorktreeFingerprint); err != nil {
 			return err
+		}
+		if attempt.GraphTokensUsed > attempt.TokensUsed || attempt.ReviewTokensUsed > attempt.TokensUsed-attempt.GraphTokensUsed {
+			return ErrDeliveryConflict
 		}
 	}
 	for _, runID := range attempt.ChildRunIDs {

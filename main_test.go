@@ -113,74 +113,118 @@ func TestRunPropagatesResolverAndRuntimeFailures(t *testing.T) {
 	}
 }
 
-func TestDeliveryRunsChildrenInTheSelectedWorktreeWithBoundedOverrides(t *testing.T) {
+func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing.T) {
 	t.Parallel()
 
 	payload, err := os.ReadFile("loops/batuta-deliver/loop.yaml")
 	if err != nil {
 		t.Fatalf("read batuta-deliver: %v", err)
 	}
+	type deliveryParentNode struct {
+		ID     string `yaml:"id"`
+		Class  string `yaml:"class"`
+		Kind   string `yaml:"kind"`
+		Params struct {
+			Loop            string `yaml:"loop"`
+			ConfigOverrides struct {
+				IterationCap      int    `yaml:"iteration_cap"`
+				BudgetTokens      string `yaml:"budget_tokens"`
+				BudgetWallSec     string `yaml:"budget_wall_sec"`
+				BudgetOnExceeded  string `yaml:"budget_on_exceeded"`
+				ReattemptStrategy string `yaml:"reattempt_strategy"`
+				RuntimeRules      string `yaml:"runtime_rules"`
+				Environment       struct {
+					Mode        string `yaml:"mode"`
+					WorktreeRef string `yaml:"worktree_ref"`
+				} `yaml:"environment"`
+			} `yaml:"config_overrides"`
+		} `yaml:"params"`
+		Collection  string `yaml:"collection"`
+		BatchSize   int    `yaml:"batch_size"`
+		MaxParallel int    `yaml:"max_parallel"`
+		MaxFanOut   int    `yaml:"max_fan_out"`
+	}
 	var definition struct {
+		Contract struct {
+			IterationCap int    `yaml:"iteration_cap"`
+			StopWhen     string `yaml:"stop_when"`
+		} `yaml:"contract"`
 		Graph struct {
-			Nodes []struct {
-				ID     string `yaml:"id"`
-				Kind   string `yaml:"kind"`
-				Params struct {
-					ConfigOverrides struct {
-						IterationCap      int    `yaml:"iteration_cap"`
-						BudgetTokens      string `yaml:"budget_tokens"`
-						BudgetWallSec     string `yaml:"budget_wall_sec"`
-						BudgetOnExceeded  string `yaml:"budget_on_exceeded"`
-						ReattemptStrategy string `yaml:"reattempt_strategy"`
-						RuntimeRules      string `yaml:"runtime_rules"`
-						Environment       struct {
-							Mode        string `yaml:"mode"`
-							WorktreeRef string `yaml:"worktree_ref"`
-						} `yaml:"environment"`
-					} `yaml:"config_overrides"`
-				} `yaml:"params"`
-			} `yaml:"nodes"`
+			Nodes []deliveryParentNode `yaml:"nodes"`
+			Edges []struct {
+				From string `yaml:"from"`
+				To   string `yaml:"to"`
+			} `yaml:"edges"`
 		} `yaml:"graph"`
 	}
 	if err := yaml.Unmarshal(payload, &definition); err != nil {
 		t.Fatalf("decode batuta-deliver: %v", err)
 	}
-	wantContext := map[string]struct {
-		budgetTokens string
-		budgetWall   string
-		runtimeRules string
-	}{
-		"implement": {
-			budgetTokens: "{{ .nodes.routing_context.output.remaining_tokens }}",
-			budgetWall:   "{{ .nodes.routing_context.output.remaining_wall_seconds }}",
-			runtimeRules: "{{ .nodes.routing_context.output.runtime_rules }}",
-		},
-		"review": {
-			budgetTokens: "{{ .nodes.delivery_budget_context.output.remaining_tokens }}",
-			budgetWall:   "{{ .nodes.delivery_budget_context.output.remaining_wall_seconds }}",
-		},
+	nodes := map[string]deliveryParentNode{}
+	for _, node := range definition.Graph.Nodes {
+		nodes[node.ID] = node
 	}
-	for nodeID, want := range wantContext {
-		var found bool
-		for _, node := range definition.Graph.Nodes {
-			if node.ID != nodeID {
-				continue
-			}
-			found = true
-			got := node.Params.ConfigOverrides
-			if node.Kind != "run-loop" || got.IterationCap != 4 ||
-				got.BudgetTokens != want.budgetTokens || got.BudgetWallSec != want.budgetWall ||
-				got.RuntimeRules != want.runtimeRules || got.BudgetOnExceeded != "halt" ||
-				got.ReattemptStrategy != "halt" {
-				t.Fatalf("node %s bounded overrides = %#v", nodeID, got)
-			}
-			if got.Environment.Mode != "worktree" ||
-				got.Environment.WorktreeRef != "{{ .inputs.worktree_ref }}" {
-				t.Fatalf("node %s environment = %#v, want selected worktree", nodeID, got.Environment)
+	if definition.Contract.IterationCap != 64 ||
+		definition.Contract.StopWhen != "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'" {
+		t.Fatalf("parent generation contract = %#v", definition.Contract)
+	}
+	for _, nodeID := range []string{
+		"load_check", "routing_context", "prepare_wave", "wave_route", "task_wave", "run_task",
+		"record_candidate", "collect_wave", "settle_wave", "settle_route", "delivery_budget_context",
+		"review", "publication_plan", "publication_route", "publish", "publication_verify", "cleanup",
+	} {
+		if _, exists := nodes[nodeID]; !exists {
+			t.Fatalf("missing parent node %q", nodeID)
+		}
+	}
+	for _, required := range []string{
+		"id: terminal_blocked", "terminal_disposition: blocked", "id: terminal_exhausted",
+		"terminal_disposition: exhausted", "id: cleanup_route", "id: cleanup_complete",
+		"{from: wave_route, to: terminal_exhausted}", "{from: settle_route, to: terminal_exhausted}",
+		"{from: cleanup, to: cleanup_route}", "{from: cleanup_route, to: terminal_blocked}",
+	} {
+		if !strings.Contains(string(payload), required) {
+			t.Fatalf("terminal topology missing %q", required)
+		}
+	}
+	wave := nodes["task_wave"]
+	if wave.Class != "control" || wave.Kind != "fan-out" ||
+		wave.Collection != "{{ .nodes.prepare_wave.output.tasks }}" || wave.BatchSize != 1 ||
+		wave.MaxParallel != 4 || wave.MaxFanOut != 4 {
+		t.Fatalf("task wave = %#v", wave)
+	}
+	runTask := nodes["run_task"]
+	overrides := runTask.Params.ConfigOverrides
+	if runTask.Kind != "run-loop" || runTask.Params.Loop != "batuta-task" || overrides.IterationCap != 4 ||
+		overrides.BudgetTokens != "{{ .item.remaining_tokens }}" ||
+		overrides.BudgetWallSec != "{{ .item.remaining_active_wall_seconds }}" ||
+		overrides.BudgetOnExceeded != "halt" || overrides.ReattemptStrategy != "halt" ||
+		overrides.RuntimeRules != "{{ .nodes.routing_context.output.runtime_rules }}" ||
+		overrides.Environment.Mode != "worktree" || overrides.Environment.WorktreeRef != "{{ .item.worktree_id }}" {
+		t.Fatalf("batuta-task child overrides = %#v", overrides)
+	}
+	for _, forbidden := range []string{"implement-tasks", "kind: gate", "human_gate"} {
+		if strings.Contains(string(payload), forbidden) {
+			t.Fatalf("parent contains forbidden %q", forbidden)
+		}
+	}
+	for _, pair := range [][2]string{
+		{"load_check", "routing_context"}, {"routing_context", "prepare_wave"}, {"prepare_wave", "wave_route"},
+		{"wave_route", "task_wave"}, {"task_wave", "run_task"}, {"run_task", "record_candidate"},
+		{"record_candidate", "collect_wave"}, {"collect_wave", "settle_wave"}, {"settle_wave", "settle_route"},
+		{"settle_route", "delivery_budget_context"}, {"delivery_budget_context", "review"},
+		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
+		{"publish", "publication_verify"}, {"publication_verify", "cleanup"},
+	} {
+		found := false
+		for _, edge := range definition.Graph.Edges {
+			if edge.From == pair[0] && edge.To == pair[1] {
+				found = true
+				break
 			}
 		}
 		if !found {
-			t.Fatalf("delivery node %s not found", nodeID)
+			t.Fatalf("missing parent graph edge %s -> %s", pair[0], pair[1])
 		}
 	}
 }
@@ -293,6 +337,15 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 		!reflect.DeepEqual(needsInput["required"], []any{"status", "question", "choices"}) ||
 		needsInput["properties"].(map[string]any)["status"].(map[string]any)["enum"].([]any)[0] != "needs_input" {
 		t.Fatalf("implementer closed variants = %#v", variants)
+	}
+	verificationSchema := rootProperties["verification"].(map[string]any)
+	verificationProperties := verificationSchema["properties"].(map[string]any)
+	checks := verificationProperties["checks"].(map[string]any)
+	checkItems := checks["items"].(map[string]any)
+	if verificationSchema["type"] != "object" || verificationSchema["additionalProperties"] != false ||
+		!reflect.DeepEqual(verificationSchema["required"], []any{"task_id", "status", "checks"}) ||
+		checks["maxItems"] != 16 || checkItems["maxLength"] != 512 {
+		t.Fatalf("completion verification must remain deterministically inline: %#v", verificationSchema)
 	}
 	for _, name := range []string{"record_question", "ask_operator", "record_answer", "implementation"} {
 		if _, exists := nodes[name]; !exists {

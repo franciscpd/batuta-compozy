@@ -25,6 +25,7 @@ const (
 	GraphOpRecordFailure   GraphOperation = "record_failure"
 	GraphOpSettleWave      GraphOperation = "settle_wave"
 	GraphOpCleanup         GraphOperation = "cleanup"
+	GraphOpTerminalize     GraphOperation = "terminalize"
 )
 
 type GraphDisposition string
@@ -44,21 +45,22 @@ const (
 )
 
 type DeliveryGraphInput struct {
-	Operation           GraphOperation  `json:"operation"`
-	DeliveryID          string          `json:"delivery_id"`
-	Wave                int             `json:"wave,omitempty"`
-	TaskID              string          `json:"task_id,omitempty"`
-	Execution           int             `json:"execution,omitempty"`
-	ChildRunID          string          `json:"child_run_id,omitempty"`
-	BaseSHA             string          `json:"base_sha,omitempty"`
-	CommitSHA           string          `json:"commit_sha,omitempty"`
-	Verification        json.RawMessage `json:"verification,omitempty"`
-	VerificationDigest  string          `json:"verification_digest,omitempty"`
-	Prompt              string          `json:"prompt,omitempty"`
-	Choices             []string        `json:"choices,omitempty"`
-	QuestionOperationID string          `json:"question_operation_id,omitempty"`
-	Answer              string          `json:"answer,omitempty"`
-	BlockerCode         string          `json:"blocker_code,omitempty"`
+	Operation           GraphOperation   `json:"operation"`
+	DeliveryID          string           `json:"delivery_id"`
+	Wave                int              `json:"wave,omitempty"`
+	TaskID              string           `json:"task_id,omitempty"`
+	Execution           int              `json:"execution,omitempty"`
+	ChildRunID          string           `json:"child_run_id,omitempty"`
+	BaseSHA             string           `json:"base_sha,omitempty"`
+	CommitSHA           string           `json:"commit_sha,omitempty"`
+	Verification        json.RawMessage  `json:"verification,omitempty"`
+	VerificationDigest  string           `json:"verification_digest,omitempty"`
+	Prompt              string           `json:"prompt,omitempty"`
+	Choices             []string         `json:"choices,omitempty"`
+	QuestionOperationID string           `json:"question_operation_id,omitempty"`
+	Answer              string           `json:"answer,omitempty"`
+	BlockerCode         string           `json:"blocker_code,omitempty"`
+	TerminalDisposition GraphDisposition `json:"terminal_disposition,omitempty"`
 }
 
 type DeliveryGraphOutput struct {
@@ -153,6 +155,9 @@ func (input DeliveryGraphInput) validate() error {
 	if !routingDigestPattern.MatchString(input.DeliveryID) {
 		return errors.New("batuta: delivery graph requires delivery_id")
 	}
+	if input.Operation != GraphOpTerminalize && input.TerminalDisposition != "" {
+		return errors.New("batuta: delivery graph operation has unexpected terminal disposition")
+	}
 	task := input.Wave >= 1 && input.TaskID != "" && input.TaskID == strings.TrimSpace(input.TaskID) &&
 		len(input.TaskID) <= 128 && input.Execution >= 1 && input.Execution <= 4
 	switch input.Operation {
@@ -184,9 +189,10 @@ func (input DeliveryGraphInput) validate() error {
 			return errors.New("batuta: invalid task answer")
 		}
 	case GraphOpRecordCandidate:
-		if !task || !validOpaqueRunID(input.ChildRunID) || !gitSHAValue(input.BaseSHA) || !gitSHAValue(input.CommitSHA) ||
-			!validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID) ||
-			input.hasQuestionFields() || input.BlockerCode != "" {
+		explicit := input.hasCandidateFields()
+		if !task || !validOpaqueRunID(input.ChildRunID) || input.hasQuestionFields() || input.BlockerCode != "" ||
+			(explicit && (!gitSHAValue(input.BaseSHA) || !gitSHAValue(input.CommitSHA) ||
+				!validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID))) {
 			return errors.New("batuta: invalid task candidate")
 		}
 	case GraphOpRecordFailure:
@@ -197,6 +203,11 @@ func (input DeliveryGraphInput) validate() error {
 	case GraphOpSettleWave:
 		if input.Wave < 1 || input.TaskID != "" || input.Execution != 0 || input.hasResultFields() || input.hasQuestionFields() {
 			return errors.New("batuta: settle_wave requires only delivery_id and wave")
+		}
+	case GraphOpTerminalize:
+		if input.TerminalDisposition != GraphDispositionBlocked && input.TerminalDisposition != GraphDispositionExhausted ||
+			input.hasTaskFields() || input.hasResultFields() || input.hasQuestionFields() {
+			return errors.New("batuta: terminalize requires a blocked or exhausted terminal disposition")
 		}
 	default:
 		return errors.New("batuta: unsupported delivery graph operation")
@@ -301,6 +312,9 @@ func deliveryGraphInputSchema() map[string]any {
 			"question_operation_id": sha256OutputSchema(),
 			"answer":                map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
 		})),
+		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
+			"child_run_id": opaqueRunIDSchema(),
+		})),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(), "base_sha": gitSHAInputSchema(), "commit_sha": gitSHAInputSchema(),
 			"verification": taskVerificationSchema(), "verification_digest": sha256OutputSchema(),
@@ -312,6 +326,9 @@ func deliveryGraphInputSchema() map[string]any {
 			"wave": map[string]any{"type": "integer", "minimum": 1},
 		})),
 		objectSchema([]string{"operation", "delivery_id"}, base(GraphOpCleanup)),
+		objectSchema([]string{"operation", "delivery_id", "terminal_disposition"}, withSchema(base(GraphOpTerminalize), map[string]any{
+			"terminal_disposition": map[string]any{"enum": []string{string(GraphDispositionBlocked), string(GraphDispositionExhausted)}},
+		})),
 	}}
 }
 
@@ -319,7 +336,7 @@ func deliveryGraphOutputSchema() map[string]any {
 	return objectSchema([]string{"operation", "disposition"}, map[string]any{
 		"operation": map[string]any{"enum": []string{
 			string(GraphOpPrepareWave), string(GraphOpTaskContext), string(GraphOpRecordQuestion), string(GraphOpRecordAnswer),
-			string(GraphOpRecordCandidate), string(GraphOpRecordFailure), string(GraphOpSettleWave), string(GraphOpCleanup),
+			string(GraphOpRecordCandidate), string(GraphOpRecordFailure), string(GraphOpSettleWave), string(GraphOpCleanup), string(GraphOpTerminalize),
 		}},
 		"disposition": map[string]any{"enum": []string{
 			string(GraphDispositionPreparing), string(GraphDispositionWaveReady), string(GraphDispositionTaskReady),
@@ -378,7 +395,7 @@ func taskVerificationSchema() map[string]any {
 		"task_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
 		"status":  map[string]any{"enum": []string{"passed"}},
 		"checks": map[string]any{
-			"type": "array", "minItems": 1, "maxItems": 32,
+			"type": "array", "minItems": 1, "maxItems": 16,
 			"items": map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
 		},
 	})

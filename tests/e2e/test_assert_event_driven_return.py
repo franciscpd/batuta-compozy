@@ -284,6 +284,22 @@ class ValidateDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, r"duplicate terminal prompts.*5.*9"):
             validator.validate_delivery(events, RUN_ID)
 
+    def test_rejects_unknown_parent_terminal_trigger(self) -> None:
+        events = accepted_dispatch() + [
+            text(
+                5,
+                TERMINAL_TURN,
+                f"Batuta delivery_id {DELIVERY_ID} parent run\n{RUN_ID} reached trigger mystery in generation 4",
+                "user_message",
+            ),
+            matching_status(6, TERMINAL_TURN),
+            matching_reconcile(7, TERMINAL_TURN),
+            reconciliation_result(8, TERMINAL_TURN),
+        ]
+
+        with self.assertRaisesRegex(AssertionError, r"unknown parent terminal trigger"):
+            validator.validate_delivery(events, RUN_ID)
+
     def test_rejects_a_truncated_event_window(self) -> None:
         events = accepted_dispatch()
         for event in events:

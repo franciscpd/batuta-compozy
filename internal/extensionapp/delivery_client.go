@@ -226,7 +226,7 @@ func validateDeliveryStartRequest(request deliveryStartRequest) error {
 		!validOpaqueRunID(request.WorktreeRef) || !routingDigestPattern.MatchString(request.RoutingGeneration) ||
 		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling != 1_000_000 ||
 		(request.Attempt == 1 && request.RecoveryOperationID != "") || (request.Attempt > 1 && !routingDigestPattern.MatchString(request.RecoveryOperationID)) ||
-		request.IterationCap < 1 || request.IterationCap > 4 ||
+		request.IterationCap < 1 || request.IterationCap > 64 ||
 		request.BudgetTokens < 1 || request.BudgetTokens > request.TokenCeiling || request.BudgetWallSec < 1 || request.BudgetWallSec > 14400 {
 		return errors.New("batuta: invalid delivery start request")
 	}

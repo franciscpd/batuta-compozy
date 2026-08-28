@@ -29,6 +29,9 @@ func TestDeliveryAttemptServiceStartsOnceAndReplaysSubmittedRun(t *testing.T) {
 	if first.DeliveryRunID != "run_attempt_1" || second.DeliveryRunID != first.DeliveryRunID || first.OperationID != second.OperationID || fixture.client.startCalls != 1 || fixture.client.recentCalls != 1 {
 		t.Fatalf("starts = %#v / %#v, client=%#v", first, second, fixture.client)
 	}
+	if fixture.client.lastRequest.IterationCap != 64 {
+		t.Fatalf("parent iteration cap = %d, want 64 graph generations while fresh starts remain journal-capped", fixture.client.lastRequest.IterationCap)
+	}
 	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
 	if err != nil || !exists {
 		t.Fatalf("Load() exists=%v error=%v", exists, err)
@@ -36,6 +39,162 @@ func TestDeliveryAttemptServiceStartsOnceAndReplaysSubmittedRun(t *testing.T) {
 	delivery := journal.Deliveries[fixture.deliveryID]
 	if len(delivery.Attempts) != 1 || delivery.Attempts[0].State != routing.AttemptSubmitted || delivery.Attempts[0].RunID != "run_attempt_1" {
 		t.Fatalf("attempts = %#v", delivery.Attempts)
+	}
+}
+
+func TestDeliveryParentIterationCapKeepsLegacyAtFour(t *testing.T) {
+	t.Parallel()
+	if got := deliveryParentIterationCap(nil); got != 4 {
+		t.Fatalf("legacy iteration cap = %d, want 4", got)
+	}
+	if got := deliveryParentIterationCap(&routing.DeliveryGraph{}); got != 64 {
+		t.Fatalf("graph iteration cap = %d, want 64", got)
+	}
+}
+
+func TestDeliveryAttemptServiceRejectsPrematureGraphParentCompletionWithoutReadingTaskChildren(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	enableGraphDelivery(t, fixture)
+	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	fixture.client.statuses = map[string]deliveryRunDetail{
+		started.DeliveryRunID: testParentRunDetail(
+			fixture.scope.WorkspaceID, started.DeliveryRunID, "done", fixture.client.lastRequest,
+			[]deliveryOutput{{NodeID: "run_task", ItemIndex: 0, Status: "succeeded", ChildLoopRunID: "run_batuta_task"}},
+		),
+		"run_batuta_task": testChildRunDetail(
+			fixture.scope.WorkspaceID, "run_batuta_task", "batuta-task", "done", 999,
+			nil,
+		),
+	}
+	if _, err := fixture.service.Reconcile(context.Background(), fixture.scope, fixture.deliveryID, started.DeliveryRunID); !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("Reconcile(premature graph parent) error = %v, want delivery conflict", err)
+	}
+	if fixture.client.statusCalls != 1 {
+		t.Fatalf("graph reconciliation status calls=%d, want parent only", fixture.client.statusCalls)
+	}
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists || journal.Deliveries[fixture.deliveryID].Graph == nil || journal.Deliveries[fixture.deliveryID].Attempts[0].State != routing.AttemptSubmitted {
+		t.Fatalf("graph reconciliation mutated graph child evidence: journal=%#v exists=%v error=%v", journal.Deliveries[fixture.deliveryID], exists, err)
+	}
+}
+
+func TestDeliveryAttemptServiceRecoversPersistedGraphFallbackWithoutParentRunTaskMarker(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	prepareGraphTaskForTest(t, fixture, taskRoot)
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		_, err := delivery.Graph.RecordFailure("task_01", 1, routing.TaskFailure{
+			ChildRunID: "run_batuta_task", TerminalStatus: "failed", BlockerCode: "task_terminal_failed", TokensUsed: 125,
+		}, generation, delivery.InitialWorktreeFingerprint.HeadSHA, true)
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist graph fallback: %v", err)
+	}
+	fixture.client.statuses = map[string]deliveryRunDetail{
+		started.DeliveryRunID: testParentRunDetail(fixture.scope.WorkspaceID, started.DeliveryRunID, "failed", fixture.client.lastRequest, nil),
+	}
+	settled, err := fixture.service.Reconcile(context.Background(), fixture.scope, fixture.deliveryID, started.DeliveryRunID)
+	if err != nil || !settled.Recoverable || settled.State != "active" || settled.TokensUsed != 125 || fixture.client.statusCalls != 1 {
+		t.Fatalf("graph fallback reconciliation=%#v error=%v status_calls=%d", settled, err, fixture.client.statusCalls)
+	}
+	recovered, err := fixture.service.Recover(context.Background(), fixture.scope, fixture.deliveryID, started.DeliveryRunID)
+	if err != nil || recovered.Attempt != 2 || fixture.client.startCalls != 2 {
+		t.Fatalf("Recover(graph fallback)=%#v error=%v starts=%d", recovered, err, fixture.client.startCalls)
+	}
+}
+
+func TestDeliveryAttemptServiceAttributesGraphDeltaAndReviewUsageOnce(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	delivery, _, _ := func() (routing.DeliveryRecord, bool, error) {
+		journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+		return journal.Deliveries[fixture.deliveryID], exists, err
+	}()
+	used := int64(125)
+	delivery.Graph.Tasks[0].Attempts = []routing.GraphTaskAttempt{{TokensUsed: &used}}
+	delivery.Attempts = []routing.DeliveryAttempt{{State: routing.AttemptTerminal, GraphTokensUsed: 125}}
+	fixture.client.statuses = map[string]deliveryRunDetail{
+		"run_review": func() deliveryRunDetail {
+			child := testChildRunDetail(fixture.scope.WorkspaceID, "run_review", "review-and-fix", "failed", 55, nil)
+			child.Run.TokensUsedPresent = true
+			child.Run.ParentLoopRunID = "run_parent"
+			return child
+		}(),
+	}
+	graphTokens, reviewTokens, childIDs, err := fixture.service.graphParentUsage(context.Background(), fixture.scope.WorkspaceID, delivery, deliveryRunDetail{
+		Run:         deliveryRun{ID: "run_parent"},
+		Generations: []deliveryGeneration{{Outputs: []deliveryOutput{{NodeID: "review", Status: "failed", ChildLoopRunID: "run_review"}}}},
+	})
+	if err != nil || graphTokens != 0 || reviewTokens != 55 || !reflect.DeepEqual(childIDs, []string{"run_review"}) || fixture.client.statusCalls != 1 {
+		t.Fatalf("graph parent usage graph=%d review=%d children=%#v error=%v calls=%d", graphTokens, reviewTokens, childIDs, err, fixture.client.statusCalls)
+	}
+}
+
+func TestDeliveryAttemptServiceRejectsUnownedOrAmbiguousReviewUsage(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	base := func(id, parent string, present bool) deliveryRunDetail {
+		child := testChildRunDetail(fixture.scope.WorkspaceID, id, "review-and-fix", "exhausted", 5, nil)
+		child.Run.ParentLoopRunID, child.Run.TokensUsedPresent = parent, present
+		return child
+	}
+	for _, test := range []struct {
+		name     string
+		outputs  []deliveryOutput
+		statuses map[string]deliveryRunDetail
+	}{
+		{"missing_tokens", []deliveryOutput{{NodeID: "review", Status: "failed", ChildLoopRunID: "run_review"}}, map[string]deliveryRunDetail{"run_review": base("run_review", "run_parent", false)}},
+		{"foreign_parent", []deliveryOutput{{NodeID: "review", Status: "failed", ChildLoopRunID: "run_review"}}, map[string]deliveryRunDetail{"run_review": base("run_review", "run_foreign", true)}},
+		{"two_reviews", []deliveryOutput{{NodeID: "review", Status: "failed", ChildLoopRunID: "run_a"}, {NodeID: "review", Status: "failed", ChildLoopRunID: "run_b"}}, map[string]deliveryRunDetail{"run_a": base("run_a", "run_parent", true), "run_b": base("run_b", "run_parent", true)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture.client.statuses = test.statuses
+			if _, _, _, err := fixture.service.graphParentUsage(context.Background(), fixture.scope.WorkspaceID, delivery, deliveryRunDetail{Run: deliveryRun{ID: "run_parent"}, Generations: []deliveryGeneration{{Outputs: test.outputs}}}); !errors.Is(err, routing.ErrDeliveryConflict) {
+				t.Fatalf("graphParentUsage() error = %v, want conflict", err)
+			}
+		})
+	}
+}
+
+func TestDeliveryAttemptServicePreservesTerminalizedGraphExhaustion(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		delivery.State = routing.DeliveryStateExhausted
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist terminalized exhaustion: %v", err)
+	}
+	fixture.client.statuses = map[string]deliveryRunDetail{
+		started.DeliveryRunID: testParentRunDetail(fixture.scope.WorkspaceID, started.DeliveryRunID, "failed", fixture.client.lastRequest, nil),
+	}
+	settled, err := fixture.service.Reconcile(context.Background(), fixture.scope, fixture.deliveryID, started.DeliveryRunID)
+	if err != nil || settled.State != string(routing.DeliveryStateExhausted) || settled.Recoverable {
+		t.Fatalf("Reconcile(terminalized exhaustion)=%#v error=%v", settled, err)
 	}
 }
 
@@ -88,6 +247,7 @@ func TestDeliveryAttemptServiceBlocksAmbiguousRecentRuns(t *testing.T) {
 func TestDeliveryAttemptServiceSettlesFailedTaskAndStartsExactFallback(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	disableGraphDelivery(t, fixture)
 	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -127,6 +287,7 @@ func TestDeliveryAttemptServiceSettlesFailedTaskAndStartsExactFallback(t *testin
 func TestDeliveryAttemptServiceReplaysSubmittedRecovery(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	disableGraphDelivery(t, fixture)
 	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -224,6 +385,7 @@ func TestDeliveryAttemptServiceStopBoundariesDoNotSubmit(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			fixture := newDeliveryServiceFixture(t)
+			disableGraphDelivery(t, fixture)
 			before, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
 			if err != nil {
 				t.Fatalf("Load(before) error = %v", err)
@@ -285,6 +447,7 @@ func TestDeliveryAttemptServiceTerminalStopBoundariesBlockRecovery(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			fixture := newDeliveryServiceFixture(t)
+			disableGraphDelivery(t, fixture)
 			started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 			if err != nil {
 				t.Fatalf("Start() error = %v", err)
@@ -320,6 +483,7 @@ func TestDeliveryAttemptServiceTerminalStopBoundariesBlockRecovery(t *testing.T)
 func TestDeliveryAttemptServiceRejectsForeignRunAndExhaustedFallbackWithoutMutation(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	disableGraphDelivery(t, fixture)
 	first, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -353,6 +517,7 @@ func TestDeliveryAttemptServiceRejectsForeignRunAndExhaustedFallbackWithoutMutat
 func TestDeliveryAttemptServiceTokenCeilingStopsBeforeAnotherSubmission(t *testing.T) {
 	t.Parallel()
 	fixture := newDeliveryServiceFixture(t)
+	disableGraphDelivery(t, fixture)
 	first, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -440,6 +605,37 @@ func newDeliveryServiceFixture(t *testing.T) deliveryServiceFixture {
 		},
 	}
 	return deliveryServiceFixture{service: service, client: client, store: store, scope: scope, deliveryID: matrix.DeliveryID, now: now}
+}
+
+func enableGraphDelivery(t *testing.T, fixture deliveryServiceFixture) {
+	t.Helper()
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		graph, err := routing.NewDeliveryGraph(delivery.TaskSnapshot, generation, delivery.InitialWorktreeFingerprint.HeadSHA)
+		if err != nil {
+			return err
+		}
+		delivery.Graph = graph
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("enable graph delivery: %v", err)
+	}
+}
+
+func disableGraphDelivery(t *testing.T, fixture deliveryServiceFixture) {
+	t.Helper()
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load(legacy delivery) exists=%v error=%v", exists, err)
+	}
+	delivery := journal.Deliveries[fixture.deliveryID]
+	delivery.Graph = nil
+	journal.Deliveries[fixture.deliveryID] = delivery
+	if err := fixture.store.Save(fixture.scope.WorkspaceID, journal); err != nil {
+		t.Fatalf("Save(legacy delivery) error = %v", err)
+	}
 }
 
 type fakeDeliveryRunClient struct {

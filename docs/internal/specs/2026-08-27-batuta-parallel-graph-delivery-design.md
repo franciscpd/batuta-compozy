@@ -86,6 +86,17 @@ owner. A new `batuta-task` Loop is a deterministic execution program, not a
 planner or a new Batuta agent. It invokes an existing implementation agent with
 the exact runtime selected by the pinned routing generation.
 
+The pinned awaited `run-loop` result intentionally exposes only `{loop_run_id,
+status}` to its parent. The parent declares that typed output and passes the
+authoritative ID to
+the Batuta extension, which rereads the completed child and derives exactly one
+latest-generation inline `implementation` payload. The closed task completion
+schema bounds that payload below the public 16 KiB inline-output limit; a
+content-addressed, malformed, wrong-generation, wrong-node, or ambiguous
+payload blocks. Batuta never resolves a private output blob. The legacy explicit
+candidate input remains only as a closed compatibility form and must equal the
+derived authoritative payload.
+
 The Go extension adds the narrow coordination required above the public
 worktree and Loop surfaces:
 
@@ -170,6 +181,14 @@ Worktree cleanup is evidence-gated:
   are reported to the operator;
 - cleanup replay is idempotent and never deletes the delivery worktree,
   operator branches, or foreign worktrees.
+
+Parent terminalization is also evidence-gated. `cleanup: cleaned` is the only
+successful `stop_when` path. When the graph journal proves a blocked task, an
+exhausted budget/execution, or retained cleanup evidence, the closed Batuta
+`terminalize` extension operation stores that exact disposition once and
+returns a stable action error. The pinned Loop runtime then takes its normal
+failed-action terminal path (with reattempts halted), so no later generation
+can repeat review or publication; replay has no additional journal mutation.
 
 ## Per-task Loop
 

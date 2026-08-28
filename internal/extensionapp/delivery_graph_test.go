@@ -11,7 +11,7 @@ import (
 	"github.com/franciscpd/batuta-compozy/internal/publication"
 )
 
-func TestDeliveryGraphToolExposesEightClosedOperations(t *testing.T) {
+func TestDeliveryGraphToolExposesNineClosedOperations(t *testing.T) {
 	t.Parallel()
 
 	extension, err := newWithServices(serviceSet{})
@@ -27,7 +27,7 @@ func TestDeliveryGraphToolExposesEightClosedOperations(t *testing.T) {
 		t.Fatalf("input schema: %v", err)
 	}
 	variants, ok := schema["oneOf"].([]any)
-	if !ok || len(variants) != 8 {
+	if !ok || len(variants) != 10 {
 		t.Fatalf("delivery graph schema variants = %#v", schema["oneOf"])
 	}
 	want := []GraphOperation{
@@ -36,9 +36,11 @@ func TestDeliveryGraphToolExposesEightClosedOperations(t *testing.T) {
 		GraphOpRecordQuestion,
 		GraphOpRecordAnswer,
 		GraphOpRecordCandidate,
+		GraphOpRecordCandidate,
 		GraphOpRecordFailure,
 		GraphOpSettleWave,
 		GraphOpCleanup,
+		GraphOpTerminalize,
 	}
 	for index, raw := range variants {
 		variant, ok := raw.(map[string]any)

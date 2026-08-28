@@ -33,6 +33,8 @@ type deliveryGraphService struct {
 
 const graphSettlementIntentKind = "batuta.graph_settlement_intent/v1"
 
+var errDeliveryGraphTerminalized = errors.New("batuta: delivery graph terminalized")
+
 type graphSettlementIntent struct {
 	Kind     string                         `json:"kind"`
 	IntentID string                         `json:"intent_id"`
@@ -102,8 +104,86 @@ func (s *deliveryGraphService) Execute(
 			return DeliveryGraphOutput{}, errors.New("batuta: delivery graph operation is unavailable")
 		}
 		return s.cleanup(ctx, scope, input)
+	case GraphOpTerminalize:
+		return s.terminalize(scope, input)
 	default:
 		return DeliveryGraphOutput{}, errors.New("batuta: delivery graph operation is unavailable")
+	}
+}
+
+// terminalize persists only a disposition already proven by graph state, then
+// deliberately returns a stable error. The public Loop runtime therefore
+// settles the parent through its ordinary failed-action terminal path instead
+// of treating a successful transform as a completed generation.
+func (s *deliveryGraphService) terminalize(scope publication.TrustedScope, input DeliveryGraphInput) (DeliveryGraphOutput, error) {
+	store, err := s.store()
+	if err != nil {
+		return DeliveryGraphOutput{}, err
+	}
+	now := time.Now().UTC()
+	if s.Now != nil {
+		now = s.Now().UTC()
+	}
+	err = store.WithLockedJournal(scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery, exists := tx.Journal.Deliveries[input.DeliveryID]
+		if !exists || delivery.WorkspaceID != scope.WorkspaceID || delivery.WorktreeRoot != scope.WorkspaceRoot || delivery.Graph == nil {
+			return routing.ErrDeliveryConflict
+		}
+		proven, proofErr := terminalDispositionProven(delivery, input.TerminalDisposition, now)
+		if proofErr != nil || !proven {
+			return routing.ErrDeliveryConflict
+		}
+		wantState := routing.DeliveryStateBlocked
+		if input.TerminalDisposition == GraphDispositionExhausted {
+			wantState = routing.DeliveryStateExhausted
+		}
+		if delivery.State == wantState {
+			return nil
+		}
+		if delivery.State != routing.DeliveryStateActive {
+			return routing.ErrDeliveryConflict
+		}
+		delivery.State = wantState
+		tx.Journal.Deliveries[input.DeliveryID] = delivery
+		return tx.Persist()
+	})
+	if err != nil {
+		return DeliveryGraphOutput{}, err
+	}
+	return DeliveryGraphOutput{}, errDeliveryGraphTerminalized
+}
+
+func terminalDispositionProven(delivery routing.DeliveryRecord, disposition GraphDisposition, now time.Time) (bool, error) {
+	if delivery.Graph == nil {
+		return false, routing.ErrDeliveryConflict
+	}
+	remainingTokens, remainingWall, err := graphRemainingBudget(delivery, now)
+	if err != nil {
+		return false, err
+	}
+	exhausted := remainingTokens <= 0 || remainingWall <= 0
+	blocked := false
+	for _, task := range delivery.Graph.Tasks {
+		if task.State != routing.GraphTaskBlocked {
+			continue
+		}
+		blocked = true
+		if len(task.Attempts) >= routing.MaxTaskExecutions || task.BlockerCode == "integration_conflict_exhausted" {
+			exhausted = true
+		}
+	}
+	for _, cleanup := range delivery.Graph.Cleanups {
+		if cleanup.State != routing.CleanupRemoved {
+			blocked = true
+		}
+	}
+	switch disposition {
+	case GraphDispositionExhausted:
+		return exhausted, nil
+	case GraphDispositionBlocked:
+		return blocked && !exhausted, nil
+	default:
+		return false, routing.ErrDeliveryConflict
 	}
 }
 
@@ -739,14 +819,24 @@ func (s *deliveryGraphService) recordCandidate(
 		return DeliveryGraphOutput{}, err
 	}
 	input.Execution = attempt.Execution
-	if !validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID) {
-		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
-	}
-	evidence := routing.TaskCandidate{
-		ChildRunID: input.ChildRunID, BaseHeadSHA: input.BaseSHA, CommitSHA: input.CommitSHA,
-		VerificationDigest: input.VerificationDigest,
-	}
 	if attempt.State == routing.GraphTaskCandidate || attempt.State == routing.GraphTaskIntegrated {
+		if !candidateReplayMatches(input, attempt) {
+			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+		}
+		input.BaseSHA = attempt.BaseHeadSHA
+		input.CommitSHA = attempt.CandidateCommitSHA
+		input.VerificationDigest = attempt.VerificationDigest
+		if attempt.CandidateEvidence == nil {
+			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+		}
+		input.Verification = append(json.RawMessage(nil), attempt.CandidateEvidence.Verification...)
+		if !validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID) {
+			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+		}
+		evidence := routing.TaskCandidate{
+			ChildRunID: input.ChildRunID, BaseHeadSHA: input.BaseSHA, CommitSHA: input.CommitSHA,
+			VerificationDigest: input.VerificationDigest,
+		}
 		if attempt.TokensUsed == nil {
 			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 		}
@@ -758,17 +848,32 @@ func (s *deliveryGraphService) recordCandidate(
 		return s.candidateOutput(delivery, input)
 	}
 	if task.State != routing.GraphTaskRunning || attempt.State != routing.GraphTaskRunning ||
-		attempt.WorktreeRoot == "" || attempt.BaseHeadSHA != input.BaseSHA {
+		attempt.WorktreeRoot == "" {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
+	if input.hasCandidateFields() && input.BaseSHA != attempt.BaseHeadSHA {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	detail, err := s.Runs.Status(ctx, scope.WorkspaceID, input.ChildRunID)
 	if err != nil {
 		return DeliveryGraphOutput{}, err
 	}
+	derived, ok := deriveCompletedTaskCandidate(detail, input.TaskID)
+	if !ok || derived.Execution != attempt.Execution ||
+		(input.hasCandidateFields() && !candidateFieldsEqual(input, derived)) {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
+	}
+	input.BaseSHA = attempt.BaseHeadSHA
+	input.CommitSHA = derived.CommitSHA
+	input.Verification = derived.Verification
+	input.VerificationDigest = derived.VerificationDigest
+	evidence := routing.TaskCandidate{
+		ChildRunID: input.ChildRunID, BaseHeadSHA: input.BaseSHA, CommitSHA: input.CommitSHA,
+		VerificationDigest: input.VerificationDigest,
+	}
 	if detail.Run.ID != input.ChildRunID || (detail.Run.Status != "done" && detail.Run.Status != "no-op") ||
 		!detail.Run.TokensUsedPresent || detail.Run.TokensUsed < 0 ||
-		!graphTaskRunMatches(detail.Run, scope.WorkspaceID, delivery, wave, task, input.Execution) ||
-		!hasCompletedTaskOutput(detail, input) {
+		!graphTaskRunMatches(detail.Run, scope.WorkspaceID, delivery, wave, task, input.Execution) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	if attempt.TokenAllowance > 0 && detail.Run.TokensUsed > attempt.TokenAllowance {
@@ -1934,14 +2039,17 @@ func graphTaskQuestionAttempt(task routing.GraphTask, runExecution int, operatio
 }
 
 type completedTaskOutput struct {
-	Status             string `json:"status"`
-	TaskID             string `json:"task_id"`
-	Execution          int    `json:"execution"`
-	CommitSHA          string `json:"commit_sha"`
-	VerificationDigest string `json:"verification_digest"`
+	Status             string          `json:"status"`
+	TaskID             string          `json:"task_id"`
+	Execution          int             `json:"execution"`
+	CommitSHA          string          `json:"commit_sha"`
+	Verification       json.RawMessage `json:"verification"`
+	VerificationDigest string          `json:"verification_digest"`
 }
 
-func hasCompletedTaskOutput(detail deliveryRunDetail, input DeliveryGraphInput) bool {
+const maxInlineTaskCompletionBytes = 16 << 10
+
+func deriveCompletedTaskCandidate(detail deliveryRunDetail, taskID string) (completedTaskOutput, bool) {
 	var latest *deliveryGeneration
 	for index := range detail.Generations {
 		generation := &detail.Generations[index]
@@ -1950,11 +2058,14 @@ func hasCompletedTaskOutput(detail deliveryRunDetail, input DeliveryGraphInput) 
 		}
 	}
 	if latest == nil {
-		return false
+		return completedTaskOutput{}, false
 	}
+	var candidate completedTaskOutput
 	matches := 0
 	for _, output := range latest.Outputs {
-		if output.NodeID != "implementation" || output.ItemIndex != 0 || output.Status != "succeeded" || output.OutputRef == "" {
+		if output.NodeID != "implementation" || output.ItemIndex != 0 || output.Status != "succeeded" ||
+			output.OutputRef == "" || len(output.OutputRef) > maxInlineTaskCompletionBytes ||
+			strings.HasPrefix(output.OutputRef, "sha256:") || rejectDuplicateJSONKeys([]byte(output.OutputRef)) != nil {
 			continue
 		}
 		var completed completedTaskOutput
@@ -1966,12 +2077,36 @@ func hasCompletedTaskOutput(detail deliveryRunDetail, input DeliveryGraphInput) 
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 			continue
 		}
-		if completed.Status == "completed" && completed.TaskID == input.TaskID && completed.Execution == input.Execution &&
-			completed.CommitSHA == input.CommitSHA && completed.VerificationDigest == input.VerificationDigest {
-			matches++
+		if completed.Status != "completed" || completed.TaskID != taskID || completed.Execution < 1 ||
+			!gitSHAValue(completed.CommitSHA) || !validTaskVerification(completed.Verification, completed.VerificationDigest, taskID) {
+			continue
 		}
+		candidate = completed
+		matches++
 	}
-	return matches == 1
+	return candidate, matches == 1
+}
+
+func candidateFieldsEqual(input DeliveryGraphInput, completed completedTaskOutput) bool {
+	return input.CommitSHA == completed.CommitSHA && input.VerificationDigest == completed.VerificationDigest &&
+		bytes.Equal(input.Verification, completed.Verification)
+}
+
+func candidateReplayMatches(input DeliveryGraphInput, attempt routing.GraphTaskAttempt) bool {
+	if input.ChildRunID == "" || input.ChildRunID != attempt.ChildRunID {
+		return false
+	}
+	if !input.hasCandidateFields() {
+		return true
+	}
+	return input.BaseSHA == attempt.BaseHeadSHA && input.CommitSHA == attempt.CandidateCommitSHA &&
+		input.VerificationDigest == attempt.VerificationDigest && attempt.CandidateEvidence != nil &&
+		bytes.Equal(input.Verification, attempt.CandidateEvidence.Verification)
+}
+
+func hasCompletedTaskOutput(detail deliveryRunDetail, input DeliveryGraphInput) bool {
+	completed, ok := deriveCompletedTaskCandidate(detail, input.TaskID)
+	return ok && completed.Execution == input.Execution && candidateFieldsEqual(input, completed)
 }
 
 func graphAttemptRunExecution(attempt routing.GraphTaskAttempt) int {

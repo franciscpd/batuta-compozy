@@ -691,16 +691,35 @@ config_overrides:
   budget_wall_sec: "{{ .item.remaining_active_wall_seconds }}"
   budget_on_exceeded: halt
   reattempt_strategy: halt
-  runtime_rules:
-    - match:
-        id: "{{ .item.task_id }}"
-      runtime: "{{ .item.runtime }}"
+  # The exact whole-value template preserves the typed runtime-rule array.
+  # Its task-id matches still select only this child task.
+  runtime_rules: "{{ .nodes.routing_context.output.runtime_rules }}"
   environment:
     mode: worktree
     worktree_ref: "{{ .item.worktree_id }}"
 ```
 
 The parent `stop_when` becomes graph-complete, not first-wave-complete. Configure enough parent generations for at most 64 tasks while keeping fresh parent starts capped at four in the Batuta journal. Do not confuse Compozy generation count with the fresh-parent recovery ceiling.
+
+**Terminalization ruling:** `stop_when` is a success-to-`done` mechanism in the
+pinned public runtime and must remain true only after `cleanup` reports
+`cleaned`. A graph `blocked`, `exhausted`, or retained-cleanup disposition is
+first proved from the journal by Batuta's closed non-model-facing
+`terminalize` operation. It persists the matching delivery terminal state once
+and returns a stable action error; with the parent reattempt policy set to
+`halt`, the public runtime settles its ordinary failed-action terminal path and
+emits one terminal effect. Replays perform no further mutation. This is
+Batuta-only and does not add a shell, LLM, human gate, or Compozy behavior.
+
+**Ruling — awaited child candidate authority:** the pinned `run-loop` completion projects only
+`loop_run_id` and status to the parent. The fan-out cell therefore calls
+`record_candidate` with that authoritative child ID only. Batuta rereads the exact completed child
+and derives one latest-generation `implementation` payload (`task_id`, execution, commit, and
+verification) from its public inline output. `batuta-task` keeps that closed completion payload
+below the public 16 KiB inline boundary; a content-addressed, malformed, non-latest, or ambiguous
+payload blocks rather than attempting blob access. The retained explicit candidate form is allowed
+only as a closed compatibility form whose values equal the derived payload. This is a Batuta-only
+ruling and does not change Compozy.
 
 If the released child-override syntax differs, stop and report the contract mismatch; do not add a Compozy workaround.
 

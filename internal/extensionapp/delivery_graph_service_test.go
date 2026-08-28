@@ -551,7 +551,7 @@ func TestDeliveryGraphServiceRecordsCandidateAfterTwoAnsweredContinuations(t *te
 	journal, _, _ = fixture.store.Load(fixture.scope.WorkspaceID)
 	delivery = journal.Deliveries[fixture.deliveryID]
 	task, _ = delivery.Graph.Task("task_01")
-	if !graphTaskRunMatches(run, fixture.scope.WorkspaceID, delivery, wave, task, 3) || !hasCompletedTaskOutput(runs.statuses[run.ID], DeliveryGraphInput{TaskID: "task_01", Execution: 3, CommitSHA: commitSHA, VerificationDigest: verificationDigest}) {
+	if !graphTaskRunMatches(run, fixture.scope.WorkspaceID, delivery, wave, task, 3) || !hasCompletedTaskOutput(runs.statuses[run.ID], DeliveryGraphInput{TaskID: "task_01", Execution: 3, CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest}) {
 		t.Fatalf("two-answer completion preconditions do not match task run: %#v", task)
 	}
 	output, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA, CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest})
@@ -824,8 +824,20 @@ func TestDeliveryGraphServiceRecordsOneValidatedCandidateAndUsage(t *testing.T) 
 	}
 	input := DeliveryGraphInput{
 		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
-		TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,
-		CommitSHA: commitSHA, Verification: verification, VerificationDigest: verificationDigest,
+		TaskID: "task_01", Execution: 1, ChildRunID: run.ID,
+	}
+	wrongBase := input
+	wrongBase.BaseSHA = "1111111111111111111111111111111111111111"
+	wrongBase.CommitSHA = commitSHA
+	wrongBase.Verification = verification
+	wrongBase.VerificationDigest = verificationDigest
+	if _, err := service.Execute(context.Background(), fixture.scope, wrongBase); !errors.Is(err, routing.ErrDeliveryConflict) || validator.calls != 0 {
+		t.Fatalf("record_candidate mismatched explicit base error=%v validator_calls=%d, want conflict before Git validation", err, validator.calls)
+	}
+	before, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	beforeTask, _ := before.Deliveries[fixture.deliveryID].Graph.Task("task_01")
+	if beforeTask.State != routing.GraphTaskRunning {
+		t.Fatalf("mismatched explicit base mutated graph task: %#v", beforeTask)
 	}
 
 	first, err := service.Execute(context.Background(), fixture.scope, input)
@@ -848,6 +860,54 @@ func TestDeliveryGraphServiceRecordsOneValidatedCandidateAndUsage(t *testing.T) 
 		stored.Attempts[0].CandidateEvidence.TreeSHA != validator.evidence.TreeSHA ||
 		!bytes.Equal(stored.Attempts[0].CandidateEvidence.Verification, verification) {
 		t.Fatalf("stored candidate evidence = %#v", stored.Attempts[0].CandidateEvidence)
+	}
+}
+
+func TestDeliveryGraphServiceRejectsAmbiguousOrNonInlineDerivedCandidateOutput(t *testing.T) {
+	t.Parallel()
+
+	verification := json.RawMessage(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	verificationDigest := digestValue(string(verification))
+	commitSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	tests := []struct {
+		name    string
+		outputs []deliveryGeneration
+	}{
+		{name: "zero implementation cells", outputs: []deliveryGeneration{{Generation: 1}}},
+		{name: "multiple implementation cells", outputs: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{
+			{NodeID: "implementation", Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 1, commitSHA, verification, verificationDigest)},
+			{NodeID: "implementation", Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 1, commitSHA, verification, verificationDigest)},
+		}}}},
+		{name: "wrong latest generation", outputs: []deliveryGeneration{
+			{Generation: 1, Outputs: []deliveryOutput{{NodeID: "implementation", Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 1, commitSHA, verification, verificationDigest)}}},
+			{Generation: 2, Outputs: []deliveryOutput{{NodeID: "implementation", Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 2, commitSHA, verification, verificationDigest)}}},
+		}},
+		{name: "wrong node", outputs: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{NodeID: "implement_task", Status: "succeeded", OutputRef: completedTaskOutputRef(t, "task_01", 1, commitSHA, verification, verificationDigest)}}}}},
+		{name: "malformed inline payload", outputs: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{NodeID: "implementation", Status: "succeeded", OutputRef: `{"status":"completed"}`}}}}},
+		{name: "content addressed payload", outputs: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{NodeID: "implementation", Status: "succeeded", OutputRef: digestValue("external-child-output")}}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newDeliveryServiceFixture(t)
+			taskRoot := t.TempDir()
+			writeRoutingTask(t, taskRoot)
+			wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+			journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+			delivery := journal.Deliveries[fixture.deliveryID]
+			task, _ := delivery.Graph.Task("task_01")
+			run := deliveryRun{ID: "run_task_01", WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-task", Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now, TokensUsed: 10, TokensUsedPresent: true, Inputs: graphTaskRunInputs(delivery, wave, task, 1)}
+			runs := &fakeGraphRunReader{statuses: map[string]deliveryRunDetail{run.ID: {Run: run, Generations: tt.outputs}}}
+			service := deliveryGraphService{
+				Store:      fixture.store,
+				Runs:       runs,
+				Candidates: &fakeGraphCandidateValidator{}, Now: func() time.Time { return fixture.now },
+			}
+			_, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1, ChildRunID: run.ID})
+			if !errors.Is(err, routing.ErrDeliveryConflict) || runs.statusCalls != 1 {
+				t.Fatalf("derived record_candidate error = %v status_calls=%d, want one authoritative read and ErrDeliveryConflict", err, runs.statusCalls)
+			}
+		})
 	}
 }
 
@@ -1178,6 +1238,172 @@ func TestDeliveryGraphServiceCleansOnlyIntegratedOwnedWorktreeOnce(t *testing.T)
 	}
 }
 
+func TestDeliveryGraphServiceTerminalizesOnlyProvenGraphDispositionAndReplays(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	prepareGraphTaskForTest(t, fixture, taskRoot)
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		if _, err := delivery.Graph.RecordFailure("task_01", 1, routing.TaskFailure{
+			ChildRunID: "run_batuta_task", TerminalStatus: "failed", BlockerCode: "task_terminal_failed", TokensUsed: 125,
+		}, generation, delivery.InitialWorktreeFingerprint.HeadSHA, false); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist blocked graph: %v", err)
+	}
+	service := deliveryGraphService{Store: fixture.store, Now: func() time.Time { return fixture.now }}
+	input := DeliveryGraphInput{Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionBlocked}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize blocked) error = %v, want stable terminalizer error", err)
+	}
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists || journal.Deliveries[fixture.deliveryID].State != routing.DeliveryStateBlocked {
+		t.Fatalf("terminalized delivery exists=%v error=%v delivery=%#v", exists, err, journal.Deliveries[fixture.deliveryID])
+	}
+	before := journal
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize replay) error = %v, want stable terminalizer error", err)
+	}
+	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("terminalizer replay mutated journal: before=%#v after=%#v error=%v", before, after, err)
+	}
+	if _, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionExhausted,
+	}); !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("Execute(unproven exhausted) error = %v, want delivery conflict", err)
+	}
+}
+
+func TestDeliveryGraphServiceTerminalizesProvenExhaustedBudget(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	prepareGraphTaskForTest(t, fixture, taskRoot)
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		if _, err := delivery.Graph.RecordFailure("task_01", 1, routing.TaskFailure{
+			ChildRunID: "run_batuta_task", TerminalStatus: "exhausted", BlockerCode: "task_budget_exhausted", TokensUsed: delivery.TokenCeiling,
+		}, generation, delivery.InitialWorktreeFingerprint.HeadSHA, false); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist exhausted graph: %v", err)
+	}
+	service := deliveryGraphService{Store: fixture.store, Now: func() time.Time { return fixture.now }}
+	input := DeliveryGraphInput{Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionExhausted}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize exhausted) error = %v", err)
+	}
+	before, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || before.Deliveries[fixture.deliveryID].State != routing.DeliveryStateExhausted {
+		t.Fatalf("exhausted terminal state error=%v journal=%#v", err, before)
+	}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize exhausted replay) error = %v", err)
+	}
+	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("exhausted replay mutated journal before=%#v after=%#v error=%v", before, after, err)
+	}
+}
+
+func TestDeliveryGraphServiceTerminalizesRetainedCleanupWithoutExternalWork(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	commit := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		if _, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{ChildRunID: "run_task", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: commit, VerificationDigest: digestValue("retained-cleanup"), TokensUsed: 1}); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist retained candidate: %v", err)
+	}
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		generation := tx.Journal.Generations[delivery.RoutingGenerationDigest]
+		if _, err := delivery.Graph.SettleWave(routing.WaveSettlement{OperationID: digestValue("retained-settle"), RequestDigest: digestValue("retained-request"), Wave: wave.Number, StartingHeadSHA: wave.BaseHeadSHA, OrderedTaskIDs: []string{"task_01"}, CandidateCommitSHAs: []string{commit}, AcceptedTaskIDs: []string{"task_01"}, AcceptedCommitSHAs: []string{commit}, IntegratedCommitSHAs: []string{commit}, FinalHeadSHA: commit}, generation); err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist retained settlement: %v", err)
+	}
+	identity, err := worktreeops.DeriveIdentity(worktreeops.IdentityInput{
+		WorkspaceID: fixture.scope.WorkspaceID, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+		Slug: "demo", TaskID: "task_01", Execution: 1, BaseSHA: wave.BaseHeadSHA,
+	})
+	if err != nil {
+		t.Fatalf("DeriveIdentity() error = %v", err)
+	}
+	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", byID: map[string]worktreeops.Worktree{
+		"wt_task_01": {
+			ID: "wt_task_01", Name: identity.Name, Root: taskRoot, WorkspaceID: fixture.scope.WorkspaceID,
+			RepositoryRoot: fixture.scope.WorkspaceRoot, RepositoryIdentity: digestValue("repository"),
+			Branch: identity.Branch, BaseRef: wave.BaseHeadSHA, BaseSHA: wave.BaseHeadSHA,
+			State: "ready", Setup: worktreeops.SetupResult{State: "ok"},
+		},
+	}}
+	service := deliveryGraphService{
+		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{
+				HeadSHA: commit, PorcelainSHA256: digestValue("diagnostic-worktree"), ContentSHA256: emptyDigest(),
+			}, nil
+		},
+	}
+	cleanup, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpCleanup, DeliveryID: fixture.deliveryID,
+	})
+	if err != nil || cleanup.Disposition != GraphDispositionBlocked || cleanup.BlockerCode != "worktree_evidence_changed" ||
+		len(cleanup.CleanupResults) != 1 || cleanup.CleanupResults[0].State != string(routing.CleanupRetained) ||
+		worktrees.removeCalls != 0 {
+		t.Fatalf("retained diagnostic cleanup = %#v error=%v remove_calls=%d", cleanup, err, worktrees.removeCalls)
+	}
+	retained, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists || len(retained.Deliveries[fixture.deliveryID].Graph.Cleanups) != 1 ||
+		retained.Deliveries[fixture.deliveryID].Graph.Cleanups[0].State != routing.CleanupRetained ||
+		retained.Deliveries[fixture.deliveryID].Graph.Cleanups[0].BlockerCode != "worktree_evidence_changed" {
+		t.Fatalf("retained diagnostic cleanup was not durable: journal=%#v exists=%v error=%v", retained, exists, err)
+	}
+	input := DeliveryGraphInput{Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionBlocked}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("terminalize retained cleanup: %v", err)
+	}
+	before, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || before.Deliveries[fixture.deliveryID].State != routing.DeliveryStateBlocked {
+		t.Fatalf("state error=%v journal=%#v", err, before)
+	}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("terminalize replay: %v", err)
+	}
+	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("retained cleanup replay mutated journal: %v", err)
+	}
+	if worktrees.removeCalls != 0 {
+		t.Fatalf("terminalization/replay must not remove retained worktree; remove_calls=%d", worktrees.removeCalls)
+	}
+}
+
 func TestDeliveryGraphServiceCleansAnsweredContinuationUsingLatestCandidateEvidence(t *testing.T) {
 	t.Parallel()
 
@@ -1294,6 +1520,7 @@ func completedTaskOutputRef(
 	payload, err := json.Marshal(map[string]any{
 		"status": "completed", "task_id": taskID, "execution": execution,
 		"commit_sha":          commitSHA,
+		"verification":        json.RawMessage(verification),
 		"verification_digest": verificationDigest,
 	})
 	if err != nil {
