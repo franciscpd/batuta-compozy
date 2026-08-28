@@ -297,11 +297,18 @@ func prefixedDigest(payload []byte) string {
 }
 
 func (c GitClient) run(ctx context.Context, directory string, args ...string) (CommandResult, error) {
-	return c.Runner.Run(ctx, Command{
+	result, err := c.Runner.Run(ctx, Command{
 		Executable: c.Executable,
 		Args:       args,
 		Directory:  directory,
 	})
+	if err != nil {
+		return result, err
+	}
+	if result.StdoutTruncated || result.StderrTruncated {
+		return result, errors.New("publication: git output exceeded limit")
+	}
+	return result, nil
 }
 
 func parseGitSHA(value []byte) (string, error) {

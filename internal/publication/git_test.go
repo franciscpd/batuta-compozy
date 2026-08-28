@@ -199,6 +199,27 @@ func TestGitClientUpstreamHeadReturnsTheRemoteTrackingSHA(t *testing.T) {
 	}
 }
 
+func TestGitClientRejectsTruncatedCommandOutput(t *testing.T) {
+	t.Parallel()
+
+	head := []byte("0123456789abcdef0123456789abcdef01234567\n")
+	for _, test := range []struct {
+		name   string
+		result CommandResult
+	}{
+		{name: "stdout", result: CommandResult{Stdout: head, StdoutTruncated: true}},
+		{name: "stderr", result: CommandResult{Stdout: head, StderrTruncated: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &recordingCommandRunner{results: []CommandResult{test.result}}
+			client := GitClient{Executable: "/controlled/git", Runner: runner}
+			if _, err := client.UpstreamHead(context.Background(), "/trusted/worktree"); err == nil {
+				t.Fatal("UpstreamHead() error = nil, want truncated-output rejection")
+			}
+		})
+	}
+}
+
 func TestGitClientCommitsAheadOfBaseUsesExactValidatedRevision(t *testing.T) {
 	t.Parallel()
 
