@@ -140,7 +140,7 @@ assert "budget_wall_sec: \"{{ .nodes.delivery_budget_context.output.remaining_wa
 assert "implementation_run_id:" not in loop
 assert ".nodes.implement.output.child_loop_run_id" not in loop
 assert "delivery_id {{ .inputs.delivery_id }}" in loop
-assert "delivery_id and delivery_run_id" in loop
+assert "delivery_run_id {{ .effect.identity.loop_run_id }}" in loop
 assert "id: recovery_gate" not in loop and "kind: human" not in loop
 assert "id: publish_gate" not in loop
 assert "id: publish" in loop and "kind: ext__batuta__publish_worktree" in loop
