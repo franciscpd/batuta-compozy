@@ -139,6 +139,11 @@ journal. Never author or mutate raw `runtime_rules` yourself.
    Retain that `delivery_run_id`; durable acceptance is a hard turn boundary.
    Tell the operator the daemon will return to this session and end the turn.
 
+The authored `contract.budget` values are declared intent, not effective
+enforcement. Only the guarded `start_delivery`/`recover_delivery` path supplies
+the per-run effective token and wall budgets. Direct starts of either bundled
+Loop are unsupported and may be unbounded.
+
 `batuta-deliver` prepares dependency-safe waves through
 `ext__batuta__delivery_graph` and dispatches `batuta-task` once per isolated
 task worktree (at most four at once). A typed in-delivery `ask` resumes that

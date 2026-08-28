@@ -1037,6 +1037,70 @@ func TestDeliveryGraphServiceSettlesCandidateThroughCrashSafeIntegratorOnce(t *t
 	}
 }
 
+func TestDeliveryGraphServiceReplaysConcurrentConflictSettlementWithoutReservingTokensAgain(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	candidateSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		_, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue(string(verification)), TokensUsed: 900,
+			Evidence: &routing.TaskCandidateEvidence{
+				Slug: delivery.Slug, RepositoryIdentity: digestValue("repository"), Branch: "batuta/task/demo",
+				TreeSHA: "1234512345123451234512345123451234512345", Verification: verification,
+				OwnedTrackingPaths: []string{}, Tracking: []routing.TaskTrackingFile{},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	integrator := &barrierConflictIntegrator{started: started, release: release}
+	service := deliveryGraphService{Store: fixture.store, Integrator: integrator, Now: func() time.Time { return fixture.now }}
+	input := DeliveryGraphInput{Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: wave.Number}
+	type result struct {
+		output DeliveryGraphOutput
+		err    error
+	}
+	results := make(chan result, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for range 2 {
+		go func() {
+			output, err := service.Execute(ctx, fixture.scope, input)
+			results <- result{output: output, err: err}
+		}()
+	}
+	for range 2 {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatalf("concurrent settlements did not both reach integration: %v", ctx.Err())
+		}
+	}
+	close(release)
+	for range 2 {
+		settled := <-results
+		if settled.err != nil || settled.output.Disposition != GraphDispositionReexecuteConflict ||
+			settled.output.TaskID != "task_01" || settled.output.Execution != 2 {
+			t.Fatalf("concurrent conflict settlement = %#v, error=%v", settled.output, settled.err)
+		}
+	}
+}
+
 func TestWaveSettlementSelectsIndependentCandidatesButFencesConflictSuffix(t *testing.T) {
 	t.Parallel()
 
@@ -1530,7 +1594,7 @@ func completedTaskOutputRef(
 }
 
 func answeredAskOutputRef(answer string) string {
-	return digestValue(`{"answer":"` + answer + `"}`)
+	return `{"answer":"` + answer + `"}`
 }
 
 func timePointer(value time.Time) *time.Time {
@@ -1560,6 +1624,26 @@ type fakeGraphIntegrator struct {
 	last          integration.IntegrationRequest
 	before        func(integration.IntegrationRequest) error
 	failOnce      error
+}
+
+type barrierConflictIntegrator struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (i *barrierConflictIntegrator) Integrate(ctx context.Context, request integration.IntegrationRequest) (integration.IntegrationResult, error) {
+	i.started <- struct{}{}
+	select {
+	case <-i.release:
+	case <-ctx.Done():
+		return integration.IntegrationResult{}, ctx.Err()
+	}
+	return integration.IntegrationResult{
+		OperationID: request.OperationID, RequestDigest: request.RequestDigest,
+		AcceptedTaskIDs: []string{}, AcceptedCommitSHAs: []string{}, IntegratedCommitSHAs: []string{},
+		FirstConflictTaskID: request.Candidates[0].TaskID, ConflictEvidenceDigest: digestValue("concurrent-conflict"),
+		ResultingHeadSHA: request.StartingHeadSHA, Complete: true,
+	}, nil
 }
 
 func (i *fakeGraphIntegrator) Integrate(_ context.Context, request integration.IntegrationRequest) (integration.IntegrationResult, error) {

@@ -51,6 +51,8 @@ contract:
     The task has one focused implementation commit and typed completed evidence,
     or Batuta has recorded the exact terminal failure for this child run.
   iteration_cap: 4
+  # Declared intent only. batuta-deliver supplies each child's effective
+  # remaining token and active-wall budgets through run-loop config_overrides.
   budget:
     tokens: 0
     wall_clock_sec: 0

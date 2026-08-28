@@ -104,14 +104,15 @@ func (c CLIClient) FindByName(
 	var matched Worktree
 	matches := 0
 	for _, item := range raw {
+		if item.Name != name {
+			continue
+		}
 		worktree, err := worktreeFromDaemon(scope, item)
 		if err != nil {
 			return Worktree{}, false, ErrInvalidWorktreeIdentity
 		}
-		if worktree.Name == name {
-			matched = worktree
-			matches++
-		}
+		matched = worktree
+		matches++
 	}
 	if matches > 1 {
 		return Worktree{}, false, ErrInvalidWorktreeIdentity

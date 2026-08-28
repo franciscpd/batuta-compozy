@@ -44,9 +44,24 @@ func (r *deliveryRun) UnmarshalJSON(payload []byte) error {
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return err
 	}
+	if rawRunID, exists := fields["run_id"]; exists {
+		var runID string
+		if err := json.Unmarshal(rawRunID, &runID); err != nil {
+			return err
+		}
+		if decoded.ID != "" && decoded.ID != runID {
+			return errors.New("batuta: conflicting Compozy run identities")
+		}
+		decoded.ID = runID
+	}
 	*r = deliveryRun(decoded)
 	_, r.TokensUsedPresent = fields["tokens_used"]
 	return nil
+}
+
+type deliveryRunListResponse struct {
+	Items      []deliveryRun `json:"items"`
+	NextCursor string        `json:"next_cursor"`
 }
 
 type deliveryRunDetail struct {
@@ -133,21 +148,22 @@ func (c deliveryLoopCLIClient) Recent(ctx context.Context, workspaceID string, l
 	if err != nil {
 		return nil, err
 	}
-	var response struct {
-		Runs []deliveryRun `json:"runs"`
-	}
+	var response deliveryRunListResponse
 	if err := decodeDeliveryResponse(result, &response); err != nil {
 		return nil, err
 	}
-	if len(response.Runs) > limit {
+	if response.Items == nil {
+		return nil, errors.New("batuta: malformed Compozy recent delivery response")
+	}
+	if len(response.Items) > limit {
 		return nil, errors.New("batuta: recent delivery response exceeds requested limit")
 	}
-	for _, run := range response.Runs {
+	for _, run := range response.Items {
 		if err := validateDeliveryRun(run, workspaceID); err != nil || run.LoopName != "batuta-deliver" {
 			return nil, errors.New("batuta: recent delivery response contains invalid identity")
 		}
 	}
-	return response.Runs, nil
+	return response.Items, nil
 }
 
 func (c deliveryLoopCLIClient) Start(ctx context.Context, workspaceID string, request deliveryStartRequest) (deliveryRun, error) {

@@ -34,8 +34,12 @@ integration worktree, and stable `delivery_id`. Stored Compozy Loop configuratio
 ## 3. Dependency-safe task waves
 
 `start_delivery` starts `batuta-deliver` with the stable delivery identities,
-original token ceiling, and absolute deadline. `ext__batuta__delivery_graph`
-prepares only eligible nodes in the task graph. It has max-four dependency-safe parallelism:
+original token ceiling, absolute deadline, and effective per-run configuration
+overrides. The budget literals authored in the two Loop definitions document
+intent; Compozy does not derive effective enforcement from those literals.
+Direct manual, CLI, HTTP, UDS, native-tool, or scheduled starts outside the
+guarded Batuta operation are unsupported and may be unbounded.
+`ext__batuta__delivery_graph` prepares only eligible nodes in the task graph. It has max-four dependency-safe parallelism:
 at most four independent task worktrees may be active, and no two
 writers share a worktree.
 

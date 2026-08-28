@@ -74,6 +74,17 @@ schedule starts) begins at `effective_config.budget_wall_sec: 0` —
 unbounded — in any workspace where Bootstrap has not yet provisioned the
 override, and stays unbounded until it has.
 
+> **Implementation erratum (2026-08-28).** The stored Bootstrap override and
+> its `loop configure` verification described above were superseded by the
+> migration-free delivery owner. Current Batuta never mutates stored Loop
+> configuration: `start_delivery` and `recover_delivery` write a secure,
+> short-lived config file and pass the remaining `budget_tokens`,
+> `budget_wall_sec`, `iteration_cap`, and `halt` policies to that one parent
+> run. `batuta-deliver` passes the remaining budget again to each child via
+> `run-loop.params.config_overrides`. The authored `contract.budget` literals
+> remain declared intent only. Any direct start that bypasses the guarded
+> extension operation is unsupported and can be unbounded.
+
 With `halt`, crossing the effective budget ends the run on the `exhausted`
 terminal — no synthetic gate, no silent continuation — and the terminal
 effect returns it to the origin session like any other outcome. Recovery is

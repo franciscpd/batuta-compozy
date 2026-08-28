@@ -538,7 +538,7 @@ func (s *deliveryGraphService) recordAnswer(
 	request, matched := matchingAnsweredRequest(detail.Requests, questionAttempt.ChildRunID, *questionAttempt.Question)
 	if detail.Run.ID != questionAttempt.ChildRunID || detail.Run.Status != "running" || !graphTaskRunMatches(
 		detail.Run, scope.WorkspaceID, delivery, delivery.Graph.Waves[input.Wave-1], task, input.Execution,
-	) || !matched || !matchingResolvedAskCell(detail.Generations, request) {
+	) || !matched || !matchingResolvedAskCell(detail.Generations, request, input.Answer) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	answer := routing.TaskAnswer{
@@ -1053,7 +1053,7 @@ func (s *deliveryGraphService) settleWave(
 		if settleErr != nil {
 			return settleErr
 		}
-		if settled.Disposition == routing.SettlementReexecuteConflict {
+		if settled.Disposition == routing.SettlementReexecuteConflict && !settled.Replayed {
 			conflicted, found := current.Graph.Task(settled.TaskID)
 			if !found || len(conflicted.Attempts) == 0 {
 				return routing.ErrDeliveryConflict
@@ -2143,7 +2143,7 @@ func matchingAnsweredRequest(requests []deliveryRequest, childRunID string, ques
 	return match, matches == 1
 }
 
-func matchingResolvedAskCell(generations []deliveryGeneration, request deliveryRequest) bool {
+func matchingResolvedAskCell(generations []deliveryGeneration, request deliveryRequest, answer string) bool {
 	matches := 0
 	for _, generation := range generations {
 		if generation.Generation != int64(request.Generation) {
@@ -2151,13 +2151,29 @@ func matchingResolvedAskCell(generations []deliveryGeneration, request deliveryR
 		}
 		for _, output := range generation.Outputs {
 			if output.NodeID != "ask_operator" || output.ItemIndex != request.ItemIndex || output.Status != "succeeded" ||
-				!routingDigestPattern.MatchString(output.OutputRef) {
+				!matchingInlineAskAnswer(output.OutputRef, answer) {
 				continue
 			}
 			matches++
 		}
 	}
 	return matches == 1
+}
+
+func matchingInlineAskAnswer(outputRef, answer string) bool {
+	payload := []byte(outputRef)
+	if len(payload) == 0 || len(payload) > maxInlineTaskCompletionBytes || rejectDuplicateJSONKeys(payload) != nil {
+		return false
+	}
+	var decoded struct {
+		Answer string `json:"answer"`
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(payload, &decoded) != nil || json.Unmarshal(payload, &fields) != nil || len(fields) != 1 {
+		return false
+	}
+	_, hasAnswer := fields["answer"]
+	return hasAnswer && decoded.Answer == answer
 }
 
 func taskAnswerExpectation() json.RawMessage {
@@ -2196,18 +2212,16 @@ func (c deliveryLoopCLIClient) RecentTasks(ctx context.Context, workspaceID stri
 	if err != nil {
 		return nil, err
 	}
-	var response struct {
-		Runs []deliveryRun `json:"runs"`
-	}
-	if err := decodeDeliveryResponse(result, &response); err != nil || len(response.Runs) > limit {
+	var response deliveryRunListResponse
+	if err := decodeDeliveryResponse(result, &response); err != nil || response.Items == nil || len(response.Items) > limit {
 		return nil, errors.New("batuta: malformed Compozy task-run response")
 	}
-	for _, run := range response.Runs {
+	for _, run := range response.Items {
 		if validateDeliveryRun(run, workspaceID) != nil || run.LoopName != "batuta-task" {
 			return nil, errors.New("batuta: task-run response contains invalid identity")
 		}
 	}
-	return response.Runs, nil
+	return response.Items, nil
 }
 
 func emptyDigest() string {

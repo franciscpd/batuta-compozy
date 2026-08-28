@@ -30,6 +30,8 @@ contract:
     the reviewed HEAD or a truthful nothing-to-publish result, and safe task worktrees were cleaned.
     Merge remains manual.
   iteration_cap: 64
+  # Declared intent only. The guarded start_delivery operation injects the
+  # effective per-run token and wall budgets through config_overrides.
   budget: {tokens: 0, wall_clock_sec: 14400, on_exceeded: halt}
   stop_when: "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'"
   terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]

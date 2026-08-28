@@ -31,7 +31,11 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 	}
 	runner := &deliveryRecordingRunner{results: []publication.CommandResult{
 		{Stdout: mustJSON(t, map[string]any{"run": run, "generations": []any{}})},
-		{Stdout: mustJSON(t, map[string]any{"runs": []deliveryRun{run}, "aggregates": map[string]any{}})},
+		{Stdout: mustJSON(t, map[string]any{"items": []map[string]any{{
+			"run_id": run.ID, "workspace_id": run.WorkspaceID, "loop_name": run.LoopName,
+			"status": run.Status, "created_at": run.CreatedAt, "tokens_used": run.TokensUsed,
+			"inputs": run.Inputs,
+		}}, "next_cursor": ""})},
 		{Stdout: mustJSON(t, map[string]any{"run": run})},
 	}}
 	client := deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: runner}
@@ -101,6 +105,27 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 				t.Fatalf("command contains forbidden boundary %q: %s", forbidden, joined)
 			}
 		}
+	}
+}
+
+func TestDeliveryClientDecodesCurrentLoopRunsProjection(t *testing.T) {
+	t.Parallel()
+
+	parent := `{"resolution_source":"flag","items":[{"run_id":"run_parent","workspace_id":"ws_demo","loop_name":"batuta-deliver","status":"running","created_at":"2026-08-28T12:00:00Z","started_at":"2026-08-28T12:00:01Z","tokens_used":10,"inputs":{}}],"next_cursor":""}`
+	child := `{"resolution_source":"flag","items":[{"run_id":"run_child","workspace_id":"ws_demo","parent_loop_run_id":"run_parent","loop_name":"batuta-task","status":"running","created_at":"2026-08-28T12:00:02Z","started_at":"2026-08-28T12:00:03Z","tokens_used":20,"inputs":{}}],"next_cursor":""}`
+	runner := &deliveryRecordingRunner{results: []publication.CommandResult{
+		{Stdout: []byte(parent)},
+		{Stdout: []byte(child)},
+	}}
+	client := deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: runner}
+
+	parents, err := client.Recent(context.Background(), "ws_demo", 200)
+	if err != nil || len(parents) != 1 || parents[0].ID != "run_parent" {
+		t.Fatalf("Recent(current CLI projection) = %#v, error=%v", parents, err)
+	}
+	children, err := client.RecentTasks(context.Background(), "ws_demo", 200)
+	if err != nil || len(children) != 1 || children[0].ID != "run_child" || children[0].ParentLoopRunID != "run_parent" {
+		t.Fatalf("RecentTasks(current CLI projection) = %#v, error=%v", children, err)
 	}
 }
 

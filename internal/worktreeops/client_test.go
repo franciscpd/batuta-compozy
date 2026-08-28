@@ -138,6 +138,32 @@ func TestCLIClientFindsExactWorktreeByDeterministicName(t *testing.T) {
 	}
 }
 
+func TestCLIClientFindByNameIgnoresUnrelatedOperatorWorktree(t *testing.T) {
+	t.Parallel()
+
+	repository := filepath.Join(string(filepath.Separator), "trusted", "repository")
+	name := "batuta-demo-task-01-a1-deadbeef"
+	unrelated := worktreeJSON(
+		"wt_operator", "workspace-demo", "operator-feature", "feature/operator",
+		filepath.Join(string(filepath.Separator), "managed", "worktrees", "operator-feature"),
+		"ready", "ok", "main", worktreeTestSHA,
+	)
+	target := worktreeJSON(
+		"wt_task_01", "workspace-demo", name, "batuta/task/aaaaaaaaaaaa/task-01/a1-deadbeef",
+		filepath.Join(string(filepath.Separator), "managed", "worktrees", "task-1"),
+		"ready", "ok", worktreeTestSHA, worktreeTestSHA,
+	)
+	runner := &recordingRunner{result: publication.CommandResult{Stdout: []byte("[" + unrelated + "," + target + "]")}}
+	client := CLIClient{Executable: "/controlled/compozy", Runner: runner}
+
+	found, exists, err := client.FindByName(context.Background(), publication.TrustedScope{
+		WorkspaceID: "workspace-demo", WorkspaceRoot: repository,
+	}, name)
+	if err != nil || !exists || found.ID != "wt_task_01" {
+		t.Fatalf("FindByName(mixed workspace) = %#v, exists=%v, error=%v", found, exists, err)
+	}
+}
+
 func TestCLIClientInspectAndRemoveUseCanonicalIDs(t *testing.T) {
 	t.Parallel()
 
