@@ -497,6 +497,33 @@ func TestDeliveryAttemptAppendReplaysOnlyIdenticalOperation(t *testing.T) {
 	}
 }
 
+func TestTerminalDeliveryRejectsNewAttemptsAtDomainAndJournalBoundaries(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []DeliveryState{DeliveryStateDone, DeliveryStateBlocked, DeliveryStateExhausted} {
+		t.Run(string(state), func(t *testing.T) {
+			delivery := validDeliveryFixture(t)
+			delivery.State = state
+			proposed := DeliveryAttempt{
+				Attempt: 2, OperationID: digestFixture("terminal-operation-" + string(state)),
+				RequestDigest: digestFixture("terminal-request-" + string(state)),
+				RuntimeRules:  append([]RuntimeRule(nil), delivery.Attempts[0].RuntimeRules...),
+				State:         AttemptPlanned, PlannedAt: delivery.CreatedAt.Add(time.Minute),
+			}
+
+			if _, _, err := delivery.AppendAttempt(proposed); !errors.Is(err, ErrInvalidDeliveryTransition) {
+				t.Fatalf("AppendAttempt() error = %v, want ErrInvalidDeliveryTransition", err)
+			}
+
+			after := delivery
+			after.Attempts = append(append([]DeliveryAttempt(nil), delivery.Attempts...), proposed)
+			if err := validateDeliveryTransition(delivery, after); !errors.Is(err, ErrInvalidDeliveryTransition) {
+				t.Fatalf("validateDeliveryTransition() error = %v, want ErrInvalidDeliveryTransition", err)
+			}
+		})
+	}
+}
+
 func TestJournalTransactionKeepsPersistedIntentAfterCallbackError(t *testing.T) {
 	t.Parallel()
 

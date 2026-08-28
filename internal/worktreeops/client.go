@@ -39,11 +39,10 @@ func (c CLIClient) Create(
 	}
 	var raw daemonWorktree
 	err := c.runJSON(ctx, scope, []string{
-		"worktree", "create", request.Name,
-		"--workspace", scope.WorkspaceID,
+		"worktree", "create", "--workspace", scope.WorkspaceID,
 		"--branch", request.Branch,
 		"--base", request.BaseSHA,
-		"-o", "json",
+		"-o", "json", "--", request.Name,
 	}, &raw)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("worktreeops: create worktree: %w", err)
@@ -72,8 +71,7 @@ func (c CLIClient) Inspect(
 		} `json:"repo"`
 	}
 	if err := c.runJSON(ctx, scope, []string{
-		"worktree", "inspect", worktreeID,
-		"--workspace", scope.WorkspaceID, "-o", "json",
+		"worktree", "inspect", "--workspace", scope.WorkspaceID, "-o", "json", "--", worktreeID,
 	}, &response); err != nil {
 		return Worktree{}, fmt.Errorf("worktreeops: inspect worktree: %w", err)
 	}
@@ -133,8 +131,7 @@ func (c CLIClient) Remove(
 		Worktree daemonWorktree `json:"worktree"`
 	}
 	if err := c.runJSON(ctx, scope, []string{
-		"worktree", "remove", worktreeID,
-		"--workspace", scope.WorkspaceID, "-o", "json",
+		"worktree", "remove", "--workspace", scope.WorkspaceID, "-o", "json", "--", worktreeID,
 	}, &response); err != nil {
 		return Worktree{}, fmt.Errorf("worktreeops: remove worktree: %w", err)
 	}

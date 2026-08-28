@@ -147,6 +147,9 @@ func TestExecRunnerReturnsBoundedStderrAndExitCode(t *testing.T) {
 	if !result.StderrTruncated {
 		t.Fatal("stderr truncated = false, want true")
 	}
+	if strings.Contains(err.Error(), strings.Repeat("e", 128)) {
+		t.Fatal("error contains raw command stderr")
+	}
 	if strings.Contains(err.Error(), strings.Repeat("e", 65*1024)) {
 		t.Fatal("error contains unbounded stderr")
 	}

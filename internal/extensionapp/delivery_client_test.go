@@ -56,7 +56,7 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 	if len(runner.commands) != 3 {
 		t.Fatalf("commands = %d, want 3", len(runner.commands))
 	}
-	wantStatus := publication.Command{Executable: "/controlled/compozy", Args: []string{"loop", "status", "--workspace", "ws_demo", "--run-id", "run_demo", "-o", "json"}, StdoutLimit: 2 << 20, StderrLimit: 64 << 10}
+	wantStatus := publication.Command{Executable: "/controlled/compozy", Args: []string{"loop", "status", "--workspace", "ws_demo", "--run-id", "run_demo", "-o", "json"}, StdoutLimit: 32 << 20, StderrLimit: 64 << 10}
 	wantRecent := publication.Command{Executable: "/controlled/compozy", Args: []string{"loop", "runs", "--workspace", "ws_demo", "--loop", "batuta-deliver", "--limit", "200", "-o", "json"}, StdoutLimit: 2 << 20, StderrLimit: 64 << 10}
 	if !reflect.DeepEqual(runner.commands[0], wantStatus) || !reflect.DeepEqual(runner.commands[1], wantRecent) {
 		t.Fatalf("read commands = %#v, want %#v / %#v", runner.commands[:2], wantStatus, wantRecent)

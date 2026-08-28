@@ -97,7 +97,7 @@ func TestCLIClientCreateUsesExactBoundedCommandAndAcceptsAdditiveJSON(t *testing
 	}
 	wantCommand := publication.Command{
 		Executable: "/controlled/compozy", Directory: repository,
-		Args:        []string{"worktree", "create", request.Name, "--workspace", "workspace-demo", "--branch", request.Branch, "--base", request.BaseSHA, "-o", "json"},
+		Args:        []string{"worktree", "create", "--workspace", "workspace-demo", "--branch", request.Branch, "--base", request.BaseSHA, "-o", "json", "--", request.Name},
 		StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit,
 	}
 	if !reflect.DeepEqual(runner.commands, []publication.Command{wantCommand}) {
@@ -189,11 +189,49 @@ func TestCLIClientInspectAndRemoveUseCanonicalIDs(t *testing.T) {
 		t.Fatalf("Remove() = %#v, error %v", removed, err)
 	}
 	want := []publication.Command{
-		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "inspect", "wt_task_01", "--workspace", "workspace-demo", "-o", "json"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
-		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "remove", "wt_task_01", "--workspace", "workspace-demo", "-o", "json"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
+		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "inspect", "--workspace", "workspace-demo", "-o", "json", "--", "wt_task_01"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
+		{Executable: "/controlled/compozy", Directory: repository, Args: []string{"worktree", "remove", "--workspace", "workspace-demo", "-o", "json", "--", "wt_task_01"}, StdoutLimit: WorktreeStdoutLimit, StderrLimit: WorktreeStderrLimit},
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands = %#v, want %#v", runner.commands, want)
+	}
+}
+
+func TestCLIClientRejectsFlagLikePositionalIdentitiesBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	scope := publication.TrustedScope{WorkspaceID: "workspace-demo", WorkspaceRoot: "/trusted/repository"}
+	request := CreateRequest{
+		Name: "--help", Branch: "batuta/task/aaaaaaaaaaaa/task-01/a1-deadbeef", BaseSHA: worktreeTestSHA,
+	}
+	tests := []struct {
+		name string
+		call func(CLIClient) error
+	}{
+		{name: "create name", call: func(client CLIClient) error {
+			_, err := client.Create(context.Background(), scope, request)
+			return err
+		}},
+		{name: "inspect id", call: func(client CLIClient) error {
+			_, err := client.Inspect(context.Background(), scope, "--help")
+			return err
+		}},
+		{name: "remove id", call: func(client CLIClient) error {
+			_, err := client.Remove(context.Background(), scope, "--help")
+			return err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &recordingRunner{}
+			err := test.call(CLIClient{Executable: "/controlled/compozy", Runner: runner})
+			if !errors.Is(err, ErrInvalidWorktreeIdentity) {
+				t.Fatalf("error = %v, want ErrInvalidWorktreeIdentity", err)
+			}
+			if len(runner.commands) != 0 {
+				t.Fatalf("commands = %#v, want no process execution", runner.commands)
+			}
+		})
 	}
 }
 

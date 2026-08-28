@@ -262,6 +262,9 @@ func (d *DeliveryRecord) AppendAttempt(proposed DeliveryAttempt) (DeliveryAttemp
 			return DeliveryAttempt{}, false, ErrDeliveryConflict
 		}
 	}
+	if d.State != DeliveryStateActive {
+		return DeliveryAttempt{}, false, ErrInvalidDeliveryTransition
+	}
 	if proposed.Attempt != len(d.Attempts)+1 || proposed.Attempt > d.AttemptCeiling {
 		return DeliveryAttempt{}, false, ErrDeliveryConflict
 	}
@@ -418,6 +421,9 @@ func validateAttempt(attempt DeliveryAttempt, expectedNumber int) error {
 }
 
 func validateDeliveryTransition(before, after DeliveryRecord) error {
+	if before.State != DeliveryStateActive && len(before.Attempts) != len(after.Attempts) {
+		return ErrInvalidDeliveryTransition
+	}
 	beforeHeader := before
 	afterHeader := after
 	beforeHeader.State, afterHeader.State = "", ""

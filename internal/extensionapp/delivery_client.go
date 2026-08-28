@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	deliveryCommandTimeout = 30 * time.Second
-	deliveryStdoutLimit    = int64(2 << 20)
-	deliveryStderrLimit    = int64(64 << 10)
+	deliveryCommandTimeout    = 30 * time.Second
+	deliveryStdoutLimit       = int64(2 << 20)
+	deliveryStatusStdoutLimit = int64(32 << 20)
+	deliveryStderrLimit       = int64(64 << 10)
 )
 
 type deliveryRun struct {
@@ -123,7 +124,7 @@ func (c deliveryLoopCLIClient) Status(ctx context.Context, workspaceID, runID st
 		}
 		return deliveryRunDetail{}, errors.New("batuta: invalid delivery run identity")
 	}
-	result, err := c.run(ctx, []string{"loop", "status", "--workspace", workspaceID, "--run-id", runID, "-o", "json"})
+	result, err := c.runWithStdoutLimit(ctx, []string{"loop", "status", "--workspace", workspaceID, "--run-id", runID, "-o", "json"}, deliveryStatusStdoutLimit)
 	if err != nil {
 		return deliveryRunDetail{}, err
 	}
@@ -222,10 +223,14 @@ func (c deliveryLoopCLIClient) validateBoundary(ctx context.Context, workspaceID
 }
 
 func (c deliveryLoopCLIClient) run(ctx context.Context, args []string) (publication.CommandResult, error) {
+	return c.runWithStdoutLimit(ctx, args, deliveryStdoutLimit)
+}
+
+func (c deliveryLoopCLIClient) runWithStdoutLimit(ctx context.Context, args []string, stdoutLimit int64) (publication.CommandResult, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, deliveryCommandTimeout)
 	defer cancel()
 	result, err := c.Runner.Run(commandCtx, publication.Command{
-		Executable: c.Executable, Args: args, StdoutLimit: deliveryStdoutLimit, StderrLimit: deliveryStderrLimit,
+		Executable: c.Executable, Args: args, StdoutLimit: stdoutLimit, StderrLimit: deliveryStderrLimit,
 	})
 	if err != nil {
 		if ctxErr := commandCtx.Err(); ctxErr != nil {

@@ -221,3 +221,31 @@ func containsAny(values []any, wanted any) bool {
 	}
 	return false
 }
+
+func TestTaskVerificationMatchesThePublicSixteenCheckCeiling(t *testing.T) {
+	t.Parallel()
+
+	verification := func(count int) json.RawMessage {
+		t.Helper()
+		checks := make([]string, count)
+		for index := range checks {
+			checks[index] = "check"
+		}
+		payload, err := json.Marshal(map[string]any{
+			"task_id": "task_01", "status": "passed", "checks": checks,
+		})
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		return payload
+	}
+
+	atCeiling := verification(16)
+	if !validTaskVerification(atCeiling, digestValue(string(atCeiling)), "task_01") {
+		t.Fatal("validTaskVerification(16 checks) = false")
+	}
+	aboveCeiling := verification(17)
+	if validTaskVerification(aboveCeiling, digestValue(string(aboveCeiling)), "task_01") {
+		t.Fatal("validTaskVerification(17 checks) = true, want schema-aligned rejection")
+	}
+}

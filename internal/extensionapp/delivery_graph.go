@@ -241,7 +241,7 @@ func validTaskVerification(payload json.RawMessage, expectedDigest, taskID strin
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return false
 	}
-	if verification.TaskID != taskID || verification.Status != "passed" || len(verification.Checks) < 1 || len(verification.Checks) > 32 {
+	if verification.TaskID != taskID || verification.Status != "passed" || len(verification.Checks) < 1 || len(verification.Checks) > 16 {
 		return false
 	}
 	for _, check := range verification.Checks {

@@ -125,7 +125,7 @@ func canonicalWorktreeSegment(value string) string {
 
 func boundedIdentity(value string) bool {
 	return value != "" && value == strings.TrimSpace(value) && len(value) <= 256 &&
-		!strings.ContainsRune(value, '\x00')
+		!strings.HasPrefix(value, "-") && !strings.ContainsRune(value, '\x00')
 }
 
 func lowerHex(value string) bool {

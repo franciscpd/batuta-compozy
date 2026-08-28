@@ -961,6 +961,7 @@ func (g *DeliveryGraph) RecordCleanup(proposed CleanupOperation) (bool, error) {
 	task := graphTaskByID(g.Tasks, proposed.TaskID)
 	if task == nil || proposed.Execution > len(task.Attempts) ||
 		task.Attempts[proposed.Execution-1].WorktreeID != proposed.WorktreeID ||
+		proposed.State == CleanupRemoved ||
 		(proposed.State == CleanupPlanned && task.State != GraphTaskIntegrated) {
 		return false, ErrInvalidDeliveryTransition
 	}

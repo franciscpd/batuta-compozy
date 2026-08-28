@@ -1012,6 +1012,28 @@ func TestDeliveryGraphRecordsCleanupIntentAndTerminalResultIdempotently(t *testi
 	}
 }
 
+func TestDeliveryGraphRejectsCleanupTerminalStateWithoutPlannedIntent(t *testing.T) {
+	t.Parallel()
+
+	record := validDeliveryFixture(t)
+	record.Attempts = nil
+	graph := graphForDeliveryFixture(t, record, 1)
+	task := graph.Tasks[0]
+	operation := CleanupOperation{
+		OperationID:   digestFixture("direct-cleanup-removed"),
+		RequestDigest: digestFixture("direct-cleanup-request-removed"),
+		TaskID:        task.TaskID, Execution: 1, WorktreeID: task.Attempts[0].WorktreeID,
+		State: CleanupRemoved,
+	}
+
+	if replayed, err := graph.RecordCleanup(operation); !errors.Is(err, ErrInvalidDeliveryTransition) || replayed {
+		t.Fatalf("RecordCleanup() replay=%v error=%v, want removed-without-intent rejection", replayed, err)
+	}
+	if len(graph.Cleanups) != 0 {
+		t.Fatalf("cleanups = %#v, want no mutation", graph.Cleanups)
+	}
+}
+
 func graphForDeliveryFixture(t *testing.T, record DeliveryRecord, taskCount int) *DeliveryGraph {
 	t.Helper()
 	if taskCount != 1 {

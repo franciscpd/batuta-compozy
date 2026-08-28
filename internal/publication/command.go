@@ -91,7 +91,7 @@ func (ExecRunner) Run(ctx context.Context, command Command) (CommandResult, erro
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		result.ExitCode = exitErr.ExitCode()
-		return result, fmt.Errorf("publication: command exited with code %d: %s: %w", result.ExitCode, result.Stderr, err)
+		return result, fmt.Errorf("publication: command exited with code %d: %w", result.ExitCode, err)
 	}
 	result.ExitCode = -1
 	return result, fmt.Errorf("publication: start command: %w", err)
