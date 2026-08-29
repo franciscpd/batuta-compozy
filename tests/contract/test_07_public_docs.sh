@@ -22,6 +22,13 @@ require_file docs/architecture.md
 require_file docs/case-studies/version-subcommand.md
 require_file CONTRIBUTING.md
 require_file docs/releases/0.1.0-beta.6.md
+require_file docs/architecture.pt-BR.md
+require_file docs/case-studies/version-subcommand.pt-BR.md
+require_file CONTRIBUTING.pt-BR.md
+require_file docs/how-it-works.pt-BR.md
+require_file docs/verify.pt-BR.md
+require_file docs/releases/0.1.0-beta.3.pt-BR.md
+require_file docs/releases/0.1.0-beta.6.pt-BR.md
 
 for text in \
   'independent community project' \
@@ -47,12 +54,12 @@ done
 
 for text in \
   'projeto independente da comunidade' \
-  'docs/architecture.md' \
-  'docs/case-studies/version-subcommand.md' \
-  'CONTRIBUTING.md' \
+  'docs/architecture.pt-BR.md' \
+  'docs/case-studies/version-subcommand.pt-BR.md' \
+  'CONTRIBUTING.pt-BR.md' \
   'LICENSE' \
-  'docs/how-it-works.md' \
-  'docs/verify.md' \
+  'docs/how-it-works.pt-BR.md' \
+  'docs/verify.pt-BR.md' \
   'https://www.compozy.com/docs/' \
   'https://github.com/compozy/compozy' \
   'inventário automático de executores' \

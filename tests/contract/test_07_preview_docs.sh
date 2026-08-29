@@ -41,7 +41,6 @@ for document in "${documents[@]}"; do
   require "$document" 'compozy extension enable batuta'
   require "$document" "$update_command"
   require "$document" 'compozy extension remove batuta --global'
-  require "$document" 'docs/verify.md'
   for obsolete in \
     'SHA256SUMS' \
     'gh release download' \
@@ -60,8 +59,12 @@ for document in "${documents[@]}"; do
   fi
 done
 
+for document in README.md "$release_notes"; do
+  require "$document" 'docs/verify.md'
+done
+require README.pt-BR.md 'docs/verify.pt-BR.md'
+
 for readme in README.md README.pt-BR.md; do
-  require "$readme" 'docs/how-it-works.md'
   require "$readme" 'compozy provider models list'
   require "$readme" 'v0.3.0-beta.21'
   first_code_block=$(awk '/^```bash$/{n=1; next} n==1{print; exit}' "$readme")
@@ -78,16 +81,51 @@ for readme in README.md README.pt-BR.md; do
   fi
 done
 
+require README.md 'docs/how-it-works.md'
+require README.pt-BR.md 'docs/how-it-works.pt-BR.md'
+
 require_wrapped README.md 'independent community project'
 require_wrapped README.pt-BR.md 'projeto independente da comunidade'
 require_wrapped "$release_notes" 'temporary staging directory'
 
-for document in README.md "$release_notes"; do
-  require_wrapped "$document" 'executor sessions are not visually nested'
-  require_wrapped "$document" 'remain active/idle after normal terminal completion'
+require_wrapped README.md \
+  'Current Compozy renders executor sessions in their parent/child hierarchy and stops run-agent sessions after terminal settlement.'
+require_wrapped README.pt-BR.md \
+  'O Compozy atual exibe as sessões dos executores na hierarquia pai/filho e encerra as sessões run-agent após o assentamento terminal.'
+require_wrapped "$release_notes" \
+  'Current Compozy renders executor sessions in their parent/child hierarchy and stops run-agent sessions after terminal settlement.'
+
+for document in README.md README.pt-BR.md "$release_notes"; do
+  if grep -qF -- 'executor sessions are not visually nested' "$document" ||
+    grep -qF -- 'sessões dos executores não são visualmente aninhadas' "$document" ||
+    grep -qF -- 'remain active/idle after normal terminal completion' "$document" ||
+    grep -qF -- 'permanecem active/idle após a conclusão terminal normal' "$document"; then
+    printf 'obsolete Compozy session limitation remains active in %s\n' "$document" >&2
+    exit 1
+  fi
 done
-require_wrapped README.pt-BR.md 'sessões dos executores não são visualmente aninhadas'
-require_wrapped README.pt-BR.md 'permanecem active/idle após a conclusão terminal normal'
+
+pt_documents=(
+  CONTRIBUTING.pt-BR.md
+  docs/architecture.pt-BR.md
+  docs/how-it-works.pt-BR.md
+  docs/verify.pt-BR.md
+  docs/case-studies/version-subcommand.pt-BR.md
+  docs/releases/0.1.0-beta.3.pt-BR.md
+  docs/releases/0.1.0-beta.6.pt-BR.md
+)
+
+for document in "${pt_documents[@]}"; do
+  [[ -f $document && ! -L $document ]] || {
+    printf 'missing regular Portuguese documentation file: %s\n' "$document" >&2
+    exit 1
+  }
+  require_wrapped "$document" 'Versão em inglês'
+done
+
+for target in "${pt_documents[@]}"; do
+  require README.pt-BR.md "($target)"
+done
 
 for superseded_document in "$preview_design" "$preview_plan"; do
   require_wrapped "$superseded_document" \
@@ -137,4 +175,4 @@ for obsolete_aggregate_contract in \
   fi
 done
 
-printf 'OK: public documentation carries the one-command install, update, removal, and upstream limitations\n'
+printf 'OK: current documentation reflects Compozy session lifecycle and exposes complete PT-BR links\n'

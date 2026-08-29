@@ -90,13 +90,14 @@ live provider/model pair. Claude Code and Agy are optional evidence enrichers,
 not execution backends; missing either never removes a live Compozy pair. Agy's
 network-backed `models` command is not called by automatic inventory.
 
+Current Compozy renders executor sessions in their parent/child hierarchy and
+stops run-agent sessions after terminal settlement.
+
 The complete contracts are in [docs/how-it-works.md](docs/how-it-works.md) and
 [docs/architecture.md](docs/architecture.md).
 
 ## Known limitations
 
-- executor sessions are not visually nested and remain active/idle after normal
-  terminal completion.
 - A missing forge provider, remote, or credential is a blocker; Batuta never
   treats a compare URL as a published PR.
 - The compatible source pin is a development baseline, not a claim that every

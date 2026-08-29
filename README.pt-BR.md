@@ -50,12 +50,12 @@ compozy extension install github:franciscpd/batuta-compozy --allow-unverified --
 compozy extension enable batuta
 ```
 
-`--allow-unverified` é consentimento explícito para uma fonte da comunidade; a
-verificação de integridade do archive continua ativa. Veja [docs/verify.md](docs/verify.md).
+`--allow-unverified` é consentimento explícito para uma fonte da comunidade; a verificação de integridade do archive continua ativa. Veja [docs/verify.pt-BR.md](docs/verify.pt-BR.md).
 
 Atualizar: `compozy extension update batuta --allow-unverified --yes` · Remover: `compozy extension remove batuta --global`
 
-Release publicada atual: [`v0.1.0-beta.3`](docs/releases/0.1.0-beta.3.md) · Próxima candidata: [`v0.1.0-beta.6`](docs/releases/0.1.0-beta.6.md).
+Release publicada atual: [`v0.1.0-beta.3`](docs/releases/0.1.0-beta.3.pt-BR.md) ·
+Próxima candidata: [`v0.1.0-beta.6`](docs/releases/0.1.0-beta.6.pt-BR.md).
 
 ## Uso
 
@@ -90,13 +90,15 @@ Claude Code e Agy são enriquecedores opcionais de evidência, não backends de
 execução; a ausência deles nunca remove um par vivo do Compozy. O inventário
 automático não chama o comando de rede `agy models`.
 
-Os contratos completos estão em [docs/how-it-works.md](docs/how-it-works.md) e
-[docs/architecture.md](docs/architecture.md).
+O Compozy atual exibe as sessões dos executores na hierarquia pai/filho e
+encerra as sessões run-agent após o assentamento terminal.
+
+Os contratos completos estão em
+[docs/how-it-works.pt-BR.md](docs/how-it-works.pt-BR.md) e
+[docs/architecture.pt-BR.md](docs/architecture.pt-BR.md).
 
 ## Limitações conhecidas
 
-- As sessões dos executores não são visualmente aninhadas e permanecem
-  active/idle após a conclusão terminal normal.
 - Forge provider, remote ou credencial ausente vira blocker; o Batuta nunca
   trata uma compare URL como PR publicado.
 - O pin de fonte compatível é uma baseline de desenvolvimento, não a afirmação
@@ -104,7 +106,8 @@ Os contratos completos estão em [docs/how-it-works.md](docs/how-it-works.md) e
 
 ## Saiba mais
 
-- [Como funciona](docs/how-it-works.md) · [Verificar e instalar](docs/verify.md)
-- [Arquitetura](docs/architecture.md) ·
-  [Estudo de caso](docs/case-studies/version-subcommand.md)
-- [Contribuindo](CONTRIBUTING.md) · [Licença MIT](LICENSE)
+- [Como funciona](docs/how-it-works.pt-BR.md) ·
+  [Verificar e instalar](docs/verify.pt-BR.md)
+- [Arquitetura](docs/architecture.pt-BR.md) ·
+  [Estudo de caso](docs/case-studies/version-subcommand.pt-BR.md)
+- [Contribuindo](CONTRIBUTING.pt-BR.md) · [Licença MIT](LICENSE)
