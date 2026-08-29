@@ -14,6 +14,7 @@ import (
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/repository"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
 	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
@@ -92,6 +93,21 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 			}
 			return (routing.MatrixManager{Store: store}).Apply(ctx, input)
 		},
+		alignmentStatus: func(workspaceID string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			store, err := storeForCall()
+			if err != nil {
+				return routing.AlignmentStatus{}, err
+			}
+			return (routing.AlignmentManager{Store: store}).Status(workspaceID, generation)
+		},
+		alignmentConfirm: func(workspaceID, actorID string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			store, err := storeForCall()
+			if err != nil {
+				return routing.AlignmentStatus{}, err
+			}
+			return (routing.AlignmentManager{Store: store}).Confirm(workspaceID, actorID, generation)
+		},
+		bootstrapRepository: (repository.Bootstrapper{GitExecutable: gitExecutable, Runner: runner}).Bootstrap,
 	}
 	deliveryClient := deliveryLoopCLIClient{Executable: compozyExecutable, Runner: runner}
 	fallbackService := func() (deliveryFallbackService, error) {

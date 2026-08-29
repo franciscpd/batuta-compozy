@@ -70,15 +70,19 @@ Batuta then:
 1. authors and approves the SDD and canonical task graph;
 2. reads Compozy's live provider/model catalog and optional bounded evidence
    from Codex, OpenCode, Cursor Agent, Claude Code, and Agy without exposing
-   secrets, then makes domain × complexity runtime choices;
-3. admits dependency-safe task waves with max-four dependency-safe parallelism
+   secrets, proposes the domain × complexity matrix, and asks the operator to
+   confirm the exact selected runtimes and fallbacks before mutation;
+3. safely initializes a non-Git workspace when needed, then admits
+   dependency-safe task waves with max-four dependency-safe parallelism
    in isolated task worktrees, never concurrent writers in one worktree;
 4. integrates each verified task commit into the canonical integration worktree;
    a conflict gets canonical conflict reexecution with a new immutable attempt;
 5. performs one final review, automatically publishes and verifies the reviewed
    exact HEAD, and opens or reuses one PR; merge remains manual.
 
-The healthy path has no human publication gate. Stops such as exhausted
+Routing confirmation is a transparent preflight, not an implementation or
+publication gate. The healthy delivery path has no human publication gate.
+Stops such as exhausted
 budget, stale/ambiguous evidence, cancellation, blocked publication, or retained
 diagnostic worktrees halt the graph and keep truthful journal evidence rather
 than starting another generation.

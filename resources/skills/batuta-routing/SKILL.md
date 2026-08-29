@@ -7,9 +7,10 @@ description: Automatic executor inventory, domain-by-complexity selection, immut
 
 Batuta routes every approved task through a closed, evidence-backed pipeline:
 
-`inventory → classify → select → apply → dispatch → reconcile`
+`inventory → classify → select → align → bootstrap → apply → dispatch → reconcile`
 
-No operator chooses the routine executor or model. The operator is involved
+Batuta derives the executor/model proposal automatically. The operator confirms
+the exact derived matrix before delivery mutation, and is otherwise involved
 only when product requirements are ambiguous or an external credential or
 capability is genuinely unavailable.
 
@@ -93,6 +94,32 @@ Each cell stores one selected runtime and a floor-preserving fallback chain:
 low has at most one fallback, medium two, high and critical three. The complete
 result is an immutable routing generation containing task-set, inventory,
 catalog, workspace, policy, budget, and canonical generation digests.
+
+## Operator alignment and repository bootstrap
+
+After planning, call `routing_apply` operation `alignment_status` with the
+byte-equivalent request and generation digest. Present one row per populated
+cell with task IDs, exact provider/model/reasoning/tier, ordered fallbacks, and
+a cost column. The generation has no authoritative monetary cost snapshot, so
+the cost is always displayed as `unknown`; it is display-only and excluded
+from the durable task/selected/fallback projection. Never infer it. Use a
+typed `compozy__clarify` choice so the operator can approve the exact proposal
+or request adjusted requirements. On approval, call `confirm_alignment`.
+
+Confirmation is durable only for the identical selected and fallback
+projection. Replay remains confirmed; a changed cell invalidates the record and
+must be presented again. `apply_matrix` refuses an unconfirmed generation.
+This alignment is not an implementation, review, or publication human gate.
+
+Before worktree creation, call operation `bootstrap_repository` with that
+confirmed generation. It uses the trusted workspace root and returns
+`already_initialized` for a valid existing HEAD. For a new repository it
+respects `.gitignore`, rejects unignored sensitive material with
+`blocked_sensitive_paths`, initializes `main`, and creates exactly one commit:
+`chore: initialize workspace`. Batuta never runs Git directly. A blocked new
+repository removes only the `.git` directory created by this operation and
+does not change project files. An existing HEAD-less repository is accepted
+only when its current branch is already `main`.
 
 ## Immutable routing generation
 

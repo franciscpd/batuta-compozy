@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
+	"github.com/franciscpd/batuta-compozy/internal/repository"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
@@ -26,10 +27,13 @@ type RoutingFitProposal struct {
 type RoutingOperation string
 
 const (
-	RoutingOperationApplyMatrix        RoutingOperation = "apply_matrix"
-	RoutingOperationStartDelivery      RoutingOperation = "start_delivery"
-	RoutingOperationRecoverDelivery    RoutingOperation = "recover_delivery"
-	RoutingOperationReconcileFallbacks RoutingOperation = "reconcile_fallbacks"
+	RoutingOperationAlignmentStatus     RoutingOperation = "alignment_status"
+	RoutingOperationConfirmAlignment    RoutingOperation = "confirm_alignment"
+	RoutingOperationBootstrapRepository RoutingOperation = "bootstrap_repository"
+	RoutingOperationApplyMatrix         RoutingOperation = "apply_matrix"
+	RoutingOperationStartDelivery       RoutingOperation = "start_delivery"
+	RoutingOperationRecoverDelivery     RoutingOperation = "recover_delivery"
+	RoutingOperationReconcileFallbacks  RoutingOperation = "reconcile_fallbacks"
 )
 
 type RoutingApplyInput struct {
@@ -43,10 +47,12 @@ type RoutingApplyInput struct {
 }
 
 type RoutingApplyOutput struct {
-	Operation      RoutingOperation           `json:"operation"`
-	Matrix         *routing.MatrixApplyResult `json:"matrix,omitempty"`
-	Start          *RoutingStartResult        `json:"start,omitempty"`
-	Reconciliation *RoutingReconcileResult    `json:"reconciliation,omitempty"`
+	Operation      RoutingOperation            `json:"operation"`
+	Alignment      *routing.AlignmentStatus    `json:"alignment,omitempty"`
+	Repository     *repository.BootstrapResult `json:"repository,omitempty"`
+	Matrix         *routing.MatrixApplyResult  `json:"matrix,omitempty"`
+	Start          *RoutingStartResult         `json:"start,omitempty"`
+	Reconciliation *RoutingReconcileResult     `json:"reconciliation,omitempty"`
 }
 
 type RoutingReconcileResult struct {
@@ -146,6 +152,21 @@ func (i RoutingApplyInput) validate() error {
 	runID := strings.TrimSpace(i.DeliveryRunID)
 	deliveryID := strings.TrimSpace(i.DeliveryID)
 	switch i.Operation {
+	case RoutingOperationAlignmentStatus:
+		if i.RoutingPlan == nil || !routingDigestPattern.MatchString(i.ExpectedGenerationDigest) || i.WorktreeRef != "" ||
+			i.OriginSessionID != "" || runID != "" || deliveryID != "" {
+			return errors.New("batuta: alignment_status requires only routing_plan and expected_generation_digest")
+		}
+	case RoutingOperationConfirmAlignment:
+		if i.RoutingPlan == nil || !routingDigestPattern.MatchString(i.ExpectedGenerationDigest) || i.WorktreeRef != "" ||
+			!validOpaqueRunID(strings.TrimSpace(i.OriginSessionID)) || runID != "" || deliveryID != "" {
+			return errors.New("batuta: confirm_alignment requires routing_plan, expected_generation_digest, and origin_session_id")
+		}
+	case RoutingOperationBootstrapRepository:
+		if i.RoutingPlan == nil || !routingDigestPattern.MatchString(i.ExpectedGenerationDigest) || i.WorktreeRef != "" ||
+			i.OriginSessionID != "" || runID != "" || deliveryID != "" {
+			return errors.New("batuta: bootstrap_repository requires only routing_plan and expected_generation_digest")
+		}
 	case RoutingOperationApplyMatrix:
 		if i.RoutingPlan == nil || runID != "" || deliveryID != "" || !routingDigestPattern.MatchString(i.ExpectedGenerationDigest) ||
 			!validOpaqueRunID(strings.TrimSpace(i.WorktreeRef)) || !validOpaqueRunID(strings.TrimSpace(i.OriginSessionID)) {
@@ -179,6 +200,22 @@ func routingPlanInputSchema() map[string]any {
 
 func routingApplyInputSchema() map[string]any {
 	return map[string]any{"oneOf": []any{
+		objectSchema([]string{"operation", "routing_plan", "expected_generation_digest"}, map[string]any{
+			"operation":                  map[string]any{"enum": []string{string(RoutingOperationAlignmentStatus)}},
+			"routing_plan":               routingPlanInputSchema(),
+			"expected_generation_digest": sha256OutputSchema(),
+		}),
+		objectSchema([]string{"operation", "routing_plan", "expected_generation_digest", "origin_session_id"}, map[string]any{
+			"operation":                  map[string]any{"enum": []string{string(RoutingOperationConfirmAlignment)}},
+			"routing_plan":               routingPlanInputSchema(),
+			"expected_generation_digest": sha256OutputSchema(),
+			"origin_session_id":          opaqueRunIDSchema(),
+		}),
+		objectSchema([]string{"operation", "routing_plan", "expected_generation_digest"}, map[string]any{
+			"operation":                  map[string]any{"enum": []string{string(RoutingOperationBootstrapRepository)}},
+			"routing_plan":               routingPlanInputSchema(),
+			"expected_generation_digest": sha256OutputSchema(),
+		}),
 		objectSchema([]string{"operation", "routing_plan", "expected_generation_digest", "worktree_ref", "origin_session_id"}, map[string]any{
 			"operation":                  map[string]any{"enum": []string{string(RoutingOperationApplyMatrix)}},
 			"routing_plan":               routingPlanInputSchema(),
@@ -283,11 +320,37 @@ func routingGenerationOutputSchema() map[string]any {
 func routingApplyOutputSchema() map[string]any {
 	return objectSchema([]string{"operation"}, map[string]any{
 		"operation": map[string]any{"enum": []string{
+			string(RoutingOperationAlignmentStatus),
+			string(RoutingOperationConfirmAlignment),
+			string(RoutingOperationBootstrapRepository),
 			string(RoutingOperationApplyMatrix),
 			string(RoutingOperationStartDelivery),
 			string(RoutingOperationRecoverDelivery),
 			string(RoutingOperationReconcileFallbacks),
 		}},
+		"alignment": objectSchema([]string{"state", "alignment_digest", "generation_digest", "replayed"}, map[string]any{
+			"state":             map[string]any{"enum": []string{string(routing.AlignmentRequired), string(routing.AlignmentConfirmed)}},
+			"alignment_digest":  sha256OutputSchema(),
+			"generation_digest": sha256OutputSchema(),
+			"confirmed_by":      opaqueRunIDSchema(),
+			"confirmed_at":      map[string]any{"type": "string", "format": "date-time"},
+			"changed_cells": map[string]any{
+				"type": "array", "maxItems": 40, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+			},
+			"replayed": map[string]any{"type": "boolean"},
+		}),
+		"repository": objectSchema([]string{"state", "committed_files"}, map[string]any{
+			"state": map[string]any{"enum": []string{
+				string(repository.BootstrapInitialized), string(repository.BootstrapAlreadyInitialized), string(repository.BootstrapBlocked),
+			}},
+			"branch":          map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+			"head_sha":        map[string]any{"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+			"commit_message":  map[string]any{"type": "string", "maxLength": 256},
+			"committed_files": map[string]any{"type": "integer", "minimum": 0},
+			"blocked_paths": map[string]any{
+				"type": "array", "maxItems": 10000, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 16 << 20},
+			},
+		}),
 		"matrix": objectSchema([]string{"delivery_id", "generation_digest", "created_at", "absolute_deadline", "attempt_ceiling", "token_ceiling", "rule_count"}, map[string]any{
 			"delivery_id":       sha256OutputSchema(),
 			"generation_digest": sha256OutputSchema(),

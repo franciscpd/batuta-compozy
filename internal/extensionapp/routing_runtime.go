@@ -10,6 +10,7 @@ import (
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/repository"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
@@ -19,15 +20,21 @@ type routingWorktreeStateFunc func(context.Context, string) (publication.Worktre
 type startDeliveryFunc func(context.Context, publication.TrustedScope, string) (RoutingStartResult, error)
 type recoveryFunc func(context.Context, publication.TrustedScope, string, string) (RoutingStartResult, error)
 type reconcileFunc func(context.Context, publication.TrustedScope, string, string) (RoutingReconcileResult, error)
+type alignmentStatusFunc func(string, routing.RoutingGeneration) (routing.AlignmentStatus, error)
+type alignmentConfirmFunc func(string, string, routing.RoutingGeneration) (routing.AlignmentStatus, error)
+type repositoryBootstrapFunc func(context.Context, string) (repository.BootstrapResult, error)
 
 type routingEngine struct {
-	inventory       inventoryFunc
-	applyMatrix     matrixApplyFunc
-	inspectWorktree routingWorktreeInspectFunc
-	worktreeState   routingWorktreeStateFunc
-	startDelivery   startDeliveryFunc
-	recover         recoveryFunc
-	reconcile       reconcileFunc
+	inventory           inventoryFunc
+	applyMatrix         matrixApplyFunc
+	inspectWorktree     routingWorktreeInspectFunc
+	worktreeState       routingWorktreeStateFunc
+	startDelivery       startDeliveryFunc
+	recover             recoveryFunc
+	reconcile           reconcileFunc
+	alignmentStatus     alignmentStatusFunc
+	alignmentConfirm    alignmentConfirmFunc
+	bootstrapRepository repositoryBootstrapFunc
 }
 
 func (e *routingEngine) Plan(
@@ -120,6 +127,53 @@ func (e *routingEngine) Apply(
 		return RoutingApplyOutput{}, err
 	}
 	switch input.Operation {
+	case RoutingOperationAlignmentStatus, RoutingOperationConfirmAlignment:
+		fresh, err := e.Plan(ctx, scope, *input.RoutingPlan)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if fresh.Digest != input.ExpectedGenerationDigest {
+			return RoutingApplyOutput{}, errors.New("batuta: routing generation changed before alignment")
+		}
+		var alignment routing.AlignmentStatus
+		if input.Operation == RoutingOperationAlignmentStatus {
+			if e.alignmentStatus == nil {
+				return RoutingApplyOutput{}, errors.New("batuta: routing alignment status is unavailable")
+			}
+			alignment, err = e.alignmentStatus(scope.WorkspaceID, fresh)
+		} else {
+			if e.alignmentConfirm == nil {
+				return RoutingApplyOutput{}, errors.New("batuta: routing alignment confirmation is unavailable")
+			}
+			alignment, err = e.alignmentConfirm(scope.WorkspaceID, input.OriginSessionID, fresh)
+		}
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		return RoutingApplyOutput{Operation: input.Operation, Alignment: &alignment}, nil
+	case RoutingOperationBootstrapRepository:
+		fresh, err := e.Plan(ctx, scope, *input.RoutingPlan)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if fresh.Digest != input.ExpectedGenerationDigest {
+			return RoutingApplyOutput{}, errors.New("batuta: routing generation changed before repository bootstrap")
+		}
+		if e.alignmentStatus == nil || e.bootstrapRepository == nil {
+			return RoutingApplyOutput{}, errors.New("batuta: repository bootstrap is unavailable")
+		}
+		alignment, err := e.alignmentStatus(scope.WorkspaceID, fresh)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if alignment.State != routing.AlignmentConfirmed {
+			return RoutingApplyOutput{}, routing.ErrRoutingAlignmentRequired
+		}
+		result, err := e.bootstrapRepository(ctx, scope.WorkspaceRoot)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		return RoutingApplyOutput{Operation: input.Operation, Repository: &result}, nil
 	case RoutingOperationApplyMatrix:
 		if e == nil || e.applyMatrix == nil {
 			return RoutingApplyOutput{}, errors.New("batuta: routing matrix application is unavailable")

@@ -48,10 +48,13 @@ delivery_section = agent.split("## Delivery worktree and preflight", 1)[1].split
     "## Terminal return and bounded fallback", 1
 )[0]
 assert routing_section.index("ext__batuta__executor_inventory") < routing_section.index("ext__batuta__routing_plan")
+assert routing_section.index("operation `alignment_status`") < routing_section.index("operation `confirm_alignment`")
+assert routing_section.index("ext__batuta__routing_plan") < routing_section.index("operation `alignment_status`")
+assert delivery_section.index("operation `bootstrap_repository`") < delivery_section.index("compozy__worktree_create")
 assert delivery_section.index("operation `apply_matrix`") < delivery_section.index("operation `start_delivery`")
-assert agent.index("ext__batuta__executor_inventory") < agent.index("ext__batuta__routing_plan") < agent.index("operation `apply_matrix`") < agent.index("operation `start_delivery`")
-assert "confirmation before storing" not in agent
-assert "present the derived table" not in agent.lower()
+assert "present the derived table" in agent_flat.lower()
+assert "blocked_sensitive_paths" in agent
+assert "chore: initialize workspace" in agent
 assert "auto_commit=true" in agent
 assert "compozy tool invoke <tool-id>" in agent
 assert "--session <current-session-id>" in agent
@@ -93,6 +96,9 @@ for required in (
     "immutable routing generation",
     "ephemeral",
     "does not write Compozy Loop configuration",
+    "operator confirms the exact derived matrix",
+    "blocked_sensitive_paths",
+    "chore: initialize workspace",
     "fresh Compozy parent run",
     "id > type + complexity > type > complexity",
     "Compozy is the only provider/model execution authority",
@@ -104,7 +110,6 @@ for required in (
 ):
     assert required in skill_flat, required
 for stale in (
-    "confirmation before storing",
     "ask the operator what their account enables",
     "write a surgical `id` rule",
 ):

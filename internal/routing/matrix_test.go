@@ -15,6 +15,7 @@ func TestMatrixApplyArchivesGenerationAndDeliveryWithoutStoredConfig(t *testing.
 		t.Fatalf("NewOwnershipStore() error = %v", err)
 	}
 	input := validMatrixApplyInput(t)
+	confirmMatrixInput(t, store, input)
 	started := time.Now().UTC()
 	result, err := (MatrixManager{Store: store}).Apply(context.Background(), input)
 	if err != nil {
@@ -57,6 +58,7 @@ func TestMatrixApplyReplaysIdenticalHeaderWithoutResettingBudget(t *testing.T) {
 	}
 	manager := MatrixManager{Store: store}
 	input := validMatrixApplyInput(t)
+	confirmMatrixInput(t, store, input)
 	first, err := manager.Apply(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Apply(first) error = %v", err)
@@ -102,6 +104,7 @@ func TestMatrixApplyChangedTaskOrWorktreeCreatesDistinctDelivery(t *testing.T) {
 	}
 	manager := MatrixManager{Store: store}
 	firstInput := validMatrixApplyInput(t)
+	confirmMatrixInput(t, store, firstInput)
 	first, err := manager.Apply(context.Background(), firstInput)
 	if err != nil {
 		t.Fatalf("Apply(first) error = %v", err)
@@ -152,7 +155,7 @@ func TestMatrixApplyRejectsForeignOrForgedGenerationWithoutMutation(t *testing.T
 
 func validMatrixApplyInput(t *testing.T) MatrixApplyInput {
 	t.Helper()
-	generation := validGenerationFixture(t)
+	generation := alignmentGenerationFixture(t, validGenerationFixture(t))
 	taskSnapshot := validTaskSnapshotFixture(t)
 	return MatrixApplyInput{
 		WorkspaceID: "workspace-1", WorkspaceRoot: "/workspace/project", WorktreeID: "worktree-1", WorktreeRoot: "/workspace/project",
@@ -162,5 +165,12 @@ func validMatrixApplyInput(t *testing.T) MatrixApplyInput {
 			HeadSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", PorcelainSHA256: digestFixture("porcelain"), ContentSHA256: digestFixture("content"),
 		},
 		Generation: generation,
+	}
+}
+
+func confirmMatrixInput(t *testing.T, store *OwnershipStore, input MatrixApplyInput) {
+	t.Helper()
+	if _, err := (AlignmentManager{Store: store}).Confirm(input.WorkspaceID, input.OriginSessionID, input.Generation); err != nil {
+		t.Fatalf("Confirm(matrix input) error = %v", err)
 	}
 }

@@ -59,6 +59,13 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 	if err != nil || recomputed.Digest != input.Generation.Digest {
 		return MatrixApplyResult{}, ErrOwnershipUnproven
 	}
+	alignment, err := (AlignmentManager{Store: m.Store}).Status(input.WorkspaceID, input.Generation)
+	if err != nil {
+		return MatrixApplyResult{}, err
+	}
+	if alignment.State != AlignmentConfirmed {
+		return MatrixApplyResult{}, ErrRoutingAlignmentRequired
+	}
 	deliveryID, err := deriveDeliveryID(input)
 	if err != nil {
 		return MatrixApplyResult{}, err

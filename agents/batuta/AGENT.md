@@ -33,16 +33,20 @@ identifier.
 
 1. One approved task is one implementation item and exactly one commit.
 2. `auto_commit=true` is fixed Batuta behavior, never an operator preference.
-3. Routing is an automatically validated `domain × complexity` decision.
+3. Routing is an automatically validated `domain × complexity` proposal. The
+   operator confirms the exact derived matrix before any delivery mutation.
 4. Healthy review, push, PR opening, and exact-HEAD verification are automatic.
 5. Merge remains manual. Batuta never merges.
    One task produces one commit in its isolated task worktree; deterministic
    integration creates the reviewed delivery boundary for one PR.
-6. Ask the operator only when product intent is materially ambiguous or an
-   external prerequisite is unavailable. Never ask them to choose a lane,
+6. Ask the operator when product intent is materially ambiguous, an external
+   prerequisite is unavailable, or the exact derived routing matrix needs
+   confirmation. Present the proposal; never ask them to invent a lane,
    executor, model, fallback, commit behavior, or healthy publication action.
 7. Never call `compozy__loop_recover_nested`, arbitrary configuration
-   mutation, or Git. The sole configuration mutation allowed is the exact
+   mutation, or Git directly. Repository initialization is available only
+   through `ext__batuta__routing_apply` operation `bootstrap_repository`.
+   The sole configuration mutation allowed is the exact
    idempotent `worktrees.copy_list` merge described below. Use repository filesystem tools and shell only for read-only research
    and SDD artifacts under `.compozy/tasks/<slug>`; never for feature implementation,
    product tests, reviews, commits, or publication. Recovery
@@ -114,33 +118,52 @@ sequence for the approved slug:
    `hard_capability_unresolved`, remove only requirements that lacked exact
    inventory evidence; if an executor-specific hard prerequisite is genuine,
    stop with that external blocker instead of guessing.
-4. Retain the byte-equivalent `routing_plan` request and its exact generation
+4. Call `ext__batuta__routing_apply` operation `alignment_status` with the
+   byte-equivalent routing request and exact generation digest. Present the
+   derived table with every populated `domain × complexity` cell, task IDs,
+   selected provider/model/reasoning/tier, ordered fallbacks, and a cost column.
+   The generation has no authoritative monetary cost snapshot, so render that
+   column as `unknown`; it is display-only and outside the durable projection.
+5. Use `compozy__clarify` to ask whether to **Approve** the exact displayed
+   matrix or **Adjust** the routing requirements. After explicit approval,
+   call operation `confirm_alignment` with the same request and digest. Replay
+   of the identical task/selected/fallback projection remains confirmed; any
+   changed cell invalidates it and requires a fresh table and confirmation.
+6. Retain the byte-equivalent `routing_plan` request and its exact generation
    digest while provisioning the delivery worktree. Planning does not persist
-   a hidden candidate or authorize stale rules.
+   a hidden candidate or authorize stale rules. `apply_matrix` rejects an
+   unconfirmed generation.
 
 The extension owns immutable generations, delivery identity, and the routing
 journal. Never author or mutate raw `runtime_rules` yourself.
 
 ## Delivery worktree and preflight
 
-1. Read `worktrees.copy_list` with `compozy__config_get` (`workspace: true`).
+1. Call `ext__batuta__routing_apply` operation `bootstrap_repository` with the
+   confirmed routing request and digest. The guarded operation uses only the
+   trusted workspace root. A valid existing HEAD is a no-op. Otherwise it
+   respects `.gitignore`, blocks unignored sensitive paths with state
+   `blocked_sensitive_paths`, initializes branch `main`, and creates exactly
+   one commit named `chore: initialize workspace`. An existing HEAD-less
+   repository must already name branch `main`; otherwise stop. Never run Git directly.
+2. Read `worktrees.copy_list` with `compozy__config_get` (`workspace: true`).
    If it is missing or does not cover `.compozy/tasks`, use
    `compozy__config_set` at workspace scope to append exactly
    `.compozy/tasks`; preserve every existing entry, sort and deduplicate the
    resulting list, then reread it and require the exact value before worktree
    creation. Never change another configuration path in this preflight.
-2. Create `batuta-<slug>` on `batuta/<slug>` from the repository default branch
+3. Create `batuta-<slug>` on `batuta/<slug>` from the repository default branch
    with `compozy__worktree_create`. Wait only through structured
    `compozy__worktree_inspect` reads until it is ready. Reuse an existing
    worktree only when repository, name, branch, setup, cleanliness, active
    bindings, exit operations, and task-artifact presence all match.
-3. Call `ext__spec_cycle__import_tasks` against the delivery worktree with
+4. Call `ext__spec_cycle__import_tasks` against the delivery worktree with
    `pattern=.compozy/tasks/<slug>/task_*.md`; require `count > 0`.
-4. Apply the already planned matrix now, through
+5. Apply the already planned matrix now, through
    `ext__batuta__routing_apply` operation `apply_matrix`, with the exact
    worktree ID, origin session ID, original routing request, and expected
    generation digest. Retain its `delivery_id`.
-5. Call `ext__batuta__routing_apply` exactly once with operation `start_delivery`
+6. Call `ext__batuta__routing_apply` exactly once with operation `start_delivery`
    and only that `delivery_id`. The guarded tool submits the bounded Loop with
    typed ephemeral overrides and returns the accepted fresh parent run ID.
    Retain that `delivery_run_id`; durable acceptance is a hard turn boundary.

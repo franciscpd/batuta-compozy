@@ -43,7 +43,8 @@ deliberadamente fora do inventário automático.
 Operador
   -> sessão Batuta
   -> cards interativos de esclarecimento do SDD, SDD do spec-cycle e artefatos de task
-  -> inventário automático de executores e geração de roteamento domínio x complexidade
+  -> inventário automático de executores e proposta de roteamento domínio x complexidade
+  -> confirmação exata do operador e bootstrap protegido do repositório
   -> worktree de integração e delivery_id estável
   -> execução pai batuta-deliver
      -> onda dependency-safe (no máximo quatro worktrees isoladas de task)

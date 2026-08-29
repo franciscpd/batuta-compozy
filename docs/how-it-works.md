@@ -32,6 +32,21 @@ capability. For example, `backend/low` and `frontend/medium` may select differen
 live pairs while retaining the same Compozy execution owner. Agy model listing
 is network-backed and is not probed automatically.
 
+Before mutation, Batuta renders the exact derived matrix: tasks, selected live
+provider/model/reasoning/tier, ordered fallbacks, and a cost column. Because the
+generation has no authoritative monetary cost snapshot, cost is displayed as
+`unknown` and is not part of the durable task/selected/fallback projection. The
+operator approves that proposal or requests an adjustment. Confirmation is durable for the identical projection and is
+invalidated by any changed cell. This is routing transparency, not a later
+implementation or publication gate.
+
+The confirmed preflight also makes a new project deliverable without a manual
+`git init`. The guarded `bootstrap_repository` operation uses the trusted
+workspace root, respects `.gitignore`, blocks unignored sensitive paths, and
+creates branch `main` with one `chore: initialize workspace` commit. Existing
+repositories with a valid HEAD are left untouched; an existing HEAD-less
+repository must already use `main`.
+
 `apply_matrix` archives an immutable generation, canonical task snapshot,
 integration worktree, and stable `delivery_id`. Stored Compozy Loop configuration is never mutated.
 

@@ -40,7 +40,8 @@ command is deliberately outside automatic inventory.
 Operator
   -> Batuta session
   -> interactive SDD clarification cards, spec-cycle SDD, and task artifacts
-  -> automatic executor inventory and domain x complexity routing generation
+  -> automatic executor inventory and domain x complexity routing proposal
+  -> exact operator confirmation and guarded repository bootstrap
   -> integration worktree and stable delivery_id
   -> batuta-deliver parent run
      -> dependency-safe wave (at most four isolated task worktrees)

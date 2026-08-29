@@ -70,15 +70,19 @@ O Batuta então:
 1. cria e aprova o SDD e o grafo canônico de tasks;
 2. lê o catálogo vivo de providers/modelos do Compozy e evidência bounded
    opcional de Codex, OpenCode, Cursor Agent, Claude Code e Agy sem expor
-   secrets, e faz escolhas de runtime por domínio × complexidade;
-3. admite ondas de tasks dependentes com paralelismo seguro de no máximo quatro
+   secrets, propõe a matriz domínio × complexidade e pede ao operador a
+   confirmação dos runtimes e fallbacks exatos antes de qualquer mutação;
+3. inicializa com segurança um workspace sem Git quando necessário e admite
+   ondas de tasks dependentes com paralelismo seguro de no máximo quatro
    em worktrees de task isolados, nunca dois writers no mesmo worktree;
 4. integra cada commit verificado no worktree canônico de integração; um conflito
    recebe reexecução canônica de conflito com nova tentativa imutável;
 5. executa uma revisão final, publica e verifica automaticamente o HEAD exato
    revisado e abre ou reutiliza um PR. O merge continua manual.
 
-O caminho saudável não possui gate humano rotineiro de publicação. Stops como
+A confirmação de roteamento é um preflight transparente, não um gate de
+implementação ou publicação. O caminho saudável não possui gate humano
+rotineiro de publicação. Stops como
 orçamento esgotado, evidência ambígua/desatualizada, cancelamento, publicação
 bloqueada ou worktrees de diagnóstico retidos param o grafo e preservam a
 evidência verdadeira no journal, sem iniciar outra geração.

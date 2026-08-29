@@ -35,6 +35,7 @@ type RoutingJournal struct {
 	SchemaVersion     int                          `json:"schema_version"`
 	CurrentGeneration string                       `json:"current_generation"`
 	Generations       map[string]RoutingGeneration `json:"generations"`
+	Alignments        map[string]AlignmentRecord   `json:"alignments,omitempty"`
 	Deliveries        map[string]DeliveryRecord    `json:"deliveries"`
 	IntegrationStates map[string]json.RawMessage   `json:"integration_states,omitempty"`
 
@@ -326,6 +327,11 @@ func validateJournal(journal RoutingJournal) error {
 	if err := validateGenerationArchive(journal.CurrentGeneration, journal.Generations); err != nil {
 		return err
 	}
+	for digest, alignment := range journal.Alignments {
+		if digest != alignment.AlignmentDigest || validateAlignmentRecord(alignment) != nil {
+			return ErrOwnershipUnproven
+		}
+	}
 	for deliveryID, delivery := range journal.Deliveries {
 		if deliveryID != delivery.DeliveryID {
 			return ErrOwnershipUnproven
@@ -384,6 +390,11 @@ func validateJournalTransition(before, after RoutingJournal) error {
 			return ErrDeliveryConflict
 		}
 	}
+	for digest, alignment := range before.Alignments {
+		if candidate, exists := after.Alignments[digest]; !exists || !reflect.DeepEqual(alignment, candidate) {
+			return ErrDeliveryConflict
+		}
+	}
 	for deliveryID, delivery := range before.Deliveries {
 		candidate, exists := after.Deliveries[deliveryID]
 		if !exists {
@@ -404,7 +415,8 @@ func validateJournalTransition(before, after RoutingJournal) error {
 func emptyRoutingJournal() RoutingJournal {
 	return RoutingJournal{
 		SchemaVersion: journalSchemaVersion, Generations: map[string]RoutingGeneration{},
-		Deliveries: map[string]DeliveryRecord{}, IntegrationStates: map[string]json.RawMessage{},
+		Alignments: map[string]AlignmentRecord{}, Deliveries: map[string]DeliveryRecord{},
+		IntegrationStates: map[string]json.RawMessage{},
 	}
 }
 

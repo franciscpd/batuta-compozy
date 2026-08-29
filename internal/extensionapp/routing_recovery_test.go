@@ -587,6 +587,9 @@ func newDeliveryServiceFixture(t *testing.T) deliveryServiceFixture {
 	taskSet, _ := loader.Load("demo")
 	taskSnapshot, _ := taskSet.DeliverySnapshot()
 	store, _ := routing.NewOwnershipStore(t.TempDir())
+	if _, err := (routing.AlignmentManager{Store: store}).Confirm(scope.WorkspaceID, "session_demo", generation); err != nil {
+		t.Fatalf("Alignment.Confirm() error = %v", err)
+	}
 	matrix, err := (routing.MatrixManager{Store: store}).Apply(context.Background(), routing.MatrixApplyInput{
 		WorkspaceID: scope.WorkspaceID, WorkspaceRoot: root, WorktreeID: "wt_demo", WorktreeRoot: root,
 		Slug: "demo", OriginSessionID: "session_demo", TaskSetDigest: taskSet.Digest, TaskSnapshot: taskSnapshot,

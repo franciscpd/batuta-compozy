@@ -13,6 +13,7 @@ import (
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/repository"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
@@ -174,11 +175,13 @@ func TestRoutingApplyAcceptsOnlyClosedOwnedOperations(t *testing.T) {
 		t.Fatalf("input schema: %v", err)
 	}
 	oneOf, ok := schema["oneOf"].([]any)
-	if !ok || len(oneOf) != 4 {
-		t.Fatalf("routing apply schema = %#v, want four closed variants", schema)
+	if !ok || len(oneOf) != 7 {
+		t.Fatalf("routing apply schema = %#v, want seven closed variants", schema)
 	}
 	payload := string(descriptor.InputSchema)
-	for _, operation := range []string{"apply_matrix", "start_delivery", "recover_delivery", "reconcile_fallbacks"} {
+	for _, operation := range []string{
+		"alignment_status", "confirm_alignment", "bootstrap_repository", "apply_matrix", "start_delivery", "recover_delivery", "reconcile_fallbacks",
+	} {
 		if !containsJSONToken(payload, operation) {
 			t.Fatalf("routing apply schema missing %q: %s", operation, payload)
 		}
@@ -187,6 +190,106 @@ func TestRoutingApplyAcceptsOnlyClosedOwnedOperations(t *testing.T) {
 		if containsJSONToken(payload, forbidden) {
 			t.Fatalf("routing apply schema exposes forbidden %q: %s", forbidden, payload)
 		}
+	}
+}
+
+func TestRoutingApplyBootstrapsOnlyConfirmedGenerationAtTrustedWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRoutingTask(t, root)
+	snapshot := routingInventory(t, nil)
+	bootstrapCalls := 0
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			return snapshot, nil
+		},
+		alignmentStatus: func(_ string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			return routing.AlignmentStatus{
+				State: routing.AlignmentConfirmed, AlignmentDigest: digestValue("alignment"), GenerationDigest: generation.Digest,
+			}, nil
+		},
+		bootstrapRepository: func(_ context.Context, workspaceRoot string) (repository.BootstrapResult, error) {
+			bootstrapCalls++
+			if workspaceRoot != root {
+				t.Fatalf("bootstrap root = %q, want trusted %q", workspaceRoot, root)
+			}
+			return repository.BootstrapResult{
+				State: repository.BootstrapInitialized, Branch: "main",
+				HeadSHA: "0123456789abcdef0123456789abcdef01234567", CommitMessage: "chore: initialize workspace", CommittedFiles: 3,
+			}, nil
+		},
+	}
+	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
+	planInput := routingPlanFixture()
+	planned, err := engine.Plan(context.Background(), scope, planInput)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	output, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
+		Operation: RoutingOperationBootstrapRepository, RoutingPlan: &planInput, ExpectedGenerationDigest: planned.Digest,
+	})
+	if err != nil || bootstrapCalls != 1 || output.Repository == nil || output.Repository.State != repository.BootstrapInitialized {
+		t.Fatalf("Apply(bootstrap) = %#v, error %v, calls %d", output, err, bootstrapCalls)
+	}
+
+	engine.alignmentStatus = func(_ string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+		return routing.AlignmentStatus{
+			State: routing.AlignmentRequired, AlignmentDigest: digestValue("alignment"), GenerationDigest: generation.Digest,
+		}, nil
+	}
+	_, err = engine.Apply(context.Background(), scope, RoutingApplyInput{
+		Operation: RoutingOperationBootstrapRepository, RoutingPlan: &planInput, ExpectedGenerationDigest: planned.Digest,
+	})
+	if !errors.Is(err, routing.ErrRoutingAlignmentRequired) || bootstrapCalls != 1 {
+		t.Fatalf("Apply(unconfirmed bootstrap) error = %v, calls %d", err, bootstrapCalls)
+	}
+}
+
+func TestRoutingApplyAlignmentReplansBeforeStatusOrConfirmation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRoutingTask(t, root)
+	snapshot := routingInventory(t, nil)
+	var statusCalls, confirmCalls int
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			return snapshot, nil
+		},
+		alignmentStatus: func(_ string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			statusCalls++
+			return routing.AlignmentStatus{
+				State: routing.AlignmentRequired, AlignmentDigest: digestValue("alignment"), GenerationDigest: generation.Digest,
+			}, nil
+		},
+		alignmentConfirm: func(_ string, actor string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			confirmCalls++
+			return routing.AlignmentStatus{
+				State: routing.AlignmentConfirmed, AlignmentDigest: digestValue("alignment"), GenerationDigest: generation.Digest,
+				ConfirmedBy: actor,
+			}, nil
+		},
+	}
+	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
+	planInput := routingPlanFixture()
+	planned, err := engine.Plan(context.Background(), scope, planInput)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	status, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
+		Operation: RoutingOperationAlignmentStatus, RoutingPlan: &planInput, ExpectedGenerationDigest: planned.Digest,
+	})
+	if err != nil || status.Alignment == nil || status.Alignment.State != routing.AlignmentRequired || statusCalls != 1 || confirmCalls != 0 {
+		t.Fatalf("Apply(alignment status) = %#v, error %v, calls status=%d confirm=%d", status, err, statusCalls, confirmCalls)
+	}
+	confirmed, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
+		Operation: RoutingOperationConfirmAlignment, RoutingPlan: &planInput,
+		ExpectedGenerationDigest: planned.Digest, OriginSessionID: "session_operator",
+	})
+	if err != nil || confirmed.Alignment == nil || confirmed.Alignment.State != routing.AlignmentConfirmed ||
+		confirmed.Alignment.ConfirmedBy != "session_operator" || statusCalls != 1 || confirmCalls != 1 {
+		t.Fatalf("Apply(confirm alignment) = %#v, error %v, calls status=%d confirm=%d", confirmed, err, statusCalls, confirmCalls)
 	}
 }
 
