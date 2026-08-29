@@ -354,11 +354,12 @@ func runtimeValueOutputSchema() map[string]any {
 
 func runtimeCandidateOutputSchema() map[string]any {
 	return objectSchema([]string{"executor_id", "provider_id", "model_id", "reasoning", "model_tier"}, map[string]any{
-		"executor_id": map[string]any{"enum": []string{"compozy", "codex", "opencode", "cursor-agent"}},
-		"provider_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
-		"model_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
-		"reasoning":   map[string]any{"enum": []string{"low", "medium", "high", "xhigh"}},
-		"model_tier":  map[string]any{"type": "integer", "minimum": 1, "maximum": 4},
+		"executor_id":    map[string]any{"enum": []string{"compozy", "codex", "opencode", "cursor-agent"}},
+		"provider_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"model_id":       map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"enrichment_ids": enrichmentIDsOutputSchema(),
+		"reasoning":      map[string]any{"enum": []string{"low", "medium", "high", "xhigh"}},
+		"model_tier":     map[string]any{"type": "integer", "minimum": 1, "maximum": 4},
 	})
 }
 
@@ -386,16 +387,24 @@ func routingCellOutputSchema() map[string]any {
 
 func candidateRejectionOutputSchema() map[string]any {
 	return objectSchema([]string{"domain", "complexity", "executor_id", "provider_id", "model_id", "code"}, map[string]any{
-		"domain":      domainSchema(),
-		"complexity":  complexitySchema(),
-		"executor_id": map[string]any{"enum": []string{"compozy", "codex", "opencode", "cursor-agent"}},
-		"provider_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
-		"model_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"domain":         domainSchema(),
+		"complexity":     complexitySchema(),
+		"executor_id":    map[string]any{"enum": []string{"compozy", "codex", "opencode", "cursor-agent"}},
+		"provider_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"model_id":       map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
+		"enrichment_ids": enrichmentIDsOutputSchema(),
 		"code": map[string]any{"enum": []string{
 			"executor_unavailable", "credential_missing", "catalog_pair_unavailable",
 			"executor_model_unproven", "model_below_floor", "hard_capability_unresolved",
 		}},
 	})
+}
+
+func enrichmentIDsOutputSchema() map[string]any {
+	return map[string]any{
+		"type": "array", "maxItems": 5, "uniqueItems": true,
+		"items": map[string]any{"enum": []string{"agy", "claude", "codex", "cursor-agent", "opencode"}},
+	}
 }
 
 func loopBudgetOutputSchema() map[string]any {

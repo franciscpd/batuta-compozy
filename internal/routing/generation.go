@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 )
@@ -90,6 +91,16 @@ type RoutingGeneration struct {
 }
 
 func finalizeGeneration(generation RoutingGeneration) (RoutingGeneration, error) {
+	for cellIndex := range generation.Cells {
+		cell := &generation.Cells[cellIndex]
+		cell.Selected.EnrichmentIDs = canonicalEnrichmentIDs(cell.Selected.EnrichmentIDs)
+		for fallbackIndex := range cell.Fallbacks {
+			cell.Fallbacks[fallbackIndex].EnrichmentIDs = canonicalEnrichmentIDs(cell.Fallbacks[fallbackIndex].EnrichmentIDs)
+		}
+	}
+	for rejectionIndex := range generation.Rejections {
+		generation.Rejections[rejectionIndex].EnrichmentIDs = canonicalEnrichmentIDs(generation.Rejections[rejectionIndex].EnrichmentIDs)
+	}
 	generation.Digest = ""
 	payload, err := json.Marshal(generation)
 	if err != nil {
@@ -98,4 +109,10 @@ func finalizeGeneration(generation RoutingGeneration) (RoutingGeneration, error)
 	digest := sha256.Sum256(payload)
 	generation.Digest = "sha256:" + hex.EncodeToString(digest[:])
 	return generation, nil
+}
+
+func canonicalEnrichmentIDs(values []inventory.ExecutorID) []inventory.ExecutorID {
+	values = slices.Clone(values)
+	slices.Sort(values)
+	return slices.Compact(values)
 }

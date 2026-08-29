@@ -93,6 +93,71 @@ func TestRoutingPlanSchemaAcceptsOnlySlugClassificationAndFit(t *testing.T) {
 	}
 }
 
+func TestRoutingPlanFitSchemaKeysCandidatesByProviderAndModel(t *testing.T) {
+	t.Parallel()
+
+	extension, err := newWithServices(serviceSet{})
+	if err != nil {
+		t.Fatalf("newWithServices() error = %v", err)
+	}
+	descriptor := descriptorForHandler(t, extension, "routing_plan")
+	var schema map[string]any
+	if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
+		t.Fatalf("input schema: %v", err)
+	}
+	properties := schema["properties"].(map[string]any)
+	fit := properties["fit"].(map[string]any)
+	cell := fit["items"].(map[string]any)
+	candidates := cell["properties"].(map[string]any)["candidates"].(map[string]any)
+	candidate := candidates["items"].(map[string]any)
+	candidateProperties := candidate["properties"].(map[string]any)
+	for _, required := range []string{"provider_id", "model_id", "score"} {
+		if _, exists := candidateProperties[required]; !exists {
+			t.Fatalf("fit candidate schema missing %q: %s", required, descriptor.InputSchema)
+		}
+	}
+	if _, exists := candidateProperties["enrichment_ids"]; exists {
+		t.Fatalf("fit candidate schema accepts caller enrichment identity: %s", descriptor.InputSchema)
+	}
+	if candidate["additionalProperties"] != false {
+		t.Fatalf("fit candidate schema is open: %#v", candidate)
+	}
+}
+
+func TestRoutingOutputRecordsOnlyServerDerivedEnrichmentEvidence(t *testing.T) {
+	t.Parallel()
+
+	extension, err := newWithServices(serviceSet{})
+	if err != nil {
+		t.Fatalf("newWithServices() error = %v", err)
+	}
+	descriptor := descriptorForHandler(t, extension, "routing_plan")
+	var schema map[string]any
+	if err := json.Unmarshal(descriptor.OutputSchema, &schema); err != nil {
+		t.Fatalf("output schema: %v", err)
+	}
+	properties := schema["properties"].(map[string]any)
+	cell := properties["cells"].(map[string]any)["items"].(map[string]any)
+	selected := cell["properties"].(map[string]any)["selected"].(map[string]any)
+	selectedProperties := selected["properties"].(map[string]any)
+	enrichment, exists := selectedProperties["enrichment_ids"].(map[string]any)
+	if !exists || enrichment["type"] != "array" {
+		t.Fatalf("selected enrichment schema = %#v", selectedProperties["enrichment_ids"])
+	}
+	items := enrichment["items"].(map[string]any)
+	values := items["enum"].([]any)
+	for _, want := range []any{"claude", "agy", "codex", "opencode", "cursor-agent"} {
+		if !slices.Contains(values, want) {
+			t.Fatalf("enrichment enum = %#v, missing %q", values, want)
+		}
+	}
+	for _, forbidden := range []string{"raw_output", "capabilities", "diagnostics", "credentials"} {
+		if containsJSONToken(string(descriptor.OutputSchema), forbidden) {
+			t.Fatalf("routing output exposes adapter payload field %q: %s", forbidden, descriptor.OutputSchema)
+		}
+	}
+}
+
 func TestRoutingApplyAcceptsOnlyClosedOwnedOperations(t *testing.T) {
 	t.Parallel()
 
