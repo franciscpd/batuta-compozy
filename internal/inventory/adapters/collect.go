@@ -28,6 +28,8 @@ type CollectorOptions struct {
 	CodexExecutable    string
 	OpenCodeExecutable string
 	CursorExecutable   string
+	ClaudeExecutable   string
+	AgyExecutable      string
 	ProbeParallelism   int
 }
 
@@ -101,6 +103,8 @@ func newCollectorWithRoots(runner publication.CommandRunner, options CollectorOp
 		{options.CodexExecutable, "codex", NewCodex},
 		{options.OpenCodeExecutable, "opencode", NewOpenCode},
 		{options.CursorExecutable, "agent", NewCursor},
+		{options.ClaudeExecutable, "claude", NewClaude},
+		{options.AgyExecutable, "agy", NewAgy},
 	}
 	configured := make([]configuredAdapter, 0, len(builders))
 	for _, builder := range builders {
@@ -341,6 +345,12 @@ func enforceRecordBudget(executor *inventory.ExecutorSnapshot, used int) int {
 	executor.Version = groups[0][0]
 	executor.Health = groups[1][0]
 	if exhausted {
+		for _, capability := range executor.Capabilities {
+			if capability.Name == "models" && capability.DiagnosticCode == "record_budget_exhausted" {
+				executor.ProviderBindings = nil
+				break
+			}
+		}
 		executor.Diagnostics = append(executor.Diagnostics, inventory.Diagnostic{Code: "record_budget_exhausted"})
 	}
 	return used

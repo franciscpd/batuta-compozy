@@ -1,0 +1,5 @@
+{
+  "version": "agy 1.1.14",
+  "agents": "default\nreview\nBATUTA_ADAPTER_SECRET_91ef\n",
+  "plugins": "frontend-kit\nreview-kit\nBATUTA_ADAPTER_SECRET_91ef\n"
+}

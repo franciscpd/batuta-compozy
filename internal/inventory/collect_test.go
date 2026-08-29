@@ -63,8 +63,8 @@ func TestCollectorKeepsHealthyExecutorsWhenOneAdapterIsMalformed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if len(snapshot.Executors) != 4 {
-		t.Fatalf("executors = %d, want 4", len(snapshot.Executors))
+	if len(snapshot.Executors) != 6 {
+		t.Fatalf("executors = %d, want 6", len(snapshot.Executors))
 	}
 	states := make(map[inventory.ExecutorID]inventory.ResolutionState, len(snapshot.Executors))
 	for _, executor := range snapshot.Executors {
@@ -112,7 +112,33 @@ func TestCollectorAssociatesConstructorOwnedProviderBindings(t *testing.T) {
 	}
 }
 
-func TestCollectorAlwaysReportsAllFourExecutorsWhenBinariesAreMissing(t *testing.T) {
+func TestLiveInventoryDigestChangesWhenEnrichmentChangesButCatalogGenerationDoesNot(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	runner := &fixtureCollectorRunner{claudePlugin: "frontend-kit"}
+	collector, err := adapters.NewCollector(runner, adapters.CollectorOptions{
+		TrustedWorkspace: workspace, WorkspaceID: "ws-fixture",
+		CompozyExecutable: filepath.Join(workspace, "compozy"), ClaudeExecutable: filepath.Join(workspace, "claude"),
+	})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	first, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect(first) error = %v", err)
+	}
+	runner.claudePlugin = "review-kit"
+	second, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect(second) error = %v", err)
+	}
+	if first.Digest == second.Digest || first.CompozyCatalogGeneration == "" || first.CompozyCatalogGeneration != second.CompozyCatalogGeneration {
+		t.Fatalf("inventory identity first=%#v second=%#v, want changed enrichment digest and stable catalog generation", first, second)
+	}
+}
+
+func TestCollectorAlwaysReportsAllSixRecordsWhenOptionalBinariesAreMissing(t *testing.T) {
 	t.Parallel()
 
 	collector, err := adapters.NewCollector(&fixtureCollectorRunner{}, adapters.CollectorOptions{
@@ -126,8 +152,8 @@ func TestCollectorAlwaysReportsAllFourExecutorsWhenBinariesAreMissing(t *testing
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if len(snapshot.Executors) != 4 {
-		t.Fatalf("executors = %d, want 4 missing snapshots", len(snapshot.Executors))
+	if len(snapshot.Executors) != 6 {
+		t.Fatalf("executors = %d, want 6 missing snapshots", len(snapshot.Executors))
 	}
 	for _, executor := range snapshot.Executors {
 		if executor.Version.State != inventory.ResolutionUnknown || len(executor.Diagnostics) == 0 || executor.Diagnostics[0].Code != "executable_missing" {
@@ -192,10 +218,39 @@ func TestCollectorMarksEvidenceUnknownAtNormalizedRecordBudget(t *testing.T) {
 	t.Fatal("OpenCode snapshot not found")
 }
 
+func TestCollectorBoundsAgyLocalEvidenceAtRecordLimit(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	runner := &fixtureCollectorRunner{manyAgyAgents: true}
+	collector, err := adapters.NewCollector(runner, adapters.CollectorOptions{
+		TrustedWorkspace: workspace, WorkspaceID: "ws-fixture", AgyExecutable: filepath.Join(workspace, "agy"),
+	})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	snapshot, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	for _, executor := range snapshot.Executors {
+		if executor.ID != inventory.ExecutorAgy {
+			continue
+		}
+		if !hasDiagnosticCode(executor.Diagnostics, "record_budget_exhausted") {
+			t.Fatalf("Agy snapshot = %#v, want bounded unknown local evidence", executor)
+		}
+		return
+	}
+	t.Fatal("Agy snapshot not found")
+}
+
 type fixtureCollectorRunner struct {
-	calls      int
-	manyAgents bool
-	manyModels bool
+	calls         int
+	manyAgents    bool
+	manyModels    bool
+	manyAgyAgents bool
+	claudePlugin  string
 }
 
 type parallelismCollectorRunner struct {
@@ -267,6 +322,26 @@ func (r *fixtureCollectorRunner) Run(_ context.Context, command publication.Comm
 		output = `Authenticated`
 	case "agent models":
 		output = "grok-4.6 - Grok 4.6\n"
+	case "claude --version":
+		output = "2.1.248 (Claude Code)"
+	case "claude plugin list --json":
+		output = `{"schema_version":1,"plugins":[{"id":"` + r.claudePlugin + `"}]}`
+	case "agy --version":
+		output = "agy 1.1.14"
+	case "agy agent":
+		if r.manyAgyAgents {
+			var agents strings.Builder
+			for i := 0; i < 10050; i++ {
+				agents.WriteString("agent-")
+				agents.WriteString(strconv.Itoa(i))
+				agents.WriteByte('\n')
+			}
+			output = agents.String()
+		} else {
+			output = "default\n"
+		}
+	case "agy plugin list":
+		output = "frontend-kit\n"
 	default:
 		if strings.HasPrefix(args, "debug agent ") {
 			output = `{}`

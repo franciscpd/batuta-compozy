@@ -19,6 +19,8 @@ const (
 	ExecutorCodex       ExecutorID = "codex"
 	ExecutorOpenCode    ExecutorID = "opencode"
 	ExecutorCursorAgent ExecutorID = "cursor-agent"
+	ExecutorClaude      ExecutorID = "claude"
+	ExecutorAgy         ExecutorID = "agy"
 )
 
 type ResolutionState string
@@ -135,7 +137,7 @@ func (s InventorySnapshot) Validate() error {
 
 func (id ExecutorID) valid() bool {
 	switch id {
-	case ExecutorCompozy, ExecutorCodex, ExecutorOpenCode, ExecutorCursorAgent:
+	case ExecutorCompozy, ExecutorCodex, ExecutorOpenCode, ExecutorCursorAgent, ExecutorClaude, ExecutorAgy:
 		return true
 	default:
 		return false

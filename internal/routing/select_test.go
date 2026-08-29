@@ -490,6 +490,29 @@ func TestEnricherFailureChangesEvidenceButNotCandidateUniverse(t *testing.T) {
 	}
 }
 
+func TestMissingClaudeAndAgyEnrichersDoNotRemoveLivePairs(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorClaude, Availability: inventory.AvailabilityMissing},
+		{ID: inventory.ExecutorAgy, Availability: inventory.AvailabilityMissing},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	bindings, err := BuildCandidateBindings(snapshot, LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "claude", ModelID: "claude-fixture", Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "gemini", ModelID: "gemini-fixture", Availability: inventory.AvailabilityAvailable},
+	}})
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(bindings) != 2 || len(bindings[0].EnrichmentIDs) != 0 || len(bindings[1].EnrichmentIDs) != 0 {
+		t.Fatalf("bindings = %#v, want both generic live pairs without Claude/Agy", bindings)
+	}
+}
+
 func TestEnricherInstallChangesRankingButNotRuntimeIdentity(t *testing.T) {
 	t.Parallel()
 

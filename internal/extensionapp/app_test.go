@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -27,6 +28,21 @@ func TestApplicationWiringUsesManagedWorktreeClientAndDeliveryGraphTool(t *testi
 	}
 	if got := len(extension.GetToolDescriptors()); got != 9 {
 		t.Fatalf("tool descriptor count = %d, want 9", got)
+	}
+}
+
+func TestApplicationDiscoversAbsoluteClaudeAndAgyExecutables(t *testing.T) {
+	directory := t.TempDir()
+	for _, name := range []string{"claude", "agy"} {
+		path := filepath.Join(directory, name)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	t.Setenv("PATH", directory)
+	got := discoverInventoryExecutables("/opt/compozy")
+	if got.Claude != filepath.Join(directory, "claude") || got.Agy != filepath.Join(directory, "agy") {
+		t.Fatalf("inventory executables = %#v, want absolute Claude/Agy paths", got)
 	}
 }
 

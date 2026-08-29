@@ -1,0 +1,4 @@
+{
+  "version": "2.1.248 (Claude Code)",
+  "plugins": "{\"schema_version\":1,\"plugins\":[{\"id\":\"frontend-kit\",\"enabled\":true,\"path\":\"/secret/BATUTA_ADAPTER_SECRET_91ef\"},{\"id\":\"frontend-kit\"},{\"name\":\"review-kit\",\"unknown_future\":\"BATUTA_ADAPTER_SECRET_91ef\"}]}"
+}

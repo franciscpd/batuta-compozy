@@ -78,6 +78,23 @@ func TestAdaptersUseOnlyClosedCommandShapes(t *testing.T) {
 				{"mcp", "list-tools", "browser"},
 			},
 		},
+		{
+			name:    "claude",
+			adapter: mustNewClaude(t, "/opt/bin/claude"),
+			want: [][]string{
+				{"--version"},
+				{"plugin", "list", "--json"},
+			},
+		},
+		{
+			name:    "agy",
+			adapter: mustNewAgy(t, "/opt/bin/agy"),
+			want: [][]string{
+				{"--version"},
+				{"agent"},
+				{"plugin", "list"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -97,6 +114,28 @@ func TestAdaptersUseOnlyClosedCommandShapes(t *testing.T) {
 				t.Fatalf("command shapes = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestClaudeAdapterUsesOnlyReadOnlyBoundedCommands(t *testing.T) {
+	t.Parallel()
+	assertStaticCommandShapes(t, mustNewClaude(t, "/opt/bin/claude"), [][]string{{"--version"}, {"plugin", "list", "--json"}})
+}
+
+func TestAgyAdapterUsesOnlyReadOnlyBoundedCommands(t *testing.T) {
+	t.Parallel()
+	assertStaticCommandShapes(t, mustNewAgy(t, "/opt/bin/agy"), [][]string{{"--version"}, {"agent"}, {"plugin", "list"}})
+}
+
+func assertStaticCommandShapes(t *testing.T, adapter Adapter, want [][]string) {
+	t.Helper()
+	specs := adapter.StaticSpecs()
+	got := make([][]string, len(specs))
+	for i := range specs {
+		got[i] = specs[i].Args
+	}
+	if !slices.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Fatalf("command shapes = %#v, want %#v", got, want)
 	}
 }
 
@@ -131,7 +170,7 @@ func TestAdaptersRejectUnlistedOrUnsafeDynamicIdentifiers(t *testing.T) {
 func TestAdaptersNormalizeInstalledMissingMalformedPartialAndSkewed(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"compozy", "codex", "opencode", "cursor"} {
+	for _, name := range []string{"compozy", "codex", "opencode", "cursor", "claude", "agy"} {
 		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -142,8 +181,14 @@ func TestAdaptersNormalizeInstalledMissingMalformedPartialAndSkewed(t *testing.T
 			if installed.Version.State != inventory.ResolutionResolved {
 				t.Fatalf("installed version state = %q, want resolved", installed.Version.State)
 			}
-			if !hasEvidenceState(installed.Capabilities, "models", inventory.ResolutionResolved) {
-				t.Fatalf("installed model evidence = %#v, want resolved", installed.Capabilities)
+			installedEvidence := "models"
+			if name == "claude" {
+				installedEvidence = "plugins"
+			} else if name == "agy" {
+				installedEvidence = "agents"
+			}
+			if !hasEvidenceState(installed.Capabilities, installedEvidence, inventory.ResolutionResolved) {
+				t.Fatalf("installed %s evidence = %#v, want resolved", installedEvidence, installed.Capabilities)
 			}
 
 			missing := adapter.Missing()
@@ -164,24 +209,60 @@ func TestAdaptersNormalizeInstalledMissingMalformedPartialAndSkewed(t *testing.T
 			partial := adapter.Normalize(map[inventory.ProbeID][]byte{
 				adapter.VersionProbeID(): full[adapter.VersionProbeID()],
 			})
-			if partial.Version.State != inventory.ResolutionResolved || !hasEvidenceState(partial.Capabilities, "models", inventory.ResolutionUnknown) {
-				t.Fatalf("partial snapshot = %#v, want resolved version and unknown models", partial)
+			if partial.Version.State != inventory.ResolutionResolved || !hasEvidenceState(partial.Capabilities, installedEvidence, inventory.ResolutionUnknown) {
+				t.Fatalf("partial snapshot = %#v, want resolved version and unknown %s", partial, installedEvidence)
 			}
 
 			skewedInput := cloneOutputs(full)
 			skewedInput[adapter.SchemaProbeID()] = []byte(`{"schema_version":99}`)
 			skewed := adapter.Normalize(skewedInput)
-			if !hasDiagnostic(skewed, "version_skew") || hasEvidenceState(skewed.Capabilities, "models", inventory.ResolutionResolved) {
+			if !hasDiagnostic(skewed, "version_skew") || hasEvidenceState(skewed.Capabilities, installedEvidence, inventory.ResolutionResolved) {
 				t.Fatalf("skewed snapshot = %#v, want version_skew without resolved models", skewed)
 			}
 		})
 	}
 }
 
+func TestClaudeAndAgyAdaptersNormalizeInstalledMissingMalformedPartialAndSkewed(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"claude", "agy"} {
+		adapter := fixtureAdapter(t, name)
+		installed := adapter.Normalize(fixtureOutputs(t, name))
+		if installed.Availability != inventory.AvailabilityAvailable || installed.Version.State != inventory.ResolutionResolved {
+			t.Fatalf("%s installed snapshot = %#v", name, installed)
+		}
+		wantBindings := []inventory.ProviderBinding{{ProviderID: "claude"}}
+		if name == "agy" {
+			wantBindings = nil
+		}
+		if !slices.Equal(installed.ProviderBindings, wantBindings) {
+			t.Fatalf("%s provider bindings = %#v, want %#v", name, installed.ProviderBindings, wantBindings)
+		}
+		missing := adapter.Missing()
+		if missing.Availability != inventory.AvailabilityMissing || !hasDiagnostic(missing, "executable_missing") {
+			t.Fatalf("%s missing snapshot = %#v", name, missing)
+		}
+		malformed := adapter.Normalize(map[inventory.ProbeID][]byte{adapter.VersionProbeID(): []byte("{")})
+		if malformed.Version.State != inventory.ResolutionUnknown || !hasDiagnostic(malformed, "malformed_output") {
+			t.Fatalf("%s malformed snapshot = %#v", name, malformed)
+		}
+		partial := adapter.Normalize(map[inventory.ProbeID][]byte{adapter.VersionProbeID(): fixtureOutputs(t, name)[adapter.VersionProbeID()]})
+		if partial.Version.State != inventory.ResolutionResolved {
+			t.Fatalf("%s partial snapshot = %#v", name, partial)
+		}
+		skewedOutputs := fixtureOutputs(t, name)
+		skewedOutputs[adapter.SchemaProbeID()] = []byte(`{"schema_version":99}`)
+		if skewed := adapter.Normalize(skewedOutputs); !hasDiagnostic(skewed, "version_skew") {
+			t.Fatalf("%s skewed snapshot = %#v", name, skewed)
+		}
+	}
+}
+
 func TestAdaptersNeverLeakFixtureSecretCanaries(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"compozy", "codex", "opencode", "cursor"} {
+	for _, name := range []string{"compozy", "codex", "opencode", "cursor", "claude", "agy"} {
 		adapter := fixtureAdapter(t, name)
 		snapshot := adapter.Normalize(fixtureOutputs(t, name))
 		payload, err := json.Marshal(inventory.Redact(snapshot, fixtureSecret))
@@ -196,11 +277,27 @@ func TestAdaptersNeverLeakFixtureSecretCanaries(t *testing.T) {
 	}
 }
 
+func TestClaudeAndAgyAdaptersNeverLeakSecretCanaries(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"claude", "agy"} {
+		payload, err := json.Marshal(inventory.Redact(fixtureAdapter(t, name).Normalize(fixtureOutputs(t, name)), fixtureSecret))
+		if err != nil {
+			t.Fatalf("json.Marshal(%s) error = %v", name, err)
+		}
+		for _, forbidden := range []string{fixtureSecret, "91ef", "/secret/", "unknown_future"} {
+			if strings.Contains(string(payload), forbidden) {
+				t.Fatalf("%s snapshot leaks %q: %s", name, forbidden, payload)
+			}
+		}
+	}
+}
+
 func TestAdaptersNeverPromoteRawOutputAsSafeIdentifiers(t *testing.T) {
 	t.Parallel()
 
 	const secret = "BATUTA_FIELD_SECRET_73ce"
-	for _, name := range []string{"compozy", "codex", "opencode", "cursor"} {
+	for _, name := range []string{"compozy", "codex", "opencode", "cursor", "claude", "agy"} {
 		adapter := fixtureAdapter(t, name)
 		outputs := fixtureOutputs(t, name)
 		if name == "compozy" {
@@ -215,6 +312,10 @@ func TestAdaptersNeverPromoteRawOutputAsSafeIdentifiers(t *testing.T) {
 				outputs[adapter.ProbeID("models")] = []byte("provider/" + secret + "\n")
 			case "cursor":
 				outputs[adapter.ProbeID("models")] = []byte(secret + " - injected\n")
+			case "claude":
+				outputs[adapter.ProbeID("plugins")] = []byte(`{"plugins":[{"id":"` + secret + `"}]}`)
+			case "agy":
+				outputs[adapter.ProbeID("agents")] = []byte(secret + "\n")
 			}
 		}
 		payload, err := json.Marshal(inventory.Redact(adapter.Normalize(outputs)))
@@ -422,10 +523,26 @@ func fixtureAdapter(t *testing.T, name string) Adapter {
 		return mustNewOpenCode(t, "/opt/bin/opencode")
 	case "cursor":
 		return mustNewCursor(t, "/opt/bin/agent")
+	case "claude":
+		return mustNewClaude(t, "/opt/bin/claude")
+	case "agy":
+		return mustNewAgy(t, "/opt/bin/agy")
 	default:
 		t.Fatalf("unknown fixture adapter %q", name)
 		return nil
 	}
+}
+
+func mustNewClaude(t *testing.T, executable string) Adapter {
+	t.Helper()
+	adapter, err := NewClaude(executable)
+	return mustAdapter(t, adapter, err)
+}
+
+func mustNewAgy(t *testing.T, executable string) Adapter {
+	t.Helper()
+	adapter, err := NewAgy(executable)
+	return mustAdapter(t, adapter, err)
 }
 
 func mustAdapter(t *testing.T, adapter Adapter, err error) Adapter {

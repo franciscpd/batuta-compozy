@@ -60,17 +60,13 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 	planner := publication.PublicationPlanner{Compozy: client, Git: git}
 	publisher := publication.Publisher{Planner: planner, Compozy: client, Git: git}
 	verifier := publication.Verifier{Planner: planner, Git: git}
-	collectorPaths := inventoryExecutables{
-		Compozy:  compozyExecutable,
-		Codex:    optionalExecutable("codex"),
-		OpenCode: optionalExecutable("opencode"),
-		Cursor:   optionalExecutable("agent"),
-	}
+	collectorPaths := discoverInventoryExecutables(compozyExecutable)
 	inventoryService := func(ctx context.Context, scope publication.TrustedScope) (inventory.InventorySnapshot, error) {
 		collector, err := adapters.NewCollector(runner, adapters.CollectorOptions{
 			TrustedWorkspace: scope.WorkspaceRoot, WorkspaceID: scope.WorkspaceID,
 			CompozyExecutable: collectorPaths.Compozy, CodexExecutable: collectorPaths.Codex,
 			OpenCodeExecutable: collectorPaths.OpenCode, CursorExecutable: collectorPaths.Cursor,
+			ClaudeExecutable: collectorPaths.Claude, AgyExecutable: collectorPaths.Agy,
 			ProbeParallelism: 16,
 		})
 		if err != nil {
@@ -152,6 +148,15 @@ type inventoryExecutables struct {
 	Codex    string
 	OpenCode string
 	Cursor   string
+	Claude   string
+	Agy      string
+}
+
+func discoverInventoryExecutables(compozyExecutable string) inventoryExecutables {
+	return inventoryExecutables{
+		Compozy: compozyExecutable, Codex: optionalExecutable("codex"), OpenCode: optionalExecutable("opencode"),
+		Cursor: optionalExecutable("agent"), Claude: optionalExecutable("claude"), Agy: optionalExecutable("agy"),
+	}
 }
 
 func optionalExecutable(name string) string {
