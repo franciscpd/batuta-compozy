@@ -4,12 +4,19 @@ import sys
 
 
 def select_pair(providers, models):
-    usable_providers = {
-        row["name"]
-        for row in providers
-        if row.get("auth_status", {}).get("state")
-        not in {"missing_cli", "missing_credential"}
-    }
+    usable_providers = set()
+    for row in providers:
+        name = row.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        state = (row.get("auth_status") or {}).get("state")
+        if state not in {
+            "missing_cli",
+            "missing_credential",
+            "needs_login",
+            "permission_denied",
+        }:
+            usable_providers.add(name)
 
     candidates = []
     for row in models:

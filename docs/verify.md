@@ -73,6 +73,13 @@ The exact source pin is a development compatibility floor; validate the public
 surface of the daemon you will operate. A local path install cannot use
 `compozy extension update`; rebuild and reinstall the validated generation.
 
+Provider/model availability comes only from the live Compozy catalog. The
+extension may enrich that evidence with bounded local probes for Codex,
+OpenCode, Cursor Agent, Claude Code, and Agy. It does not log in, install,
+refresh configuration, or call Agy's authenticated network-backed `models`
+command. Live Claude/Agy execution is qualified only when the daemon reports
+the exact pair as `available_live` and child runtime provenance confirms it.
+
 ## Release verification
 
 The release workflow accepts only a full candidate SHA and an unused beta SemVer.

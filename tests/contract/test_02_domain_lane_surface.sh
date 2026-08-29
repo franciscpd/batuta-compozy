@@ -9,6 +9,11 @@ import re
 agent = Path("agents/batuta/AGENT.md").read_text(encoding="utf-8")
 loop = Path("loops/batuta-deliver/loop.yaml").read_text(encoding="utf-8")
 skill = Path("resources/skills/batuta-routing/SKILL.md").read_text(encoding="utf-8")
+readme_en = Path("README.md").read_text(encoding="utf-8")
+readme_pt = Path("README.pt-BR.md").read_text(encoding="utf-8")
+flatten = lambda text: " ".join(text.split())
+agent_flat = flatten(agent)
+skill_flat = flatten(skill)
 
 frontmatter = agent.split("---", 2)[1]
 assert "permissions: approve-all" in frontmatter
@@ -52,12 +57,17 @@ assert "compozy tool invoke <tool-id>" in agent
 assert "--session <current-session-id>" in agent
 assert "--workspace <current-workspace-id-or-path>" in agent
 assert "Never omit `--workspace`" in agent
-assert "must exist in both" in agent
 assert "routing_fit_retryable" in agent
 assert "grok-4.6[effort=high,fast=true]" in agent
 assert "highest fit score for every eligible `frontend` cell" in agent
 assert "routing discriminators" in agent
 assert "hard_capability_unresolved" in agent
+assert "Compozy is the only provider/model execution authority" in agent_flat
+assert "`executor_id: compozy`" in agent_flat
+assert "Never submit `enrichment_ids`" in agent_flat
+assert "A missing enricher cannot exclude a live pair" in agent_flat
+assert "Claude Code and Agy are optional enrichers, not execution backends" in agent_flat
+assert "never calls `agy models` automatically" in agent_flat
 assert "compozy__config_set" in agent
 assert "preserve every existing entry" in agent
 assert "one-time operator configuration prerequisite" not in agent
@@ -85,14 +95,33 @@ for required in (
     "does not write Compozy Loop configuration",
     "fresh Compozy parent run",
     "id > type + complexity > type > complexity",
+    "Compozy is the only provider/model execution authority",
+    "`executor_id: compozy`",
+    "Never submit `enrichment_ids`",
+    "A missing enricher cannot exclude a live pair",
+    "Claude Code and Agy are optional enrichers, not execution backends",
+    "never calls `agy models` automatically",
 ):
-    assert required in skill, required
+    assert required in skill_flat, required
 for stale in (
     "confirmation before storing",
     "ask the operator what their account enables",
     "write a surgical `id` rule",
 ):
     assert stale not in skill, stale
+
+for text, required in (
+    (readme_en, "Compozy is the only provider/model execution authority"),
+    (readme_en, "Claude Code and Agy are optional evidence enrichers"),
+    (readme_pt, "O Compozy é a única autoridade de execução de provider/modelo"),
+    (readme_pt, "Claude Code e Agy são enriquecedores opcionais de evidência"),
+):
+    assert required in flatten(text), required
+for text in (agent, skill, readme_en, readme_pt):
+    lowered = text.lower()
+    assert "patch compozy" not in lowered
+    assert "compozy migration" not in lowered
+    assert "rewrite compozy config" not in lowered
 
 print("OK: Batuta owns inventory, domain routing, matrix apply, and bounded fallback without a human gate")
 PY

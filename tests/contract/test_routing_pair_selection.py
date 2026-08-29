@@ -65,6 +65,60 @@ class SelectRoutingPairTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
             select_pair(self.providers, models)
 
+    def test_rejects_all_authoritative_ineligible_auth_states(self):
+        models = []
+        providers = []
+        for index, state in enumerate(
+            ("missing_cli", "missing_credential", "needs_login", "permission_denied")
+        ):
+            provider = f"provider-{index}"
+            providers.append({"name": provider, "auth_status": {"state": state}})
+            models.append(
+                {
+                    "provider_id": provider,
+                    "model_id": "live-model",
+                    "availability_state": "available_live",
+                }
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
+            select_pair(providers, models)
+
+    def test_unknown_auth_remains_degraded_but_live(self):
+        providers = [
+            {"name": "unknown-provider", "auth_status": {"state": "unknown"}},
+            {"name": "configured-provider", "auth_status": {"state": "configured"}},
+        ]
+        models = [
+            {
+                "provider_id": "unknown-provider",
+                "model_id": "a-live",
+                "availability_state": "available_live",
+            },
+            {
+                "provider_id": "configured-provider",
+                "model_id": "z-live",
+                "availability_state": "available_live",
+            },
+        ]
+
+        self.assertEqual(select_pair(providers, models), ("configured-provider", "z-live"))
+
+    def test_null_auth_and_nameless_provider_are_bounded_unknown_evidence(self):
+        providers = [
+            {"name": "unknown-provider", "auth_status": None},
+            {"auth_status": {"state": "configured"}},
+        ]
+        models = [
+            {
+                "provider_id": "unknown-provider",
+                "model_id": "live-model",
+                "availability_state": "available_live",
+            }
+        ]
+
+        self.assertEqual(select_pair(providers, models), ("unknown-provider", "live-model"))
+
 
 if __name__ == "__main__":
     unittest.main()

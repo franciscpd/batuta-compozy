@@ -58,6 +58,21 @@ def valid_evidence() -> dict:
         "delivery_id": DELIVERY_ID,
         "journal": {
             "schema_version": 2,
+            "generations": {
+                GENERATION: {
+                    "cells": [
+                        {
+                            "task_ids": ["task_01", "task_02"],
+                            "selected": {
+                                "executor_id": "compozy",
+                                "provider_id": CURSOR[0],
+                                "model_id": CURSOR[1],
+                                "enrichment_ids": ["cursor-agent"],
+                            },
+                        }
+                    ]
+                }
+            },
             "deliveries": {
                 DELIVERY_ID: {
                     "delivery_id": DELIVERY_ID,
@@ -109,6 +124,22 @@ class AssertDomainRoutingTest(unittest.TestCase):
                 1
             ].update(child_run_ids=["implement_1"]),
             lambda value: value["publication"].update(verified=False),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                evidence = copy.deepcopy(valid_evidence())
+                mutate(evidence)
+                with self.assertRaises(AssertionError):
+                    assert_domain_routing(evidence, GENERATION, "task_02", CURSOR, CODEX)
+
+    def test_rejects_non_compozy_owner_or_noncanonical_enrichment(self) -> None:
+        mutations = (
+            lambda value: value["journal"]["generations"][GENERATION]["cells"][0][
+                "selected"
+            ].update(executor_id="cursor-agent"),
+            lambda value: value["journal"]["generations"][GENERATION]["cells"][0][
+                "selected"
+            ].update(enrichment_ids=["cursor-agent", "cursor-agent"]),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate):

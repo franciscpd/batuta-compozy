@@ -14,6 +14,17 @@ def assert_domain_routing(
     journal = evidence["journal"]
     delivery_id = evidence["delivery_id"]
     assert journal["schema_version"] == 2
+    generation = journal["generations"][expected_generation]
+    frontend_cell = next(
+        cell for cell in generation["cells"] if frontend_task_id in cell["task_ids"]
+    )
+    assert frontend_cell["selected"]["executor_id"] == "compozy"
+    enrichment_ids = frontend_cell["selected"].get("enrichment_ids", [])
+    assert enrichment_ids == sorted(set(enrichment_ids))
+    assert not any(
+        key in frontend_cell["selected"]
+        for key in ("raw_output", "capabilities", "diagnostics", "credentials")
+    )
     delivery = journal["deliveries"][delivery_id]
     assert delivery["delivery_id"] == delivery_id
     assert delivery["routing_generation_digest"] == expected_generation

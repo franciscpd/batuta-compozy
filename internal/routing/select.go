@@ -256,6 +256,9 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 	if !exists || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated {
 		return "catalog_pair_unavailable"
 	}
+	if model.CredentialState == inventory.CredentialMissing {
+		return "credential_missing"
+	}
 	if binding.ExecutorID != inventory.ExecutorCompozy && !executorHasModel(executor, binding.ProviderID, binding.ModelID) && !catalogModelOwnedByExecutor(binding.ExecutorID, binding.ProviderID) {
 		return "executor_model_unproven"
 	}

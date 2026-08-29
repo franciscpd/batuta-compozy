@@ -654,6 +654,17 @@ func TestSelectorRejectsRecommendationForKnownButIneligibleCandidate(t *testing.
 	}
 }
 
+func TestSelectorRejectsCallerBindingForCatalogPairWithMissingCredential(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixture()
+	fixture.Catalog.Models[0].CredentialState = inventory.CredentialMissing
+	fixture.Fit[0].Candidates = nil
+	if _, err := fixture.Select(); !errors.Is(err, ErrNoEligibleCandidate) {
+		t.Fatalf("Select(caller binding with missing catalog credential) error = %v, want ErrNoEligibleCandidate", err)
+	}
+}
+
 func TestDefaultSelectionPolicyClassifiesCursorGrok46AsFrontier(t *testing.T) {
 	t.Parallel()
 

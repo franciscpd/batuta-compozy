@@ -24,6 +24,16 @@ The Go extension exposes exactly these executable resources:
 The bundled `spec-cycle` supplies SDD authoring and canonical task import. It
 does not authorize Batuta to edit implementation files.
 
+## Runtime authority and enrichment
+
+Compozy's live catalog is the sole provider/model execution authority. Batuta
+creates one candidate per eligible live pair with execution owner `compozy`.
+Codex, OpenCode, Cursor Agent, Claude Code, and Agy are bounded optional
+enrichers: their resolved evidence may prove capability fit, but their absence
+cannot remove a live pair. Caller input cannot supply enrichment identities.
+Agy never rewrites runtime IDs, and its authenticated network-backed `models`
+command is deliberately outside automatic inventory.
+
 ## Data flow
 
 ```text

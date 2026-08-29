@@ -39,10 +39,20 @@ unknown is ineligible; Batuta never treats uncertainty as a fallback.
 Credentials, tokens, raw command output, raw configuration, environment values,
 and task bodies never enter the public inventory or routing journal.
 
-The supported executor IDs are `compozy`, `codex`, `opencode`, and
-`cursor-agent`. Their configuration informs capability fit, but runtime
-provider/model pairs must also exist exactly in the live Compozy catalog;
-Compozy remains the execution authority.
+Compozy is the only provider/model execution authority. New fit candidates use
+`executor_id: compozy` plus an exact `provider_id + model_id` pair from the live
+Compozy catalog. The legacy closed executor IDs `codex`, `opencode`, and `cursor-agent`
+remain accepted for archived request compatibility but are ignored by fit
+identity. Never submit `enrichment_ids`; the extension derives them.
+
+Claude Code and Agy are optional enrichers, not execution backends. A missing
+enricher cannot exclude a live pair. Resolved enrichment may prove capability
+fit, while declared or unknown evidence cannot prove a hard requirement.
+Unknown provider auth is degraded, not absent; explicit `missing_cli`,
+`missing_credential`, `needs_login`, and `permission_denied` states are
+ineligible. Agy never rewrites a runtime ID and Batuta never calls `agy models`
+automatically because it is an authenticated network fetch. Agy-backed models
+remain generic live catalog pairs owned by Compozy.
 
 ## Taxonomy
 
@@ -76,7 +86,7 @@ a hard capability remains unresolved.
 
 Rank eligible candidates deterministically by validated fit, resolved health,
 model quality, compatible permission posture, cost, then stable
-`executor_id/provider_id/model_id`. Provider and model IDs are copied verbatim
+`provider_id/model_id`. Provider and model IDs are copied verbatim
 from the live catalog; never normalize provider-specific model prefixes.
 
 Each cell stores one selected runtime and a floor-preserving fallback chain:

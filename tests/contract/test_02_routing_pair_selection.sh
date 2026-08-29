@@ -8,14 +8,17 @@ python3 - resources/skills/batuta-routing/SKILL.md <<'PY'
 import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
+flat = " ".join(text.split())
 for required in (
     "domain × complexity",
     "id > type + complexity > type > complexity",
     "immutable routing generation",
     "live Compozy catalog",
     "unknown is ineligible",
+    "unknown provider auth is degraded",
+    "missing enricher cannot exclude a live pair",
 ):
-    assert required in text, required
+    assert required.lower() in flat.lower(), required
 for domain in (
     "backend", "frontend", "mobile", "data", "infra",
     "security", "testing", "docs", "general", "fullstack",

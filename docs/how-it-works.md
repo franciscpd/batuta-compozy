@@ -21,12 +21,16 @@ does not use an SDD card as an in-delivery answer channel.
 
 ## 2. Automatic inventory and immutable routing
 
-`ext__batuta__executor_inventory` creates a redacted snapshot of Compozy,
-Codex, Cursor, OpenCode, and supported local-agent capabilities. Batuta then
+`ext__batuta__executor_inventory` creates a redacted snapshot of Compozy's live
+catalog plus bounded optional evidence from Codex, Cursor, OpenCode, Claude
+Code, and Agy. Compozy is the only provider/model execution authority. Batuta
 uses `ext__batuta__routing_plan` and `ext__batuta__routing_apply` to cover every
-task exactly once by domain × complexity. Exact live bindings are required; for
-example, `backend/low` and `frontend/medium` can select different runtimes, and
-Cursor/Grok 4.6 is eligible only when that exact ACP binding is in inventory.
+task exactly once by domain × complexity. New fit requests use
+`executor_id: compozy` and an exact live provider/model pair. Enricher absence
+never removes that pair; resolved evidence can improve fit or prove a hard
+capability. For example, `backend/low` and `frontend/medium` may select different
+live pairs while retaining the same Compozy execution owner. Agy model listing
+is network-backed and is not probed automatically.
 
 `apply_matrix` archives an immutable generation, canonical task snapshot,
 integration worktree, and stable `delivery_id`. Stored Compozy Loop configuration is never mutated.

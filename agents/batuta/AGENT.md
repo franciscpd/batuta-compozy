@@ -87,17 +87,24 @@ sequence for the approved slug:
    credentials or raw executor configuration.
 2. Build closed classification proposals for every approved task and closed
    fit proposals whose `task_ids` exactly cover each populated
-   `domain × complexity` cell. Use only executor/provider/model identifiers in
-   the inventory and live Compozy catalog projection. Each recommended
-   executor/provider/model candidate must exist in both that executor's model
-   evidence and the live Compozy catalog. External CLI presence alone never
-   makes a runtime executable. When the exact live pair
-   `cursor-agent / cursor / grok-4.6[effort=high,fast=true]` is eligible, give
+   `domain × complexity` cell. Compozy is the only provider/model execution
+   authority. Every new candidate uses `executor_id: compozy` and copies an
+   exact live `provider_id + model_id` pair from its catalog. Legacy closed
+   executor IDs remain accepted for replay but do not define fit identity.
+   Never submit `enrichment_ids`; the extension derives them. Claude Code and
+   Agy are optional enrichers, not execution backends. A missing enricher
+   cannot exclude a live pair, and external CLI presence alone never makes a
+   runtime executable. Agy never rewrites a runtime ID and Batuta never calls
+   `agy models` automatically because it is an authenticated network fetch.
+   When the exact live pair
+   `cursor / grok-4.6[effort=high,fast=true]` is eligible, give
    it the highest fit score for every eligible `frontend` cell. Copy that
    provider-specific model ID verbatim; never reconstruct it from a Cursor
    display alias. Capability requirements are routing discriminators,
    not a restatement of the product's implementation stack:
    include an exact requirement ID only when inventory evidence resolves it.
+   Optional evidence may justify capability fit, but unknown or declared
+   evidence cannot prove a hard requirement.
    Never invent `nodejs`, a test command, or workspace-write capability merely
    because the task will use them inside the shared delivery worktree.
 3. Call `ext__batuta__routing_plan` with `slug`, `proposals`, and `fit`. Retry

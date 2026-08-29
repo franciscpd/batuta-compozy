@@ -68,7 +68,8 @@ unavailable external value; the answer resumes that same task/worktree.
 Batuta then:
 
 1. authors and approves the SDD and canonical task graph;
-2. inventories Compozy, Codex, OpenCode, and Cursor Agent without exposing
+2. reads Compozy's live provider/model catalog and optional bounded evidence
+   from Codex, OpenCode, Cursor Agent, Claude Code, and Agy without exposing
    secrets, then makes domain × complexity runtime choices;
 3. admits dependency-safe task waves with max-four dependency-safe parallelism
    in isolated task worktrees, never concurrent writers in one worktree;
@@ -82,10 +83,12 @@ budget, stale/ambiguous evidence, cancellation, blocked publication, or retained
 diagnostic worktrees halt the graph and keep truthful journal evidence rather
 than starting another generation.
 
-For example, a frontend cell can select Cursor Agent with the exact live ACP
-ID `cursor/grok-4.6[effort=high,fast=true]`, while a backend cell selects a
-different executor/model. Foreign executor configuration informs capability
-selection, but only bindings reported by Compozy can execute.
+Compozy is the only provider/model execution authority. For example, a
+frontend cell can select the exact live ACP pair
+`cursor/grok-4.6[effort=high,fast=true]`, while a backend cell selects another
+live provider/model pair. Claude Code and Agy are optional evidence enrichers,
+not execution backends; missing either never removes a live Compozy pair. Agy's
+network-backed `models` command is not called by automatic inventory.
 
 The complete contracts are in [docs/how-it-works.md](docs/how-it-works.md) and
 [docs/architecture.md](docs/architecture.md).

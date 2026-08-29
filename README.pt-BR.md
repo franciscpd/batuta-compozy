@@ -68,8 +68,9 @@ material ou valor externo indisponível; a resposta retoma a mesma task/worktree
 O Batuta então:
 
 1. cria e aprova o SDD e o grafo canônico de tasks;
-2. inventaria Compozy, Codex, OpenCode e Cursor Agent sem expor secrets, e faz
-   escolhas de runtime por domínio × complexidade;
+2. lê o catálogo vivo de providers/modelos do Compozy e evidência bounded
+   opcional de Codex, OpenCode, Cursor Agent, Claude Code e Agy sem expor
+   secrets, e faz escolhas de runtime por domínio × complexidade;
 3. admite ondas de tasks dependentes com paralelismo seguro de no máximo quatro
    em worktrees de task isolados, nunca dois writers no mesmo worktree;
 4. integra cada commit verificado no worktree canônico de integração; um conflito
@@ -82,10 +83,12 @@ orçamento esgotado, evidência ambígua/desatualizada, cancelamento, publicaç�
 bloqueada ou worktrees de diagnóstico retidos param o grafo e preservam a
 evidência verdadeira no journal, sem iniciar outra geração.
 
-Por exemplo, uma célula frontend pode selecionar Cursor Agent com o ID ACP vivo
-exato `cursor/grok-4.6[effort=high,fast=true]`, enquanto backend usa outro
-executor/modelo. Configuração externa informa capacidade, mas somente bindings
-reportados pelo Compozy podem executar.
+O Compozy é a única autoridade de execução de provider/modelo. Por exemplo,
+uma célula frontend pode selecionar o par ACP vivo exato
+`cursor/grok-4.6[effort=high,fast=true]`, enquanto backend usa outro par vivo.
+Claude Code e Agy são enriquecedores opcionais de evidência, não backends de
+execução; a ausência deles nunca remove um par vivo do Compozy. O inventário
+automático não chama o comando de rede `agy models`.
 
 Os contratos completos estão em [docs/how-it-works.md](docs/how-it-works.md) e
 [docs/architecture.md](docs/architecture.md).
