@@ -63,6 +63,74 @@ func TestRoutingPlanReturnsActionableDomainErrors(t *testing.T) {
 	}
 }
 
+func TestRoutingApplyReturnsActionableReplanErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		applyErr      error
+		reasonCode    string
+		secondaryCode string
+	}{
+		{
+			name: "model below floor",
+			applyErr: fmt.Errorf(
+				"%w: candidate rejected: model_below_floor",
+				routing.ErrSelectionRetryable,
+			),
+			reasonCode:    "routing_fit_retryable",
+			secondaryCode: "model_below_floor",
+		},
+		{
+			name:       "catalog drift",
+			applyErr:   routing.ErrCatalogDrift,
+			reasonCode: "catalog_drift",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			app := application{services: serviceSet{routingApply: func(
+				context.Context,
+				publication.TrustedScope,
+				RoutingApplyInput,
+			) (RoutingApplyOutput, error) {
+				return RoutingApplyOutput{}, tt.applyErr
+			}}}
+
+			_, err := app.routingApply(
+				context.Background(),
+				&compozysdk.ExtensionToolWorkspaceScope{ID: "ws_demo", Root: "/workspace"},
+				RoutingApplyInput{
+					Operation:                RoutingOperationAlignmentStatus,
+					RoutingPlan:              &RoutingPlanInput{Slug: "demo"},
+					ExpectedGenerationDigest: digestValue("generation"),
+				},
+			)
+			var rpcErr *compozysdk.RPCError
+			if !errors.As(err, &rpcErr) || rpcErr.Code != -32010 {
+				t.Fatalf("routingApply() error = %#v, want canonical tool execution RPC error", err)
+			}
+			var data struct {
+				Code        string   `json:"code"`
+				ReasonCodes []string `json:"reason_codes"`
+			}
+			if json.Unmarshal(rpcErr.Data, &data) != nil || data.Code != "tool_invalid_input" ||
+				len(data.ReasonCodes) == 0 || data.ReasonCodes[0] != tt.reasonCode {
+				t.Fatalf("routingApply() error data = %s, want reason_code %q", rpcErr.Data, tt.reasonCode)
+			}
+			if tt.secondaryCode != "" &&
+				(len(data.ReasonCodes) != 2 || data.ReasonCodes[1] != tt.secondaryCode) {
+				t.Fatalf(
+					"routingApply() error data = %s, want secondary reason_code %q",
+					rpcErr.Data,
+					tt.secondaryCode,
+				)
+			}
+		})
+	}
+}
+
 func TestRoutingPlanSchemaAcceptsOnlySlugClassificationAndFit(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +311,40 @@ func TestRoutingApplyBootstrapsOnlyConfirmedGenerationAtTrustedWorkspaceRoot(t *
 	})
 	if !errors.Is(err, routing.ErrRoutingAlignmentRequired) || bootstrapCalls != 1 {
 		t.Fatalf("Apply(unconfirmed bootstrap) error = %v, calls %d", err, bootstrapCalls)
+	}
+}
+
+func TestRoutingApplyRejectedReplanNeverBootstrapsRepository(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRoutingTask(t, root)
+	bootstrapCalls := 0
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			return routingInventory(t, nil), nil
+		},
+		bootstrapRepository: func(context.Context, string) (repository.BootstrapResult, error) {
+			bootstrapCalls++
+			return repository.BootstrapResult{}, nil
+		},
+	}
+	input := routingPlanFixture()
+	input.Fit[0].Candidates[0].ProviderID = "missing-provider"
+	input.Fit[0].Candidates[0].ModelID = "missing-model"
+
+	_, err := engine.Apply(context.Background(), publication.TrustedScope{
+		WorkspaceID: "ws_demo", WorkspaceRoot: root,
+	}, RoutingApplyInput{
+		Operation:                RoutingOperationBootstrapRepository,
+		RoutingPlan:              &input,
+		ExpectedGenerationDigest: digestValue("invented"),
+	})
+	if !errors.Is(err, routing.ErrSelectionRetryable) {
+		t.Fatalf("Apply() error = %v, want ErrSelectionRetryable", err)
+	}
+	if bootstrapCalls != 0 {
+		t.Fatalf("bootstrap calls = %d, want 0", bootstrapCalls)
 	}
 }
 

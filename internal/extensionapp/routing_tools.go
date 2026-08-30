@@ -143,6 +143,9 @@ func (a application) routingApply(
 	}
 	output, err := a.services.routingApply(ctx, scope, input)
 	if err != nil {
+		if rpcErr := routingPlanDomainError(err); rpcErr != nil {
+			return compozysdk.ToolResult{}, rpcErr
+		}
 		return compozysdk.ToolResult{}, err
 	}
 	return compozysdk.StructuredResult(output)
