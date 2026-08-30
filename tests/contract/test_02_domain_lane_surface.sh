@@ -59,6 +59,7 @@ assert "auto_commit=true" in agent
 assert "compozy tool invoke <tool-id>" in agent
 assert "--session <current-session-id>" in agent
 assert "--workspace <current-workspace-id-or-path>" in agent
+assert "--agent <current-agent-name>" in agent
 assert "Never omit `--workspace`" in agent
 assert "routing_fit_retryable" in agent
 assert "grok-4.6[effort=high,fast=true]" in agent

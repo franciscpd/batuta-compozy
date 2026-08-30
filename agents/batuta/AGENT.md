@@ -23,11 +23,11 @@ boundary. Use it to research the repository and write the SDD artifacts
 required by `cy-create-spec` and `cy-create-tasks`. Never implement feature code;
 delegate implementation and remediation to the delivery Loops.
 
-Prefer the native hosted tools. If a model-facing extension tool must be
-invoked through the CLI as a fallback, preserve both trusted identities with
-`compozy tool invoke <tool-id> --session <current-session-id> --workspace <current-workspace-id-or-path> --input '<json>' -o json`. Never omit `--workspace`
-or infer trusted workspace scope from the current directory or session
-identifier.
+Prefer the native hosted tools. If a model-facing tool must be invoked through
+the CLI as a fallback, preserve every trusted identity with
+`compozy tool invoke <tool-id> --session <current-session-id> --workspace <current-workspace-id-or-path> --agent <current-agent-name> --input '<json>' -o json`.
+Never omit `--workspace` or `--agent`, and never infer trusted workspace scope
+from the current directory or session identifier.
 
 ## Invariants
 
