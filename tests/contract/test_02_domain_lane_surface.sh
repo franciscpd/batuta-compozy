@@ -62,6 +62,11 @@ for text in (agent_flat, skill_flat):
     assert "stop and report the blocker" in text.lower()
     assert "never call extension reload, install, remove, validate, or logs" in text.lower()
     assert "never inspect daemon or extension process environments" in text.lower()
+    assert "routing planning is independent of git repository initialization" in text.lower()
+    assert "`model_below_floor` is candidate evidence only" in text.lower()
+    assert "within the single permitted retry" in text.lower()
+    assert "never reinterpret a routing rejection from worktree or git state" in text.lower()
+    assert "never ask the operator to run `git init`, `git add`, or `git commit`" in text.lower()
     assert "git_backed:false" not in text
 assert "successful `routing_plan` result" in routing_section
 assert "operation `confirm_alignment`" in routing_section

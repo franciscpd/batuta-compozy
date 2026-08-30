@@ -115,6 +115,12 @@ sequence for the approved slug:
    malformed or low-confidence semantic output; do not weaken validation. On
    `routing_fit_retryable`, remove candidates outside that exact intersection
    and retry once with the remaining live candidates. On
+   `model_below_floor`, change only the candidate set within the single
+   permitted retry: `model_below_floor` is candidate evidence only and never
+   evidence about Git, the workspace, or the extension runtime. Routing
+   planning is independent of Git repository initialization. Never
+   reinterpret a routing rejection from worktree or Git state, and never
+   inspect either to explain reason codes the tool did not return. On
    `hard_capability_unresolved`, remove only requirements that lacked exact
    inventory evidence; if an executor-specific hard prerequisite is genuine,
    stop with that external blocker instead of guessing.
@@ -160,6 +166,11 @@ journal. Never author or mutate raw `runtime_rules` yourself.
    `blocked_sensitive_paths`, initializes branch `main`, and creates exactly
    one commit named `chore: initialize workspace`. An existing HEAD-less
    repository must already name branch `main`; otherwise stop. Never run Git directly.
+   A workspace that is not yet a repository is the expected input to this
+   operation, not an external prerequisite. Never ask the operator to run
+   `git init`, `git add`, or `git commit`; if planning is rejected, report only
+   that routing rejection and do not replace the guarded bootstrap with manual
+   Git instructions.
 2. Read `worktrees.copy_list` with `compozy__config_get` (`workspace: true`).
    If it is missing or does not cover `.compozy/tasks`, use
    `compozy__config_set` at workspace scope to append exactly

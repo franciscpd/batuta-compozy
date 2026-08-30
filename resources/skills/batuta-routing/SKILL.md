@@ -100,8 +100,14 @@ Copy its returned generation digest verbatim with the byte-equivalent request.
 Never construct, hash, infer, or reuse a digest from inventory, rejected
 output, another request, or another session. A `routing_fit_retryable` result
 permits one corrected proposal containing only the remaining exact live
-candidates. A second routing rejection is terminal: report its exact reason
-codes and make zero `routing_apply` calls or delivery mutations.
+candidates. Within the single permitted retry, `model_below_floor` is
+candidate evidence only: change only the candidate set and never treat it as
+evidence about Git, the workspace, or the extension runtime. Routing planning
+is independent of Git repository
+initialization. Never reinterpret a routing rejection from worktree or Git
+state, and never inspect either to explain reason codes the tool did not
+return. A second routing rejection is terminal: report its exact reason codes
+and make zero `routing_apply` calls or delivery mutations.
 
 ## Operator alignment and repository bootstrap
 
@@ -135,7 +141,11 @@ respects `.gitignore`, rejects unignored sensitive material with
 `chore: initialize workspace`. Batuta never runs Git directly. A blocked new
 repository removes only the `.git` directory created by this operation and
 does not change project files. An existing HEAD-less repository is accepted
-only when its current branch is already `main`.
+only when its current branch is already `main`. A workspace that is not yet a
+repository is the expected input to this operation, not an external
+prerequisite. Never ask the operator to run `git init`, `git add`, or
+`git commit`; if planning is rejected, report only that routing rejection and
+do not replace the guarded bootstrap with manual Git instructions.
 
 ## Immutable routing generation
 
