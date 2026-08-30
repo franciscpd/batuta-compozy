@@ -52,6 +52,20 @@ assert routing_section.index("operation `alignment_status`") < routing_section.i
 assert routing_section.index("ext__batuta__routing_plan") < routing_section.index("operation `alignment_status`")
 assert delivery_section.index("operation `bootstrap_repository`") < delivery_section.index("compozy__worktree_create")
 assert delivery_section.index("operation `apply_matrix`") < delivery_section.index("operation `start_delivery`")
+for text in (agent_flat, skill_flat):
+    assert "a successful `routing_plan` result is the only authority" in text.lower()
+    assert "copy its returned generation digest verbatim" in text.lower()
+    assert "never construct, hash, infer, or reuse a digest" in text.lower()
+    assert "a second routing rejection is terminal" in text.lower()
+    assert "zero `routing_apply` calls" in text.lower()
+    assert "one `compozy__tool_info` read" in text.lower()
+    assert "stop and report the blocker" in text.lower()
+    assert "never call extension reload, install, remove, validate, or logs" in text.lower()
+    assert "never inspect daemon or extension process environments" in text.lower()
+    assert "git_backed:false" not in text
+assert "successful `routing_plan` result" in routing_section
+assert "operation `confirm_alignment`" in routing_section
+assert "operation `bootstrap_repository`" in delivery_section
 assert "present the derived table" in agent_flat.lower()
 assert "blocked_sensitive_paths" in agent
 assert "chore: initialize workspace" in agent

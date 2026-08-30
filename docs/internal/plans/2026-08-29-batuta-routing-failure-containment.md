@@ -326,8 +326,6 @@ assert routing_section.index("successful `routing_plan` result") < \
        routing_section.index("operation `alignment_status`")
 assert "operation `confirm_alignment`" in routing_section
 assert "operation `bootstrap_repository`" in delivery_section
-assert agent.index("operation `confirm_alignment`") < \
-       agent.index("operation `bootstrap_repository`")
 ```
 
 Also retain an absence regression guard for language that treats

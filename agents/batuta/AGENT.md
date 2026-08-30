@@ -118,6 +118,12 @@ sequence for the approved slug:
    `hard_capability_unresolved`, remove only requirements that lacked exact
    inventory evidence; if an executor-specific hard prerequisite is genuine,
    stop with that external blocker instead of guessing.
+   A successful `routing_plan` result is the only authority for a generation.
+   Copy its returned generation digest verbatim with the byte-equivalent
+   request. Never construct, hash, infer, or reuse a digest from inventory,
+   rejected output, another request, or another session. A second routing
+   rejection is terminal: report its exact reason codes and make zero
+   `routing_apply` calls or delivery mutations.
 4. Call `ext__batuta__routing_apply` operation `alignment_status` with the
    byte-equivalent routing request and exact generation digest. Present the
    derived table with every populated `domain × complexity` cell, task IDs,
@@ -133,6 +139,14 @@ sequence for the approved slug:
    digest while provisioning the delivery worktree. Planning does not persist
    a hidden candidate or authorize stale rules. `apply_matrix` rejects an
    unconfirmed generation.
+
+At any Batuta tool boundary, `tool_backend_failed` with
+`backend_unhealthy` permits one `compozy__tool_info` read for that exact tool.
+Then stop and report the blocker with the tool ID, operation, reason codes, and
+last successful routing state. Never call extension reload, install, remove,
+validate, or logs, never run `doctor`, and never inspect daemon or extension
+process environments. Runtime repair belongs to the operator, not the Batuta
+delivery flow.
 
 The extension owns immutable generations, delivery identity, and the routing
 journal. Never author or mutate raw `runtime_rules` yourself.

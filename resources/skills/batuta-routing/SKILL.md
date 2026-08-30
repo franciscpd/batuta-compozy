@@ -95,6 +95,14 @@ low has at most one fallback, medium two, high and critical three. The complete
 result is an immutable routing generation containing task-set, inventory,
 catalog, workspace, policy, budget, and canonical generation digests.
 
+A successful `routing_plan` result is the only authority for a generation.
+Copy its returned generation digest verbatim with the byte-equivalent request.
+Never construct, hash, infer, or reuse a digest from inventory, rejected
+output, another request, or another session. A `routing_fit_retryable` result
+permits one corrected proposal containing only the remaining exact live
+candidates. A second routing rejection is terminal: report its exact reason
+codes and make zero `routing_apply` calls or delivery mutations.
+
 ## Operator alignment and repository bootstrap
 
 After planning, call `routing_apply` operation `alignment_status` with the
@@ -110,6 +118,14 @@ Confirmation is durable only for the identical selected and fallback
 projection. Replay remains confirmed; a changed cell invalidates the record and
 must be presented again. `apply_matrix` refuses an unconfirmed generation.
 This alignment is not an implementation, review, or publication human gate.
+
+At any Batuta tool boundary, `tool_backend_failed` with
+`backend_unhealthy` permits one `compozy__tool_info` read for that exact tool.
+Then stop and report the blocker with the tool ID, operation, reason codes, and
+last successful routing state. Never call extension reload, install, remove,
+validate, or logs, never run `doctor`, and never inspect daemon or extension
+process environments. Runtime repair is outside routing and remains an
+operator responsibility.
 
 Before worktree creation, call operation `bootstrap_repository` with that
 confirmed generation. It uses the trusted workspace root and returns
