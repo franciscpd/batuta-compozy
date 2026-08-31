@@ -13,8 +13,8 @@ for required in (
     "domain × complexity",
     "id > type + complexity > type > complexity",
     "immutable routing generation",
-    "live Compozy catalog",
-    "unknown is ineligible",
+    "executable catalog projection",
+    "catalog availability is unknown remains ineligible unless an available dedicated CLI adapter proves that exact provider/model pair",
     "unknown provider auth is degraded",
     "missing enricher cannot exclude a live pair",
 ):

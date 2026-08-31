@@ -32,6 +32,11 @@ capability. For example, `backend/low` and `frontend/medium` may select differen
 live pairs while retaining the same Compozy execution owner. Agy model listing
 is network-backed and is not probed automatically.
 
+Provider/model order and optional reasoning overrides belong to the current
+delivery's fit request. Batuta does not ship a domain preference for a CLI,
+provider, or model family. A live model missing from the known quality hints
+remains eligible as unclassified and is shown that way for operator review.
+
 Before mutation, Batuta renders the exact derived matrix: tasks, selected live
 provider/model/reasoning/tier, ordered fallbacks, and a cost column. Because the
 generation has no authoritative monetary cost snapshot, cost is displayed as

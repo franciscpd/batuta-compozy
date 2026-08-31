@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
@@ -50,6 +51,44 @@ func TestLiveInventorySnapshotIsStableWithoutExecutorChangesIntegration(t *testi
 		secondJSON, _ := json.Marshal(second)
 		t.Fatalf("stable inventory digest = %q then %q\nfirst=%s\nsecond=%s", first.Digest, second.Digest, firstJSON, secondJSON)
 	}
+}
+
+func TestLiveInventoryPromotesExactCodexTerraCatalogPairIntegration(t *testing.T) {
+	compozyExecutable := os.Getenv("BATUTA_LIVE_COMPOZY")
+	workspaceID := os.Getenv("BATUTA_LIVE_WORKSPACE_ID")
+	workspaceRoot := os.Getenv("BATUTA_LIVE_WORKSPACE_ROOT")
+	codexExecutable := liveExecutable("codex")
+	if compozyExecutable == "" || workspaceID == "" || workspaceRoot == "" || codexExecutable == "" {
+		t.Skip("live Batuta Codex inventory environment is not configured")
+	}
+	collector, err := adapters.NewCollector(publication.ExecRunner{}, adapters.CollectorOptions{
+		TrustedWorkspace: filepath.Clean(workspaceRoot), WorkspaceID: workspaceID,
+		CompozyExecutable: compozyExecutable, CodexExecutable: codexExecutable,
+		OpenCodeExecutable: liveExecutable("opencode"), CursorExecutable: liveExecutable("agent"),
+		ProbeParallelism: 16,
+	})
+	if err != nil {
+		t.Fatalf("NewCollector() error = %v", err)
+	}
+	snapshot, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	catalog, err := liveCatalogFromInventory(snapshot)
+	if err != nil {
+		t.Fatalf("liveCatalogFromInventory() error = %v", err)
+	}
+	bindings, err := routing.BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	for _, binding := range bindings {
+		if binding.ExecutorID == inventory.ExecutorCompozy && binding.ProviderID == "codex" &&
+			binding.ModelID == "gpt-5.6-terra" && slices.Contains(binding.EnrichmentIDs, inventory.ExecutorCodex) {
+			return
+		}
+	}
+	t.Fatalf("bindings = %#v, want executable Compozy codex/gpt-5.6-terra with Codex adapter proof", bindings)
 }
 
 func TestLiveRoutingPlanSelectsDistinctDomainComplexityCellsIntegration(t *testing.T) {
@@ -116,8 +155,9 @@ func TestLiveRoutingPlanSelectsDistinctDomainComplexityCellsIntegration(t *testi
 		}
 		t.Fatalf("Plan() error = %v\nrelevant catalog=%#v\nrelevant bindings=%#v", err, catalogRelevant, relevant)
 	}
-	if len(generation.Cells) != 2 || generation.Cells[0].Selected.ModelID != "gpt-5.6-luna" || generation.Cells[1].Selected.ModelID != "gpt-5.6-terra" {
-		t.Fatalf("routing cells = %#v, want backend/low luna and frontend/medium terra", generation.Cells)
+	if len(generation.Cells) != 2 || generation.Cells[0].Selected.ModelID != "gpt-5.6-luna" ||
+		generation.Cells[1].Selected.ProviderID != "cursor" || generation.Cells[1].Selected.ModelID != "grok-4.6[effort=high,fast=true]" {
+		t.Fatalf("routing cells = %#v, want backend/low luna and frontend/medium Cursor/Grok", generation.Cells)
 	}
 }
 

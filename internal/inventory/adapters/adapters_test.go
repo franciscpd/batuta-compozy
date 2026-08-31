@@ -373,6 +373,30 @@ func TestCompozyAdapterIncludesOnlyLiveAvailableModels(t *testing.T) {
 	t.Fatal("models capability missing")
 }
 
+func TestCompozyAdapterRetainsUnknownCatalogModelsForExactExecutorProof(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewCompozy(t, "/opt/compozy", "workspace-1")
+	outputs := map[inventory.ProbeID][]byte{
+		adapter.ProbeID("version"): []byte("0.3.0-beta.21"),
+		adapter.ProbeID("models"): []byte(`{"models":[
+			{"provider_id":"cursor","model_id":"grok-4.6[effort=high,fast=true]","availability_state":"available_live"},
+			{"provider_id":"codex","model_id":"gpt-5.6-terra","availability_state":"unknown"},
+			{"provider_id":"cursor","model_id":"stale","availability_state":"available_stale"},
+			{"provider_id":"cursor","model_id":"down","availability_state":"unavailable_live"},
+			{"provider_id":"hidden","model_id":"hidden","availability_state":"unknown","hidden":true},
+			{"provider_id":"deprecated","model_id":"deprecated","availability_state":"unknown","deprecated":true}
+		]}`),
+	}
+	snapshot := adapter.Normalize(outputs)
+	if got := evidenceIdentifiers(snapshot.Capabilities, "models"); !slices.Equal(got, []string{"cursor/grok-4.6[effort=high,fast=true]"}) {
+		t.Fatalf("live models = %#v, want only available_live", got)
+	}
+	if got := evidenceIdentifiers(snapshot.Capabilities, "catalog_models_unknown"); !slices.Equal(got, []string{"codex/gpt-5.6-terra"}) {
+		t.Fatalf("unknown catalog models = %#v, want visible exact unknown pair", got)
+	}
+}
+
 func TestCompozyNormalizationPreservesExactLiveModelEvidence(t *testing.T) {
 	t.Parallel()
 

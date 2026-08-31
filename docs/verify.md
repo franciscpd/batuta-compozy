@@ -73,12 +73,17 @@ The exact source pin is a development compatibility floor; validate the public
 surface of the daemon you will operate. A local path install cannot use
 `compozy extension update`; rebuild and reinstall the validated generation.
 
-Provider/model availability comes only from the live Compozy catalog. The
-extension may enrich that evidence with bounded local probes for Codex,
-OpenCode, Cursor Agent, Claude Code, and Agy. It does not log in, install,
-refresh configuration, or call Agy's authenticated network-backed `models`
-command. Live Claude/Agy execution is qualified only when the daemon reports
-the exact pair as `available_live` and child runtime provenance confirms it.
+Provider/model identity comes only from the visible Compozy catalog. A directly
+live pair is executable; a visible `unknown` pair becomes executable only when
+an available dedicated CLI adapter proves that exact provider/model pair.
+Provider-only proof, adapter-only models, stale rows, and unavailable rows stay
+ineligible. The extension probes Codex, OpenCode, Cursor Agent, Claude Code,
+and Agy without logging in, installing, refreshing configuration, or calling
+Agy's authenticated network-backed `models` command.
+
+Frontend routing prefers exact eligible pairs in this order: Cursor/Grok 4.6,
+Cursor/Claude Opus 5, then Codex/GPT-5.6 Terra with `high` reasoning. Missing
+members are skipped; no display alias is reconstructed into a runtime ID.
 
 ## Release verification
 

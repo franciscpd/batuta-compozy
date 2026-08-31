@@ -26,14 +26,21 @@ type ComplexityPolicySnapshot struct {
 
 func DefaultSelectionPolicy() SelectionPolicy {
 	return SelectionPolicy{
-		Version: "2026-08-30.v2",
+		Version: "2026-08-31.v6",
 		ModelTiers: map[string]ModelTier{
 			ModelKey("claude", "claude-fable-5[1m]"):                                               ModelTierFrontier,
+			ModelKey("claude", "claude-opus-5"):                                                    ModelTierFrontier,
 			ModelKey("claude", "opus[1m]"):                                                         ModelTierFrontier,
 			ModelKey("claude", "sonnet"):                                                           ModelTierAdvanced,
+			ModelKey("cursor", "claude-fable-5"):                                                   ModelTierFrontier,
+			ModelKey("cursor", "claude-opus-5"):                                                    ModelTierFrontier,
+			ModelKey("cursor", "claude-sonnet-5"):                                                  ModelTierAdvanced,
 			ModelKey("cursor", "claude-fable-5[thinking=true,context=300k,effort=high]"):           ModelTierFrontier,
 			ModelKey("cursor", "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]"): ModelTierFrontier,
 			ModelKey("cursor", "claude-sonnet-5[thinking=true,context=300k,effort=high]"):          ModelTierAdvanced,
+			ModelKey("cursor", "gpt-5.6-luna"):                                                     ModelTierAdvanced,
+			ModelKey("cursor", "gpt-5.6-sol"):                                                      ModelTierFrontier,
+			ModelKey("cursor", "gpt-5.6-terra"):                                                    ModelTierAdvanced,
 			ModelKey("cursor", "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"):           ModelTierAdvanced,
 			ModelKey("cursor", "gpt-5.6-sol[context=272k,reasoning=medium,fast=false]"):            ModelTierFrontier,
 			ModelKey("cursor", "gpt-5.6-terra[context=272k,reasoning=medium,fast=false]"):          ModelTierAdvanced,
@@ -53,11 +60,7 @@ func ModelKey(providerID, modelID string) string {
 }
 
 func (p SelectionPolicy) modelTier(providerID, modelID string) ModelTier {
-	tier := p.ModelTiers[ModelKey(providerID, modelID)]
-	if tier == ModelTierUnknown {
-		return ModelTierStandard
-	}
-	return tier
+	return p.ModelTiers[ModelKey(providerID, modelID)]
 }
 
 func modelFloor(complexity Complexity) ModelTier {

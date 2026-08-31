@@ -69,6 +69,7 @@ type FitCandidate struct {
 	ProviderID string               `json:"provider_id"`
 	ModelID    string               `json:"model_id"`
 	Score      float64              `json:"score"`
+	Reasoning  string               `json:"reasoning,omitempty"`
 }
 
 type CellFitRecommendation struct {
@@ -108,7 +109,8 @@ func BuildCandidateBindings(snapshot inventory.InventorySnapshot, catalog LiveCa
 	}
 	bindings := make([]CandidateBinding, 0, len(catalog.Models))
 	for _, model := range catalog.Models {
-		if model.ProviderID == "" || model.ModelID == "" || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated || model.CredentialState == inventory.CredentialMissing {
+		if model.ProviderID == "" || model.ModelID == "" || model.Hidden || model.Deprecated || model.CredentialState == inventory.CredentialMissing ||
+			!catalogModelExecutable(model, executors) {
 			continue
 		}
 		permissionScore := 1
@@ -143,16 +145,37 @@ func executorMatchesProviderBinding(executor inventory.ExecutorSnapshot, provide
 	return false
 }
 
+func catalogModelExecutable(model CatalogModel, executors map[inventory.ExecutorID]inventory.ExecutorSnapshot) bool {
+	if model.Availability == inventory.AvailabilityAvailable {
+		return true
+	}
+	if model.Availability != inventory.AvailabilityUnknown {
+		return false
+	}
+	for _, executor := range executors {
+		if executor.ID == inventory.ExecutorCompozy || executor.Availability != inventory.AvailabilityAvailable || executor.CredentialState == inventory.CredentialMissing {
+			continue
+		}
+		for _, binding := range executor.ProviderBindings {
+			if binding.ProviderID == model.ProviderID && binding.ModelID == model.ModelID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type cellKey struct {
 	domain     Domain
 	complexity Complexity
 }
 
 type rankedCandidate struct {
-	binding CandidateBinding
-	fit     float64
-	health  int
-	tier    ModelTier
+	binding   CandidateBinding
+	fit       float64
+	health    int
+	tier      ModelTier
+	reasoning string
 }
 
 func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
@@ -197,9 +220,9 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 		if !exists {
 			return RoutingGeneration{}, fmt.Errorf("%w: recommendation missing populated cell", ErrSelectionRetryable)
 		}
-		fitScores := make(map[string]float64, len(cellFit.Candidates))
+		fitScores := make(map[string]FitCandidate, len(cellFit.Candidates))
 		for _, candidate := range cellFit.Candidates {
-			fitScores[bindingKey(candidate.ExecutorID, candidate.ProviderID, candidate.ModelID)] = candidate.Score
+			fitScores[bindingKey(candidate.ExecutorID, candidate.ProviderID, candidate.ModelID)] = candidate
 		}
 		eligible := make([]rankedCandidate, 0, len(bindings))
 		recordedRejections := 0
@@ -222,9 +245,10 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 				}
 				continue
 			}
+			fitCandidate := fitScores[bindingKey(binding.ExecutorID, binding.ProviderID, binding.ModelID)]
 			eligible = append(eligible, rankedCandidate{
-				binding: binding, fit: fitScores[bindingKey(binding.ExecutorID, binding.ProviderID, binding.ModelID)],
-				health: candidateHealthScore(binding, executors), tier: s.policy.modelTier(binding.ProviderID, binding.ModelID),
+				binding: binding, fit: fitCandidate.Score, health: candidateHealthScore(binding, executors),
+				tier: s.policy.modelTier(binding.ProviderID, binding.ModelID), reasoning: fitCandidate.Reasoning,
 			})
 		}
 		if len(eligible) == 0 {
@@ -256,7 +280,7 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 		})
 		generation.Rules = append(generation.Rules, RuntimeRule{
 			Match:   RuntimeMatch{Domain: key.domain, Complexity: key.complexity},
-			Runtime: RuntimeValue{Provider: selected.ProviderID, Model: selected.ModelID, Reasoning: reasoning},
+			Runtime: RuntimeValue{Provider: selected.ProviderID, Model: selected.ModelID, Reasoning: selected.Reasoning},
 		})
 	}
 	slices.SortFunc(generation.Rejections, compareRejections)
@@ -272,7 +296,7 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 		return "credential_missing"
 	}
 	model, exists := catalog[ModelKey(binding.ProviderID, binding.ModelID)]
-	if !exists || model.Availability != inventory.AvailabilityAvailable || model.Hidden || model.Deprecated {
+	if !exists || !catalogModelExecutable(model, executors) || model.Hidden || model.Deprecated {
 		return "catalog_pair_unavailable"
 	}
 	if model.CredentialState == inventory.CredentialMissing {
@@ -281,7 +305,7 @@ func candidateRejection(binding CandidateBinding, key cellKey, tasks []Validated
 	if binding.ExecutorID != inventory.ExecutorCompozy && !executorHasModel(executor, binding.ProviderID, binding.ModelID) && !catalogModelOwnedByExecutor(binding.ExecutorID, binding.ProviderID) {
 		return "executor_model_unproven"
 	}
-	if policy.modelTier(binding.ProviderID, binding.ModelID) < modelFloor(key.complexity) {
+	if tier := policy.modelTier(binding.ProviderID, binding.ModelID); tier != ModelTierUnknown && tier < modelFloor(key.complexity) {
 		return "model_below_floor"
 	}
 	for _, task := range tasks {
@@ -436,6 +460,9 @@ func validateFitUniverse(recommendations []CellFitRecommendation, bindings []Can
 			if _, exists := universe[candidateKey]; !exists || math.IsNaN(candidate.Score) || math.IsInf(candidate.Score, 0) || candidate.Score < 0 || candidate.Score > 1 {
 				return fmt.Errorf("%w: recommendation references an unknown candidate", ErrSelectionRetryable)
 			}
+			if candidate.Reasoning != "" && candidate.Reasoning != "low" && candidate.Reasoning != "medium" && candidate.Reasoning != "high" && candidate.Reasoning != "xhigh" {
+				return fmt.Errorf("%w: recommendation reasoning is invalid", ErrSelectionRetryable)
+			}
 			if _, duplicate := seenCandidates[candidateKey]; duplicate {
 				return fmt.Errorf("%w: duplicate candidate recommendation", ErrSelectionRetryable)
 			}
@@ -501,7 +528,13 @@ func sortRankedCandidates(candidates []rankedCandidate) {
 }
 
 func runtimeCandidate(candidate rankedCandidate, reasoning string) RuntimeCandidate {
-	return RuntimeCandidate{ExecutorID: candidate.binding.ExecutorID, ProviderID: candidate.binding.ProviderID, ModelID: candidate.binding.ModelID, EnrichmentIDs: slices.Clone(candidate.binding.EnrichmentIDs), Reasoning: reasoning, ModelTier: candidate.tier}
+	if candidate.reasoning != "" {
+		reasoning = candidate.reasoning
+	}
+	return RuntimeCandidate{
+		ExecutorID: candidate.binding.ExecutorID, ProviderID: candidate.binding.ProviderID, ModelID: candidate.binding.ModelID,
+		EnrichmentIDs: slices.Clone(candidate.binding.EnrichmentIDs), Reasoning: reasoning, ModelTier: candidate.tier,
+	}
 }
 
 func bindingKey(executorID inventory.ExecutorID, providerID, modelID string) string {

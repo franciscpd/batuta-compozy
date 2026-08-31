@@ -217,11 +217,28 @@ func TestRoutingPlanFitSchemaKeysCandidatesByProviderAndModel(t *testing.T) {
 			t.Fatalf("fit candidate schema missing %q: %s", required, descriptor.InputSchema)
 		}
 	}
+	reasoning, exists := candidateProperties["reasoning"].(map[string]any)
+	if !exists || !reflect.DeepEqual(reasoning["enum"], []any{"low", "medium", "high", "xhigh"}) {
+		t.Fatalf("fit candidate reasoning schema = %#v", candidateProperties["reasoning"])
+	}
+	if slices.Contains(candidate["required"].([]any), any("reasoning")) {
+		t.Fatalf("fit candidate reasoning is unexpectedly required: %#v", candidate)
+	}
 	if _, exists := candidateProperties["enrichment_ids"]; exists {
 		t.Fatalf("fit candidate schema accepts caller enrichment identity: %s", descriptor.InputSchema)
 	}
 	if candidate["additionalProperties"] != false {
 		t.Fatalf("fit candidate schema is open: %#v", candidate)
+	}
+}
+
+func TestRoutingOutputAllowsUnclassifiedLiveModelTier(t *testing.T) {
+	t.Parallel()
+
+	schema := runtimeCandidateOutputSchema()
+	modelTier := schema["properties"].(map[string]any)["model_tier"].(map[string]any)
+	if modelTier["minimum"] != 0 {
+		t.Fatalf("model tier minimum = %#v, want 0 for unclassified live models", modelTier["minimum"])
 	}
 }
 
@@ -491,6 +508,39 @@ func TestCompozyNormalizationProjectsAuthoritativeProviderAuth(t *testing.T) {
 		key := model.ProviderID + "/" + model.ModelID
 		if model.CredentialState != want[key] {
 			t.Fatalf("catalog model %q auth = %q, want %q", key, model.CredentialState, want[key])
+		}
+		delete(want, key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("catalog missing models: %#v", want)
+	}
+}
+
+func TestCompozyNormalizationPreservesUnknownCatalogPairsForExactAdapterProof(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-digest", []inventory.ExecutorSnapshot{{
+		ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable,
+		Capabilities: []inventory.Evidence{
+			{Name: "models", State: inventory.ResolutionResolved, Digest: "catalog-digest", Identifiers: []string{"cursor/grok-4.6"}},
+			{Name: "catalog_models_unknown", State: inventory.ResolutionResolved, Digest: "catalog-digest", Identifiers: []string{"codex/gpt-5.6-terra"}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog, err := liveCatalogFromInventory(snapshot)
+	if err != nil {
+		t.Fatalf("liveCatalogFromInventory() error = %v", err)
+	}
+	want := map[string]inventory.AvailabilityState{
+		"cursor/grok-4.6":     inventory.AvailabilityAvailable,
+		"codex/gpt-5.6-terra": inventory.AvailabilityUnknown,
+	}
+	for _, model := range catalog.Models {
+		key := model.ProviderID + "/" + model.ModelID
+		if model.Availability != want[key] {
+			t.Fatalf("catalog model %q availability = %q, want %q", key, model.Availability, want[key])
 		}
 		delete(want, key)
 	}

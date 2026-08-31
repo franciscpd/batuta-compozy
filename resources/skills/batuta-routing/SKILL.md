@@ -40,14 +40,19 @@ Inventory evidence has exactly three resolution states:
   not proven.
 - `unknown` means Batuta could not safely establish it.
 
-For a hard capability, declared and unknown are ineligible. Availability
-unknown is ineligible; Batuta never treats uncertainty as a fallback.
+For a hard capability, declared and unknown are ineligible. A visible model
+whose catalog availability is unknown remains ineligible unless an available
+dedicated CLI adapter proves that exact provider/model pair. This cross-proof
+does not accept provider-only bindings, adapter-only models, stale catalog
+rows, or unavailable rows.
 Credentials, tokens, raw command output, raw configuration, environment values,
 and task bodies never enter the public inventory or routing journal.
 
 Compozy is the only provider/model execution authority. New fit candidates use
-`executor_id: compozy` plus an exact `provider_id + model_id` pair from the live
-Compozy catalog. The legacy closed executor IDs `codex`, `opencode`, and `cursor-agent`
+`executor_id: compozy` plus an exact `provider_id + model_id` pair derived from
+the Compozy catalog and executor inventory. Normally the pair must be live; a
+visible `unknown` pair requires exact model proof from its available dedicated
+adapter. The legacy closed executor IDs `codex`, `opencode`, and `cursor-agent`
 remain accepted for archived request compatibility but are ignored by fit
 identity. Never submit `enrichment_ids`; the extension derives them.
 
@@ -85,15 +90,25 @@ low confidence or malformed semantic evidence requires one fresh proposal.
 ## Selection
 
 Every populated `domain × complexity` cell carries the exact task IDs it owns.
-Fit candidates must belong to the inventoried and live-catalog universe. Reject
-a candidate when its executor or catalog pair is unavailable, its credential
-is missing, its model is hidden, deprecated, or below the complexity floor, or
-a hard capability remains unresolved.
+Fit candidates must belong to the executable catalog projection: directly live
+pairs plus visible `unknown` pairs with exact provider/model proof from an
+available dedicated adapter. Reject a candidate when its executor or catalog
+pair is unavailable, its credential is missing, its model is hidden,
+deprecated, or below the complexity floor, or a hard capability remains
+unresolved.
 
-Rank eligible candidates deterministically by validated fit, resolved health,
-model quality, compatible permission posture, cost, then stable
-`provider_id/model_id`. Provider and model IDs are copied verbatim
-from the live catalog; never normalize provider-specific model prefixes.
+Provider, model, order, and reasoning preferences are scoped to one delivery.
+When the operator states them, encode the order with descending fit scores and
+the reasoning effort on each candidate. Never persist those choices as a global
+or workspace default. Without an explicit preference, score eligible candidates
+from task fit and inventory evidence; no CLI, provider, model family, or domain
+has a built-in preference. A live model absent from the known quality table is
+eligible with an unclassified tier. Only a known tier below the complexity floor
+is rejected, and the operator confirms the visible tier in the routing table.
+After fit, rank by resolved health, known model quality, compatible permission
+posture, cost, then stable `provider_id/model_id`. Provider and model IDs are
+copied verbatim from the executable catalog projection; model configuration
+options remain separate metadata and are never part of `model_id`.
 
 Each cell stores one selected runtime and a floor-preserving fallback chain:
 low has at most one fallback, medium two, high and critical three. The complete

@@ -37,6 +37,12 @@ ou comprovar uma capacidade obrigatória. Por exemplo, `backend/low` e
 proprietário de execução Compozy. A listagem de modelos do Agy usa rede e não é
 consultada automaticamente.
 
+A ordem de provider/modelo e os overrides opcionais de reasoning pertencem ao
+fit da entrega atual. O Batuta não distribui preferência de domínio por CLI,
+provider ou família de modelos. Um modelo vivo ausente das dicas de qualidade
+conhecidas continua elegível como não classificado e é exibido assim para
+revisão do operador.
+
 Antes de qualquer mutação, o Batuta apresenta a matriz derivada exata: tasks,
 provider/modelo/reasoning/tier vivo selecionado, fallbacks ordenados e uma
 coluna de custo. Como a geração não possui snapshot autoritativo de custo

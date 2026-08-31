@@ -95,18 +95,31 @@ sequence for the approved slug:
    fit proposals whose `task_ids` exactly cover each populated
    `domain × complexity` cell. Compozy is the only provider/model execution
    authority. Every new candidate uses `executor_id: compozy` and copies an
-   exact live `provider_id + model_id` pair from its catalog. Legacy closed
-   executor IDs remain accepted for replay but do not define fit identity.
+   exact executable `provider_id + model_id` pair derived by the extension.
+   A live catalog pair is executable directly. A visible catalog pair with
+   availability `unknown` is executable only when an available dedicated CLI
+   adapter proves the exact same provider and model; a provider-only binding,
+   adapter-only model, stale row, or unavailable row remains ineligible.
+   Legacy closed executor IDs remain accepted for replay but do not define fit
+   identity.
    Never submit `enrichment_ids`; the extension derives them. Claude Code and
    Agy are optional enrichers, not execution backends. A missing enricher
    cannot exclude a live pair, and external CLI presence alone never makes a
    runtime executable. Agy never rewrites a runtime ID and Batuta never calls
    `agy models` automatically because it is an authenticated network fetch.
-   When the exact live pair
-   `cursor / grok-4.6[effort=high,fast=true]` is eligible, give
-   it the highest fit score for every eligible `frontend` cell. Copy that
-   provider-specific model ID verbatim; never reconstruct it from a Cursor
-   display alias. Capability requirements are routing discriminators,
+   Honor explicit provider, model, order, and reasoning preferences stated by
+   the operator for this delivery. Encode the order with descending fit scores
+   and encode an explicit reasoning effort on that candidate; do not turn those
+   choices into a global or workspace default. Without an explicit preference,
+   score every eligible candidate from task fit and inventory evidence. No CLI,
+   provider, or model family has a built-in domain preference. A live model
+   absent from the known quality table remains eligible with an unclassified
+   tier; only an explicitly classified tier below the complexity floor is
+   rejected. The operator sees and confirms that tier in the routing table. A
+   catalog `model_id` is the base runtime identity; reasoning, thinking,
+   context, and speed options are separate metadata and must never be encoded
+   into it. Copy provider-specific model IDs verbatim; never reconstruct them
+   from display aliases. Capability requirements are routing discriminators,
    not a restatement of the product's implementation stack:
    include an exact requirement ID only when inventory evidence resolves it.
    Optional evidence may justify capability fit, but unknown or declared

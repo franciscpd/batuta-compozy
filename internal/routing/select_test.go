@@ -68,8 +68,12 @@ func TestSelectorRejectsModelsBelowComplexityFloor(t *testing.T) {
 		t.Fatalf("Select(model below floor) error = %v, want ErrNoEligibleCandidate", err)
 	}
 	delete(fixture.Policy.ModelTiers, ModelKey("cursor", "grok-4.6"))
-	if _, err := fixture.Select(); !errors.Is(err, ErrNoEligibleCandidate) {
-		t.Fatalf("Select(unknown high tier) error = %v, want ErrNoEligibleCandidate", err)
+	generation, err := fixture.Select()
+	if err != nil {
+		t.Fatalf("Select(unclassified live model) error = %v", err)
+	}
+	if got := generation.Cells[0].Selected.ModelTier; got != ModelTierUnknown {
+		t.Fatalf("Select(unclassified live model) tier = %v, want ModelTierUnknown", got)
 	}
 }
 
@@ -362,6 +366,97 @@ func TestBuildCandidateBindingsIncludesLivePairWithoutDedicatedAdapter(t *testin
 	}
 	if !equalCandidateBindings(got, want) {
 		t.Fatalf("bindings = %#v, want generic live pairs %#v", got, want)
+	}
+}
+
+func TestBuildCandidateBindingsPromotesUnknownCatalogPairOnlyWithExactExecutorProof(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCodex, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{
+			{ProviderID: "codex", ModelID: "gpt-5.6-terra"},
+		}},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{
+			{ProviderID: "cursor"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "codex", ModelID: "gpt-5.6-terra", Availability: inventory.AvailabilityUnknown},
+		{ProviderID: "cursor", ModelID: "unproven-preview", Availability: inventory.AvailabilityUnknown},
+		{ProviderID: "adapter-only", ModelID: "missing-from-catalog", Availability: inventory.AvailabilityMissing},
+	}}
+	got, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	want := []CandidateBinding{{
+		ExecutorID: inventory.ExecutorCompozy, ProviderID: "codex", ModelID: "gpt-5.6-terra",
+		PermissionScore: 1, EnrichmentIDs: []inventory.ExecutorID{inventory.ExecutorCodex},
+	}}
+	if !equalCandidateBindings(got, want) {
+		t.Fatalf("bindings = %#v, want only exact catalog-and-adapter proof %#v", got, want)
+	}
+}
+
+func TestSelectorUsesPerDeliveryFitOrderForFrontend(t *testing.T) {
+	t.Parallel()
+
+	const (
+		grok   = "grok-4.6"
+		opus   = "claude-opus-5"
+		sonnet = "claude-sonnet-5"
+		terra  = "gpt-5.6-terra"
+	)
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+		{ID: inventory.ExecutorCursorAgent, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "cursor"}}},
+		{ID: inventory.ExecutorCodex, Availability: inventory.AvailabilityAvailable, ProviderBindings: []inventory.ProviderBinding{{ProviderID: "codex", ModelID: terra}}},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "cursor", ModelID: grok, Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "claude", ModelID: opus, Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "cursor", ModelID: sonnet, Availability: inventory.AvailabilityAvailable},
+		{ProviderID: "codex", ModelID: terra, Availability: inventory.AvailabilityUnknown},
+	}}
+	bindings, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	generation, err := NewSelector(DefaultSelectionPolicy()).Select(SelectionInput{
+		Graph: ValidatedTaskGraph{Slug: "frontend-demo", TaskSetDigest: "task-set-digest", Tasks: []ValidatedTask{{
+			ID: "task_01", Domain: DomainFrontend, Complexity: ComplexityMedium, Confidence: 0.95,
+		}}},
+		Inventory: snapshot, Catalog: catalog, Bindings: bindings,
+		Fit: []CellFitRecommendation{{
+			Domain: DomainFrontend, Complexity: ComplexityMedium,
+			Candidates: []FitCandidate{
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: opus, Score: 1, Reasoning: "high"},
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "codex", ModelID: terra, Score: 0.9, Reasoning: "xhigh"},
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: grok, Score: 0.8, Reasoning: "medium"},
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: sonnet, Score: 0.7},
+			},
+		}},
+		WorkspaceIdentityDigest: "sha256:workspace",
+		EnclosingBudget:         LoopBudgetCeiling{IterationCap: 4, WallTimeSeconds: 14_400},
+	})
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	cell := generation.Cells[0]
+	if cell.Selected.ProviderID != "claude" || cell.Selected.ModelID != opus || cell.Selected.Reasoning != "high" {
+		t.Fatalf("selected = %#v, want per-delivery Claude/Opus preference", cell.Selected)
+	}
+	if len(cell.Fallbacks) != 2 || cell.Fallbacks[0].ProviderID != "codex" || cell.Fallbacks[0].ModelID != terra ||
+		cell.Fallbacks[0].Reasoning != "xhigh" || cell.Fallbacks[1].ProviderID != "cursor" || cell.Fallbacks[1].ModelID != grok ||
+		cell.Fallbacks[1].Reasoning != "medium" {
+		t.Fatalf("fallbacks = %#v, want per-delivery Codex/Terra then Cursor/Grok", cell.Fallbacks)
 	}
 }
 
@@ -722,12 +817,25 @@ func TestSelectorRejectsCallerBindingForCatalogPairWithMissingCredential(t *test
 	}
 }
 
-func TestDefaultSelectionPolicyClassifiesCursorGrok46AsFrontier(t *testing.T) {
+func TestSelectorRejectsUnsupportedPerDeliveryReasoning(t *testing.T) {
+	t.Parallel()
+
+	fixture := selectionFixture()
+	fixture.Fit[0].Candidates[0].Reasoning = "turbo"
+	if _, err := fixture.Select(); !errors.Is(err, ErrSelectionRetryable) {
+		t.Fatalf("Select(unsupported reasoning) error = %v, want ErrSelectionRetryable", err)
+	}
+}
+
+func TestDefaultSelectionPolicyClassifiesKnownModelQualityHints(t *testing.T) {
 	t.Parallel()
 
 	policy := DefaultSelectionPolicy()
-	if policy.Version != "2026-08-30.v2" || policy.modelTier("cursor", "grok-4.6[effort=high,fast=true]") != ModelTierFrontier {
-		t.Fatalf("DefaultSelectionPolicy() = %#v, want versioned exact Cursor/Grok 4.6 frontier entry", policy)
+	if policy.Version != "2026-08-31.v6" ||
+		policy.modelTier("cursor", "grok-4.6") != ModelTierFrontier ||
+		policy.modelTier("claude", "claude-opus-5") != ModelTierFrontier ||
+		policy.modelTier("codex", "gpt-5.6-terra") != ModelTierAdvanced {
+		t.Fatalf("DefaultSelectionPolicy() = %#v, want versioned known model quality hints", policy)
 	}
 }
 

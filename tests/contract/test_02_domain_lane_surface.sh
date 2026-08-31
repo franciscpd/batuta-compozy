@@ -85,8 +85,12 @@ assert "--workspace <current-workspace-id-or-path>" in agent
 assert "--agent <current-agent-name>" in agent
 assert "Never omit `--workspace`" in agent
 assert "routing_fit_retryable" in agent
-assert "grok-4.6[effort=high,fast=true]" in agent
-assert "highest fit score for every eligible `frontend` cell" in agent
+assert "no cli, provider, or model family has a built-in domain preference" in agent_flat.lower()
+assert "explicit reasoning effort on that candidate" in agent_flat
+assert "unclassified tier" in agent_flat
+assert "do not turn those choices into a global or workspace default" in agent_flat
+assert "separate metadata and must never be encoded" in agent_flat
+assert "encode the order with descending fit scores" in agent_flat.lower()
 assert "routing discriminators" in agent
 assert "hard_capability_unresolved" in agent
 assert "Compozy is the only provider/model execution authority" in agent_flat
@@ -116,7 +120,7 @@ for identity in (
 
 for required in (
     "resolved | declared | unknown",
-    "unknown is ineligible",
+    "catalog availability is unknown remains ineligible unless an available dedicated CLI adapter proves that exact provider/model pair",
     "immutable routing generation",
     "ephemeral",
     "does not write Compozy Loop configuration",

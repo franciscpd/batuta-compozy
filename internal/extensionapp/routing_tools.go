@@ -279,6 +279,7 @@ func cellFitSchema() map[string]any {
 			"provider_id": map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
 			"model_id":    map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
 			"score":       map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+			"reasoning":   map[string]any{"enum": []string{"low", "medium", "high", "xhigh"}},
 		})},
 	})
 }
@@ -430,7 +431,7 @@ func runtimeCandidateOutputSchema() map[string]any {
 		"model_id":       map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
 		"enrichment_ids": enrichmentIDsOutputSchema(),
 		"reasoning":      map[string]any{"enum": []string{"low", "medium", "high", "xhigh"}},
-		"model_tier":     map[string]any{"type": "integer", "minimum": 1, "maximum": 4},
+		"model_tier":     map[string]any{"type": "integer", "minimum": 0, "maximum": 4},
 	})
 }
 

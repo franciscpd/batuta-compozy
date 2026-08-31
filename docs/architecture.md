@@ -26,13 +26,20 @@ does not authorize Batuta to edit implementation files.
 
 ## Runtime authority and enrichment
 
-Compozy's live catalog is the sole provider/model execution authority. Batuta
-creates one candidate per eligible live pair with execution owner `compozy`.
+Compozy's visible catalog is the sole provider/model identity and execution
+authority. Batuta creates one candidate per eligible pair with execution owner
+`compozy`. A directly live pair is eligible; a visible `unknown` pair requires
+an available dedicated adapter to prove the exact same provider/model pair.
 Codex, OpenCode, Cursor Agent, Claude Code, and Agy are bounded optional
-enrichers: their resolved evidence may prove capability fit, but their absence
-cannot remove a live pair. Caller input cannot supply enrichment identities.
-Agy never rewrites runtime IDs, and its authenticated network-backed `models`
-command is deliberately outside automatic inventory.
+enrichers: provider-only proof and adapter-only models cannot create a runtime.
+Caller input cannot supply enrichment identities. Agy never rewrites runtime
+IDs, and its authenticated network-backed `models` command is deliberately
+outside automatic inventory.
+
+For frontend work, the deterministic eligible order is Cursor/Grok 4.6,
+Cursor/Claude Opus 5, then Codex/GPT-5.6 Terra with `high` reasoning. This
+policy precedes model-authored fit scores while retaining model-floor,
+credential, and availability checks.
 
 ## Data flow
 

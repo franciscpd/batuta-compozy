@@ -46,15 +46,26 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 	}
 	modelRaw := outputs[ids["models"]]
 	modelIDs := make([]string, 0)
+	unknownModelIDs := make([]string, 0)
 	if len(modelRaw) > 0 && json.Unmarshal(modelRaw, &models) == nil {
 		for _, model := range models.Models {
-			if model.Hidden || model.Deprecated || !liveAvailableModel(model.AvailabilityState) ||
-				!safePublicIdentifier(model.ProviderID) || !safeRuntimeModelIdentifier(model.ModelID) {
+			if model.Hidden || model.Deprecated || !safePublicIdentifier(model.ProviderID) || !safeRuntimeModelIdentifier(model.ModelID) {
 				continue
 			}
-			modelIDs = append(modelIDs, model.ProviderID+"/"+model.ModelID)
+			exactID := model.ProviderID + "/" + model.ModelID
+			switch {
+			case liveAvailableModel(model.AvailabilityState):
+				modelIDs = append(modelIDs, exactID)
+			case model.AvailabilityState == string(inventory.AvailabilityUnknown):
+				unknownModelIDs = append(unknownModelIDs, exactID)
+			}
 		}
 		snapshot.Capabilities = append(snapshot.Capabilities, evidence("models", "compozy provider models list", inventory.ResolutionResolved, modelRaw, modelIDs))
+		if len(unknownModelIDs) > 0 {
+			snapshot.Capabilities = append(snapshot.Capabilities, evidence(
+				"catalog_models_unknown", "compozy provider models list", inventory.ResolutionResolved, modelRaw, unknownModelIDs,
+			))
+		}
 	} else {
 		snapshot.Capabilities = append(snapshot.Capabilities, unknownEvidence("models", "compozy provider models list", "probe_unavailable"))
 	}

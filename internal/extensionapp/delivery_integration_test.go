@@ -241,7 +241,7 @@ func assertMigrationFreeRouting(t *testing.T, generation routing.RoutingGenerati
 	if backend.Selected.ProviderID != "codex" || backend.Selected.ModelID != "gpt-5.6-luna" {
 		t.Fatalf("backend route = %#v", backend)
 	}
-	if frontend.Selected.ExecutorID != inventory.ExecutorCursorAgent || frontend.Selected.ProviderID != "cursor" ||
+	if frontend.Selected.ExecutorID != inventory.ExecutorCompozy || frontend.Selected.ProviderID != "cursor" ||
 		frontend.Selected.ModelID != integrationCursorModel || len(frontend.Fallbacks) == 0 ||
 		frontend.Fallbacks[0].ProviderID != "codex" || frontend.Fallbacks[0].ModelID != "gpt-5.6-terra" {
 		t.Fatalf("frontend route = %#v", frontend)

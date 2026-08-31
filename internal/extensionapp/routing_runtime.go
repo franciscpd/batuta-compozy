@@ -263,6 +263,7 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 		return routing.LiveCatalog{}, errors.New("batuta: live Compozy model catalog is unavailable")
 	}
 	catalog := routing.LiveCatalog{Generation: snapshot.CompozyCatalogGeneration}
+	models := make(map[string]routing.CatalogModel)
 	for _, executor := range snapshot.Executors {
 		if executor.ID != inventory.ExecutorCompozy || executor.Availability != inventory.AvailabilityAvailable {
 			continue
@@ -284,7 +285,15 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 			}
 		}
 		for _, capability := range executor.Capabilities {
-			if capability.Name != "models" || capability.State != inventory.ResolutionResolved || capability.Digest != snapshot.CompozyCatalogGeneration {
+			availability := inventory.AvailabilityUnknown
+			switch capability.Name {
+			case "models":
+				availability = inventory.AvailabilityAvailable
+			case "catalog_models_unknown":
+			default:
+				continue
+			}
+			if capability.State != inventory.ResolutionResolved || capability.Digest != snapshot.CompozyCatalogGeneration {
 				continue
 			}
 			for _, identifier := range capability.Identifiers {
@@ -292,12 +301,21 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 				if !ok || strings.TrimSpace(provider) == "" || strings.TrimSpace(model) == "" {
 					continue
 				}
-				catalog.Models = append(catalog.Models, routing.CatalogModel{
-					ProviderID: provider, ModelID: model, Availability: inventory.AvailabilityAvailable,
-					CredentialState: providerAuth[provider],
-				})
+				key := routing.ModelKey(provider, model)
+				if existing, found := models[key]; found && existing.Availability == inventory.AvailabilityAvailable {
+					continue
+				}
+				models[key] = routing.CatalogModel{ProviderID: provider, ModelID: model, Availability: availability, CredentialState: providerAuth[provider]}
 			}
 		}
+	}
+	keys := make([]string, 0, len(models))
+	for key := range models {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		catalog.Models = append(catalog.Models, models[key])
 	}
 	if len(catalog.Models) == 0 {
 		return routing.LiveCatalog{}, errors.New("batuta: live Compozy model catalog is unavailable")
