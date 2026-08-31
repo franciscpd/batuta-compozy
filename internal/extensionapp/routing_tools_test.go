@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -60,6 +61,37 @@ func TestRoutingPlanReturnsActionableDomainErrors(t *testing.T) {
 				t.Fatalf("routingPlan() error data = %s, want secondary reason_code %q", rpcErr.Data, tt.secondaryCode)
 			}
 		})
+	}
+}
+
+func TestRoutingPlanReturnsRejectedCandidateDetails(t *testing.T) {
+	t.Parallel()
+
+	rejection := routing.CandidateRejection{
+		Domain: routing.DomainFrontend, Complexity: routing.ComplexityMedium,
+		ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor",
+		ModelID: "claude-sonnet-5[thinking=true,context=300k,effort=high]",
+		Code:    "model_below_floor",
+	}
+	app := application{services: serviceSet{routingPlan: func(
+		context.Context, publication.TrustedScope, RoutingPlanInput,
+	) (routing.RoutingGeneration, error) {
+		return routing.RoutingGeneration{}, &routing.RecommendedCandidateError{Rejection: rejection}
+	}}}
+
+	_, err := app.routingPlan(context.Background(), &compozysdk.ExtensionToolWorkspaceScope{
+		ID: "ws_demo", Root: "/workspace",
+	}, RoutingPlanInput{Slug: "demo"})
+	var rpcErr *compozysdk.RPCError
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("routingPlan() error = %#v, want RPCError", err)
+	}
+	var data struct {
+		CandidateRejections []routing.CandidateRejection `json:"candidate_rejections"`
+	}
+	if json.Unmarshal(rpcErr.Data, &data) != nil || len(data.CandidateRejections) != 1 ||
+		!reflect.DeepEqual(data.CandidateRejections[0], rejection) {
+		t.Fatalf("routingPlan() error data = %s, want rejection %#v", rpcErr.Data, rejection)
 	}
 }
 

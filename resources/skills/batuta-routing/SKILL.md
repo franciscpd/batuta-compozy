@@ -14,6 +14,11 @@ the exact derived matrix before delivery mutation, and is otherwise involved
 only when product requirements are ambiguous or an external credential or
 capability is genuinely unavailable.
 
+Prefer native hosted tools. For a necessary CLI fallback, preserve the exact
+session, workspace, and agent identities. Never merge stderr into structured
+stdout. Capture the streams separately and parse only stdout as the single JSON
+document; stderr is diagnostic prose, never a second JSON value.
+
 ## SDD clarification
 
 During SDD authorship, resolve a material product ambiguity with
@@ -107,7 +112,10 @@ is independent of Git repository
 initialization. Never reinterpret a routing rejection from worktree or Git
 state, and never inspect either to explain reason codes the tool did not
 return. A second routing rejection is terminal: report its exact reason codes
-and make zero `routing_apply` calls or delivery mutations.
+and make zero `routing_apply` calls or delivery mutations. A routing rejection
+is session evidence, not durable memory. Never write provider-specific memory
+files, `MEMORY.md`, or Compozy memory from a rejected proposal, inferred
+diagnosis, or temporary delivery state.
 
 ## Operator alignment and repository bootstrap
 

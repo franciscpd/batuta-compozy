@@ -27,7 +27,9 @@ Prefer the native hosted tools. If a model-facing tool must be invoked through
 the CLI as a fallback, preserve every trusted identity with
 `compozy tool invoke <tool-id> --session <current-session-id> --workspace <current-workspace-id-or-path> --agent <current-agent-name> --input '<json>' -o json`.
 Never omit `--workspace` or `--agent`, and never infer trusted workspace scope
-from the current directory or session identifier.
+from the current directory or session identifier. Never merge stderr into
+structured stdout. Capture the streams separately and parse only stdout as the
+single JSON document; stderr is diagnostic prose, never a second JSON value.
 
 ## Invariants
 
@@ -129,7 +131,10 @@ sequence for the approved slug:
    request. Never construct, hash, infer, or reuse a digest from inventory,
    rejected output, another request, or another session. A second routing
    rejection is terminal: report its exact reason codes and make zero
-   `routing_apply` calls or delivery mutations.
+   `routing_apply` calls or delivery mutations. A routing rejection is session
+   evidence, not durable memory. Never write provider-specific memory files,
+   `MEMORY.md`, or Compozy memory from a rejected proposal, inferred diagnosis,
+   or temporary delivery state.
 4. Call `ext__batuta__routing_apply` operation `alignment_status` with the
    byte-equivalent routing request and exact generation digest. Present the
    derived table with every populated `domain × complexity` cell, task IDs,

@@ -26,15 +26,24 @@ type ComplexityPolicySnapshot struct {
 
 func DefaultSelectionPolicy() SelectionPolicy {
 	return SelectionPolicy{
-		Version: "2026-08-25.v1",
+		Version: "2026-08-30.v2",
 		ModelTiers: map[string]ModelTier{
-			ModelKey("cursor", "grok-4.6"):                        ModelTierFrontier,
-			ModelKey("cursor", "grok-4.6[effort=high,fast=true]"): ModelTierFrontier,
-			ModelKey("codex", "gpt-5.6-sol"):                      ModelTierFrontier,
-			ModelKey("codex", "gpt-5.6-terra"):                    ModelTierAdvanced,
-			ModelKey("codex", "gpt-5.6-luna"):                     ModelTierAdvanced,
-			ModelKey("opencode", "openai/gpt-5.6-terra"):          ModelTierAdvanced,
-			ModelKey("opencode", "anthropic/claude-opus-5"):       ModelTierFrontier,
+			ModelKey("claude", "claude-fable-5[1m]"):                                               ModelTierFrontier,
+			ModelKey("claude", "opus[1m]"):                                                         ModelTierFrontier,
+			ModelKey("claude", "sonnet"):                                                           ModelTierAdvanced,
+			ModelKey("cursor", "claude-fable-5[thinking=true,context=300k,effort=high]"):           ModelTierFrontier,
+			ModelKey("cursor", "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]"): ModelTierFrontier,
+			ModelKey("cursor", "claude-sonnet-5[thinking=true,context=300k,effort=high]"):          ModelTierAdvanced,
+			ModelKey("cursor", "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]"):           ModelTierAdvanced,
+			ModelKey("cursor", "gpt-5.6-sol[context=272k,reasoning=medium,fast=false]"):            ModelTierFrontier,
+			ModelKey("cursor", "gpt-5.6-terra[context=272k,reasoning=medium,fast=false]"):          ModelTierAdvanced,
+			ModelKey("cursor", "grok-4.6"):                                                         ModelTierFrontier,
+			ModelKey("cursor", "grok-4.6[effort=high,fast=true]"):                                  ModelTierFrontier,
+			ModelKey("codex", "gpt-5.6-sol"):                                                       ModelTierFrontier,
+			ModelKey("codex", "gpt-5.6-terra"):                                                     ModelTierAdvanced,
+			ModelKey("codex", "gpt-5.6-luna"):                                                      ModelTierAdvanced,
+			ModelKey("opencode", "openai/gpt-5.6-terra"):                                           ModelTierAdvanced,
+			ModelKey("opencode", "anthropic/claude-opus-5"):                                        ModelTierFrontier,
 		},
 	}
 }

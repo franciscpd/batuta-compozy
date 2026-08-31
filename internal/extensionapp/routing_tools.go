@@ -119,11 +119,16 @@ func routingPlanDomainError(err error) *compozysdk.RPCError {
 			break
 		}
 	}
-	return compozysdk.NewRPCError(-32010, "Tool execution failed", map[string]any{
+	data := map[string]any{
 		"code":         "tool_invalid_input",
 		"message":      "batuta: routing proposal rejected",
 		"reason_codes": reasonCodes,
-	})
+	}
+	var candidateErr *routing.RecommendedCandidateError
+	if errors.As(err, &candidateErr) {
+		data["candidate_rejections"] = []routing.CandidateRejection{candidateErr.Rejection}
+	}
+	return compozysdk.NewRPCError(-32010, "Tool execution failed", data)
 }
 
 func (a application) routingApply(

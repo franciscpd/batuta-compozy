@@ -2,6 +2,7 @@ package routing
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -117,6 +118,49 @@ func TestSelectorAcceptsCursorACPModelProvenByLiveCompozyCatalog(t *testing.T) {
 	}
 	if got := generation.Cells[0].Selected; got.ExecutorID != inventory.ExecutorCursorAgent || got.ProviderID != "cursor" || got.ModelID != exactModel {
 		t.Fatalf("selected = %#v, want Cursor Agent with exact live ACP model", got)
+	}
+}
+
+func TestSelectorAcceptsCurrentLiveModelsAtComplexityFloor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		provider   string
+		model      string
+		complexity Complexity
+	}{
+		{name: "claude fable high", provider: "claude", model: "claude-fable-5[1m]", complexity: ComplexityHigh},
+		{name: "claude sonnet medium", provider: "claude", model: "sonnet", complexity: ComplexityMedium},
+		{name: "claude opus high", provider: "claude", model: "opus[1m]", complexity: ComplexityHigh},
+		{name: "cursor fable high", provider: "cursor", model: "claude-fable-5[thinking=true,context=300k,effort=high]", complexity: ComplexityHigh},
+		{name: "cursor sonnet medium", provider: "cursor", model: "claude-sonnet-5[thinking=true,context=300k,effort=high]", complexity: ComplexityMedium},
+		{name: "cursor opus high", provider: "cursor", model: "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]", complexity: ComplexityHigh},
+		{name: "cursor gpt luna medium", provider: "cursor", model: "gpt-5.6-luna[context=272k,reasoning=medium,fast=false]", complexity: ComplexityMedium},
+		{name: "cursor gpt sol high", provider: "cursor", model: "gpt-5.6-sol[context=272k,reasoning=medium,fast=false]", complexity: ComplexityHigh},
+		{name: "cursor gpt terra medium", provider: "cursor", model: "gpt-5.6-terra[context=272k,reasoning=medium,fast=false]", complexity: ComplexityMedium},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := selectionFixture()
+			fixture.Graph.Tasks[0].Complexity = tt.complexity
+			fixture.Fit[0].Complexity = tt.complexity
+			fixture.Catalog.Models[0].ProviderID = tt.provider
+			fixture.Catalog.Models[0].ModelID = tt.model
+			fixture.Bindings[0] = CandidateBinding{
+				ExecutorID: inventory.ExecutorCompozy, ProviderID: tt.provider, ModelID: tt.model,
+			}
+			fixture.Inventory.Executors[0].ID = inventory.ExecutorCompozy
+			fixture.Fit[0].Candidates[0] = FitCandidate{
+				ExecutorID: inventory.ExecutorCompozy, ProviderID: tt.provider, ModelID: tt.model, Score: 0.9,
+			}
+			fixture.Policy = DefaultSelectionPolicy()
+
+			if _, err := fixture.Select(); err != nil {
+				t.Fatalf("Select(%s/%s) error = %v", tt.provider, tt.model, err)
+			}
+		})
 	}
 }
 
@@ -649,8 +693,21 @@ func TestSelectorRejectsRecommendationForKnownButIneligibleCandidate(t *testing.
 
 	fixture := selectionFixture()
 	fixture.Graph.Tasks[0].Requirements = []CapabilityRequirement{{Kind: CapabilityMCP, ID: "missing", Hard: true}}
-	if _, err := fixture.Select(); !errors.Is(err, ErrSelectionRetryable) {
+	_, err := fixture.Select()
+	if !errors.Is(err, ErrSelectionRetryable) {
 		t.Fatalf("Select(recommended ineligible binding) error = %v, want ErrSelectionRetryable", err)
+	}
+	var candidateErr *RecommendedCandidateError
+	if !errors.As(err, &candidateErr) {
+		t.Fatalf("Select(recommended ineligible binding) error = %T, want *RecommendedCandidateError", err)
+	}
+	want := CandidateRejection{
+		Domain: DomainFrontend, Complexity: ComplexityLow,
+		ExecutorID: inventory.ExecutorCursorAgent, ProviderID: "cursor", ModelID: "grok-4.6",
+		Code: "hard_capability_unresolved",
+	}
+	if !reflect.DeepEqual(candidateErr.Rejection, want) {
+		t.Fatalf("recommended rejection = %#v, want %#v", candidateErr.Rejection, want)
 	}
 }
 
@@ -669,7 +726,7 @@ func TestDefaultSelectionPolicyClassifiesCursorGrok46AsFrontier(t *testing.T) {
 	t.Parallel()
 
 	policy := DefaultSelectionPolicy()
-	if policy.Version == "" || policy.modelTier("cursor", "grok-4.6[effort=high,fast=true]") != ModelTierFrontier {
+	if policy.Version != "2026-08-30.v2" || policy.modelTier("cursor", "grok-4.6[effort=high,fast=true]") != ModelTierFrontier {
 		t.Fatalf("DefaultSelectionPolicy() = %#v, want versioned exact Cursor/Grok 4.6 frontier entry", policy)
 	}
 }

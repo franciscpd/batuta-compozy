@@ -18,6 +18,21 @@ var (
 
 const maxSafeRejectionsPerCell = 16
 
+// RecommendedCandidateError preserves the exact candidate rejected by the
+// deterministic selector so callers can correct only that proposal.
+type RecommendedCandidateError struct {
+	Rejection CandidateRejection
+}
+
+func (e *RecommendedCandidateError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s: recommendation includes %s candidate", ErrSelectionRetryable, e.Rejection.Code)
+}
+
+func (e *RecommendedCandidateError) Unwrap() error { return ErrSelectionRetryable }
+
 type CatalogModel struct {
 	ProviderID      string                      `json:"provider_id"`
 	ModelID         string                      `json:"model_id"`
@@ -192,7 +207,11 @@ func (s *Selector) Select(input SelectionInput) (RoutingGeneration, error) {
 			reason := candidateRejection(binding, key, tasks, executors, catalog, input.Probes, input.Inventory.Digest, s.policy)
 			if reason != "" {
 				if _, recommended := fitScores[bindingKey(binding.ExecutorID, binding.ProviderID, binding.ModelID)]; recommended {
-					return RoutingGeneration{}, fmt.Errorf("%w: recommendation includes %s candidate", ErrSelectionRetryable, reason)
+					return RoutingGeneration{}, &RecommendedCandidateError{Rejection: CandidateRejection{
+						Domain: key.domain, Complexity: key.complexity, ExecutorID: binding.ExecutorID,
+						ProviderID: binding.ProviderID, ModelID: binding.ModelID,
+						EnrichmentIDs: slices.Clone(binding.EnrichmentIDs), Code: reason,
+					}}
 				}
 				if recordedRejections < maxSafeRejectionsPerCell {
 					generation.Rejections = append(generation.Rejections, CandidateRejection{

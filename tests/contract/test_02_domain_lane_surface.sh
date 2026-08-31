@@ -67,6 +67,10 @@ for text in (agent_flat, skill_flat):
     assert "within the single permitted retry" in text.lower()
     assert "never reinterpret a routing rejection from worktree or git state" in text.lower()
     assert "never ask the operator to run `git init`, `git add`, or `git commit`" in text.lower()
+    assert "never merge stderr into structured stdout" in text.lower()
+    assert "parse only stdout as the single json document" in text.lower()
+    assert "routing rejection is session evidence, not durable memory" in text.lower()
+    assert "never write provider-specific memory files" in text.lower()
     assert "git_backed:false" not in text
 assert "successful `routing_plan` result" in routing_section
 assert "operation `confirm_alignment`" in routing_section
