@@ -41,9 +41,18 @@ Before mutation, Batuta renders the exact derived matrix: tasks, selected live
 provider/model/reasoning/tier, ordered fallbacks, and a cost column. Because the
 generation has no authoritative monetary cost snapshot, cost is displayed as
 `unknown` and is not part of the durable task/selected/fallback projection. The
-operator approves that proposal or requests an adjustment. Confirmation is durable for the identical projection and is
-invalidated by any changed cell. This is routing transparency, not a later
-implementation or publication gate.
+operator approves that proposal or requests an adjustment. Confirmation is
+durable for the identical projection and is invalidated by any changed cell.
+This is routing transparency, not a later implementation or publication gate.
+
+`alignment_status` revalidates the semantic catalog once and archives the exact
+candidate generation. Volatile refresh timestamps do not change its identity.
+`confirm_alignment` confirms that archive without planning again; a genuinely
+changed model, availability, task, or fit is rejected by the final apply
+preflight and requires a new generation to be shown to the operator.
+The journal keeps a deterministic bounded set of up to eight unconfirmed
+candidates, so interleaved operator sessions remain independently confirmable
+without allowing abandoned proposals to grow storage indefinitely.
 
 The confirmed preflight also makes a new project deliverable without a manual
 `git init`. The guarded `bootstrap_repository` operation uses the trusted
@@ -52,8 +61,8 @@ creates branch `main` with one `chore: initialize workspace` commit. Existing
 repositories with a valid HEAD are left untouched; an existing HEAD-less
 repository must already use `main`.
 
-`apply_matrix` archives an immutable generation, canonical task snapshot,
-integration worktree, and stable `delivery_id`. Stored Compozy Loop configuration is never mutated.
+`apply_matrix` promotes the archived immutable generation with the canonical
+task snapshot, integration worktree, and stable `delivery_id`. Stored Compozy Loop configuration is never mutated.
 
 ## 3. Dependency-safe task waves
 

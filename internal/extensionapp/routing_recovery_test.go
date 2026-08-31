@@ -587,6 +587,9 @@ func newDeliveryServiceFixture(t *testing.T) deliveryServiceFixture {
 	taskSet, _ := loader.Load("demo")
 	taskSnapshot, _ := taskSet.DeliverySnapshot()
 	store, _ := routing.NewOwnershipStore(t.TempDir())
+	if err := store.ArchiveGeneration(scope.WorkspaceID, generation); err != nil {
+		t.Fatalf("ArchiveGeneration() error = %v", err)
+	}
 	if _, err := (routing.AlignmentManager{Store: store}).Confirm(scope.WorkspaceID, "session_demo", generation); err != nil {
 		t.Fatalf("Alignment.Confirm() error = %v", err)
 	}

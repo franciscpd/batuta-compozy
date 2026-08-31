@@ -80,10 +80,13 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 	}
 	var result MatrixApplyResult
 	err = m.Store.WithLockedJournal(input.WorkspaceID, func(tx *JournalTx) error {
-		if archived, exists := tx.Journal.Generations[input.Generation.Digest]; exists && !reflect.DeepEqual(archived, input.Generation) {
-			return ErrOwnershipUnproven
+		if archived, exists := tx.Journal.Generations[input.Generation.Digest]; exists {
+			if archived.Digest != input.Generation.Digest {
+				return ErrOwnershipUnproven
+			}
+		} else {
+			tx.Journal.Generations[input.Generation.Digest] = input.Generation
 		}
-		tx.Journal.Generations[input.Generation.Digest] = input.Generation
 		tx.Journal.CurrentGeneration = input.Generation.Digest
 		if existing, exists := tx.Journal.Deliveries[deliveryID]; exists {
 			if !deliveryMatchesMatrixInput(existing, input, graph) {

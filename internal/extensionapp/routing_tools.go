@@ -102,6 +102,12 @@ func routingPlanDomainError(err error) *compozysdk.RPCError {
 		reasonCode = "routing_fit_retryable"
 	case errors.Is(err, routing.ErrCatalogDrift):
 		reasonCode = "catalog_drift"
+	case errors.Is(err, routing.ErrGenerationUnknown):
+		reasonCode = "generation_unknown"
+	case errors.Is(err, routing.ErrGenerationSuperseded):
+		reasonCode = "generation_superseded"
+	case errors.Is(err, routing.ErrGenerationCapacity):
+		reasonCode = "generation_capacity_exhausted"
 	case errors.Is(err, routing.ErrReauthoringRequired):
 		reasonCode = "task_reauthoring_required"
 	case errors.Is(err, routing.ErrNoEligibleCandidate):

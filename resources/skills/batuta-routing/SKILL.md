@@ -135,18 +135,30 @@ diagnosis, or temporary delivery state.
 ## Operator alignment and repository bootstrap
 
 After planning, call `routing_apply` operation `alignment_status` with the
-byte-equivalent request and generation digest. Present one row per populated
-cell with task IDs, exact provider/model/reasoning/tier, ordered fallbacks, and
-a cost column. The generation has no authoritative monetary cost snapshot, so
+byte-equivalent request and generation digest. This boundary revalidates the
+live semantic catalog once and archives that exact candidate; refresh
+timestamps alone do not change its identity. Present one row per populated cell
+with task IDs, exact provider/model/reasoning/tier, ordered fallbacks, and a
+cost column. The generation has no authoritative monetary cost snapshot, so
 the cost is always displayed as `unknown`; it is display-only and excluded
 from the durable task/selected/fallback projection. Never infer it. Use a
 typed `compozy__clarify` choice so the operator can approve the exact proposal
-or request adjusted requirements. On approval, call `confirm_alignment`.
+or request adjusted requirements. On approval, call `confirm_alignment`, which
+loads and confirms the archived generation without planning or recollecting
+inventory.
 
 Confirmation is durable only for the identical selected and fallback
 projection. Replay remains confirmed; a changed cell invalidates the record and
 must be presented again. `apply_matrix` refuses an unconfirmed generation.
 This alignment is not an implementation, review, or publication human gate.
+`generation_unknown` means the digest is not in the bounded archive: it was
+never stored by a successful `alignment_status` or an unconfirmed candidate was
+removed by the deterministic quota. `generation_superseded` means semantic
+routing evidence changed before mutation. Both require a fresh visible plan,
+not extension-host repair. The journal retains up to eight concurrent
+unconfirmed candidates. If the byte ceiling prevents another candidate,
+`generation_capacity_exhausted` is a typed local journal blocker rather than
+`backend_unhealthy`.
 
 At any Batuta tool boundary, `tool_backend_failed` with
 `backend_unhealthy` permits one `compozy__tool_info` read for that exact tool.
@@ -182,12 +194,14 @@ Batuta derives one rule per populated cell:
 ```
 
 Matching precedence is `id > type + complexity > type > complexity`; later
-equal-specificity rules merge per field. Matrix apply always reloads the task
-set and inventory, recomputes the immutable routing generation, and accepts it
-only when the fresh digest equals the expected digest.
+equal-specificity rules merge per field. `alignment_status` archives the
+candidate generation. Matrix apply reloads that archive, the task set, and
+inventory, recomputes the immutable routing generation, and accepts it only
+when the fresh digest equals the expected digest.
 
-The journal archives that generation together with the trusted worktree,
-task-set snapshot, global deadline, token ceiling, and stable `delivery_id`.
+The journal promotes that archived generation together with the trusted
+worktree, task-set snapshot, global deadline, token ceiling, and stable
+`delivery_id`.
 It does not write Compozy Loop configuration, replace operator rules, or rely
 on a workspace-wide configuration mutation. No plan-only call persists hidden
 state.

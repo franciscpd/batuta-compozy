@@ -52,6 +52,15 @@ ajuste. A confirmação é durável para a mesma projeção e
 qualquer célula alterada a invalida. Isso dá transparência ao roteamento; não é
 um gate posterior de implementação ou publicação.
 
+`alignment_status` revalida uma vez o catálogo semântico e arquiva exatamente a
+geração candidata. Timestamps voláteis de refresh não mudam sua identidade.
+`confirm_alignment` confirma esse arquivo sem planejar novamente; uma mudança
+real de modelo, disponibilidade, task ou fit é rejeitada pelo preflight final
+de apply e exige uma nova geração apresentada ao operador.
+O journal mantém um conjunto determinístico limitado a oito candidatos não
+confirmados, permitindo confirmar sessões intercaladas sem deixar propostas
+abandonadas crescerem indefinidamente no armazenamento.
+
 O preflight confirmado também torna um projeto novo entregável sem `git init`
 manual. A operação protegida `bootstrap_repository` usa a raiz confiável do
 workspace, respeita `.gitignore`, bloqueia caminhos sensíveis não ignorados e
@@ -59,9 +68,9 @@ cria a branch `main` com um único commit `chore: initialize workspace`.
 Repositórios com HEAD válido não são alterados; um repositório existente sem
 HEAD precisa já usar `main`.
 
-`apply_matrix` arquiva uma geração imutável, o snapshot canônico das tasks, o
-worktree de integração e um `delivery_id` estável. A configuração armazenada de
-Loop do Compozy nunca é alterada.
+`apply_matrix` promove a geração imutável arquivada com o snapshot canônico das
+tasks, o worktree de integração e um `delivery_id` estável. A configuração
+armazenada de Loop do Compozy nunca é alterada.
 
 ## 3. Ondas de tasks dependency-safe
 

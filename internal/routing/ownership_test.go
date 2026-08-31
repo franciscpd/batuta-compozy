@@ -1,14 +1,180 @@
 package routing
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestOwnershipStoreArchivesAndLoadsImmutableRoutingGeneration(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	generation := validGenerationFixture(t)
+	if _, err := store.LoadGeneration("workspace-1", generation.Digest); !errors.Is(err, ErrGenerationUnknown) {
+		t.Fatalf("LoadGeneration(missing) error = %v, want ErrGenerationUnknown", err)
+	}
+	if err := store.ArchiveGeneration("workspace-1", generation); err != nil {
+		t.Fatalf("ArchiveGeneration() error = %v", err)
+	}
+	if err := store.ArchiveGeneration("workspace-1", generation); err != nil {
+		t.Fatalf("ArchiveGeneration(replay) error = %v", err)
+	}
+	loaded, err := store.LoadGeneration("workspace-1", generation.Digest)
+	if err != nil || !reflect.DeepEqual(loaded, generation) {
+		t.Fatalf("LoadGeneration() = %#v, error %v; want %#v", loaded, err, generation)
+	}
+	journal, exists, err := store.Load("workspace-1")
+	if err != nil || !exists || len(journal.Generations) != 1 || journal.CurrentGeneration != "" {
+		t.Fatalf("journal = %#v, exists %v, error %v; want one archived candidate without current apply", journal, exists, err)
+	}
+}
+
+func TestOwnershipStoreBoundsUnconfirmedCandidates(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	first := validGenerationFixture(t)
+	if err := store.ArchiveGeneration("workspace-1", first); err != nil {
+		t.Fatalf("ArchiveGeneration(first) error = %v", err)
+	}
+	last := first
+	for index := 0; index < 128; index++ {
+		last = first
+		last.PolicyVersion = fmt.Sprintf("candidate-%03d", index)
+		last, err = finalizeGeneration(last)
+		if err != nil {
+			t.Fatalf("finalizeGeneration(%d) error = %v", index, err)
+		}
+		if err := store.ArchiveGeneration("workspace-1", last); err != nil {
+			t.Fatalf("ArchiveGeneration(%d) error = %v", index, err)
+		}
+	}
+	journal, exists, err := store.Load("workspace-1")
+	if err != nil || !exists || len(journal.Generations) != maxPendingGenerations {
+		t.Fatalf("journal generations = %d, exists %v, error %v; want bounded pending candidates", len(journal.Generations), exists, err)
+	}
+	if _, err := store.LoadGeneration("workspace-1", first.Digest); !errors.Is(err, ErrGenerationUnknown) {
+		t.Fatalf("LoadGeneration(pruned) error = %v, want ErrGenerationUnknown", err)
+	}
+	if loaded, err := store.LoadGeneration("workspace-1", last.Digest); err != nil || !reflect.DeepEqual(loaded, last) {
+		t.Fatalf("LoadGeneration(last) = %#v, error %v; want %#v", loaded, err, last)
+	}
+}
+
+func TestOwnershipStoreKeepsInterleavedPendingGenerations(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	first := validGenerationFixture(t)
+	second := first
+	second.PolicyVersion = "second-session"
+	second, err = finalizeGeneration(second)
+	if err != nil {
+		t.Fatalf("finalizeGeneration(second) error = %v", err)
+	}
+	if err := store.ArchiveGeneration("workspace-1", first); err != nil {
+		t.Fatalf("ArchiveGeneration(first) error = %v", err)
+	}
+	if err := store.ArchiveGeneration("workspace-1", second); err != nil {
+		t.Fatalf("ArchiveGeneration(second) error = %v", err)
+	}
+	for _, generation := range []RoutingGeneration{first, second} {
+		if loaded, err := store.LoadGeneration("workspace-1", generation.Digest); err != nil || !reflect.DeepEqual(loaded, generation) {
+			t.Fatalf("LoadGeneration(%q) = %#v, error %v", generation.PolicyVersion, loaded, err)
+		}
+	}
+}
+
+func TestOwnershipStorePreservesReferencedGenerationWhileReplacingCandidate(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	confirmed := alignmentGenerationFixture(t, validGenerationFixture(t))
+	if err := store.ArchiveGeneration("workspace-1", confirmed); err != nil {
+		t.Fatalf("ArchiveGeneration(confirmed) error = %v", err)
+	}
+	if _, err := (AlignmentManager{Store: store}).Confirm("workspace-1", "session-1", confirmed); err != nil {
+		t.Fatalf("Confirm() error = %v", err)
+	}
+	candidate := confirmed
+	candidate.PolicyVersion = "candidate-next"
+	candidate, err = finalizeGeneration(candidate)
+	if err != nil {
+		t.Fatalf("finalizeGeneration(candidate) error = %v", err)
+	}
+	if err := store.ArchiveGeneration("workspace-1", candidate); err != nil {
+		t.Fatalf("ArchiveGeneration(candidate) error = %v", err)
+	}
+	journal, exists, err := store.Load("workspace-1")
+	if err != nil || !exists || len(journal.Generations) != 2 {
+		t.Fatalf("journal generations = %d, exists %v, error %v; want confirmed plus pending", len(journal.Generations), exists, err)
+	}
+	if _, err := store.LoadGeneration("workspace-1", confirmed.Digest); err != nil {
+		t.Fatalf("LoadGeneration(confirmed) error = %v", err)
+	}
+}
+
+func TestOwnershipStoreConcurrentCandidateArchiveRemainsBounded(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stores := make([]*OwnershipStore, 2)
+	for index := range stores {
+		store, err := NewOwnershipStore(root)
+		if err != nil {
+			t.Fatalf("NewOwnershipStore(%d) error = %v", index, err)
+		}
+		stores[index] = store
+	}
+	base := validGenerationFixture(t)
+	errorsByWriter := make(chan error, 32)
+	var wg sync.WaitGroup
+	for index := 0; index < 32; index++ {
+		generation := base
+		generation.PolicyVersion = fmt.Sprintf("concurrent-candidate-%03d", index)
+		var err error
+		generation, err = finalizeGeneration(generation)
+		if err != nil {
+			t.Fatalf("finalizeGeneration(%d) error = %v", index, err)
+		}
+		wg.Add(1)
+		go func(store *OwnershipStore, candidate RoutingGeneration) {
+			defer wg.Done()
+			errorsByWriter <- store.ArchiveGeneration("workspace-1", candidate)
+		}(stores[index%len(stores)], generation)
+	}
+	wg.Wait()
+	close(errorsByWriter)
+	for err := range errorsByWriter {
+		if err != nil {
+			t.Fatalf("ArchiveGeneration(concurrent) error = %v", err)
+		}
+	}
+	journal, exists, err := stores[0].Load("workspace-1")
+	if err != nil || !exists || len(journal.Generations) != maxPendingGenerations {
+		t.Fatalf("journal generations = %d, exists %v, error %v; want bounded pending candidates", len(journal.Generations), exists, err)
+	}
+}
 
 func TestOwnershipWorkspaceLockSerializesSeparateStoreInstances(t *testing.T) {
 	t.Parallel()

@@ -149,20 +149,35 @@ sequence for the approved slug:
    `MEMORY.md`, or Compozy memory from a rejected proposal, inferred diagnosis,
    or temporary delivery state.
 4. Call `ext__batuta__routing_apply` operation `alignment_status` with the
-   byte-equivalent routing request and exact generation digest. Present the
-   derived table with every populated `domain × complexity` cell, task IDs,
-   selected provider/model/reasoning/tier, ordered fallbacks, and a cost column.
+   byte-equivalent routing request and exact generation digest. This boundary
+   revalidates the live semantic catalog once and archives that exact candidate;
+   refresh timestamps alone do not change its identity. Present the derived
+   table with every populated `domain × complexity` cell, task IDs, selected
+   provider/model/reasoning/tier, ordered fallbacks, and a cost column.
    The generation has no authoritative monetary cost snapshot, so render that
    column as `unknown`; it is display-only and outside the durable projection.
 5. Use `compozy__clarify` to ask whether to **Approve** the exact displayed
    matrix or **Adjust** the routing requirements. After explicit approval,
-   call operation `confirm_alignment` with the same request and digest. Replay
-   of the identical task/selected/fallback projection remains confirmed; any
-   changed cell invalidates it and requires a fresh table and confirmation.
+   call operation `confirm_alignment` with the same request and digest. This
+   operation confirms the archived generation and never plans or recollects
+   inventory. Replay of the identical task/selected/fallback projection remains
+   confirmed; any changed cell invalidates it and requires a fresh table and
+   confirmation.
 6. Retain the byte-equivalent `routing_plan` request and its exact generation
    digest while provisioning the delivery worktree. Planning does not persist
    a hidden candidate or authorize stale rules. `apply_matrix` rejects an
    unconfirmed generation.
+
+`generation_unknown` means the requested digest is not in the bounded archive:
+it was never stored by a successful `alignment_status` or an unconfirmed
+candidate was removed by the deterministic quota. `generation_superseded`
+means the semantic catalog changed before a mutation boundary. Neither means
+the extension host is unhealthy. In either case, create and present a fresh
+plan instead of retrying confirmation with an invented digest.
+The journal retains up to eight concurrent unconfirmed candidates so separate
+operator sessions do not invalidate each other immediately.
+`generation_capacity_exhausted` is a typed local journal blocker, never
+evidence of an unhealthy extension host.
 
 At any Batuta tool boundary, `tool_backend_failed` with
 `backend_unhealthy` permits one `compozy__tool_info` read for that exact tool.

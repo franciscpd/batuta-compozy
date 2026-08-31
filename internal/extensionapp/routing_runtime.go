@@ -22,6 +22,8 @@ type recoveryFunc func(context.Context, publication.TrustedScope, string, string
 type reconcileFunc func(context.Context, publication.TrustedScope, string, string) (RoutingReconcileResult, error)
 type alignmentStatusFunc func(string, routing.RoutingGeneration) (routing.AlignmentStatus, error)
 type alignmentConfirmFunc func(string, string, routing.RoutingGeneration) (routing.AlignmentStatus, error)
+type archiveGenerationFunc func(string, routing.RoutingGeneration) error
+type loadGenerationFunc func(string, string) (routing.RoutingGeneration, error)
 type repositoryBootstrapFunc func(context.Context, string) (repository.BootstrapResult, error)
 
 type routingEngine struct {
@@ -34,6 +36,8 @@ type routingEngine struct {
 	reconcile           reconcileFunc
 	alignmentStatus     alignmentStatusFunc
 	alignmentConfirm    alignmentConfirmFunc
+	archiveGeneration   archiveGenerationFunc
+	loadGeneration      loadGenerationFunc
 	bootstrapRepository repositoryBootstrapFunc
 }
 
@@ -127,42 +131,53 @@ func (e *routingEngine) Apply(
 		return RoutingApplyOutput{}, err
 	}
 	switch input.Operation {
-	case RoutingOperationAlignmentStatus, RoutingOperationConfirmAlignment:
+	case RoutingOperationAlignmentStatus:
 		fresh, err := e.Plan(ctx, scope, *input.RoutingPlan)
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
 		if fresh.Digest != input.ExpectedGenerationDigest {
-			return RoutingApplyOutput{}, errors.New("batuta: routing generation changed before alignment")
+			return RoutingApplyOutput{}, routing.ErrGenerationSuperseded
 		}
-		var alignment routing.AlignmentStatus
-		if input.Operation == RoutingOperationAlignmentStatus {
-			if e.alignmentStatus == nil {
-				return RoutingApplyOutput{}, errors.New("batuta: routing alignment status is unavailable")
-			}
-			alignment, err = e.alignmentStatus(scope.WorkspaceID, fresh)
-		} else {
-			if e.alignmentConfirm == nil {
-				return RoutingApplyOutput{}, errors.New("batuta: routing alignment confirmation is unavailable")
-			}
-			alignment, err = e.alignmentConfirm(scope.WorkspaceID, input.OriginSessionID, fresh)
+		if e.archiveGeneration == nil || e.alignmentStatus == nil {
+			return RoutingApplyOutput{}, errors.New("batuta: routing alignment status is unavailable")
 		}
+		alignment, err := e.alignmentStatus(scope.WorkspaceID, fresh)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if err := e.archiveGeneration(scope.WorkspaceID, fresh); err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		return RoutingApplyOutput{Operation: input.Operation, Alignment: &alignment}, nil
+	case RoutingOperationConfirmAlignment:
+		if e.loadGeneration == nil || e.alignmentConfirm == nil {
+			return RoutingApplyOutput{}, errors.New("batuta: routing alignment confirmation is unavailable")
+		}
+		generation, err := e.loadGeneration(scope.WorkspaceID, input.ExpectedGenerationDigest)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if generation.WorkspaceIdentityDigest != trustedWorkspaceDigest(scope) {
+			return RoutingApplyOutput{}, routing.ErrGenerationSuperseded
+		}
+		alignment, err := e.alignmentConfirm(scope.WorkspaceID, input.OriginSessionID, generation)
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
 		return RoutingApplyOutput{Operation: input.Operation, Alignment: &alignment}, nil
 	case RoutingOperationBootstrapRepository:
-		fresh, err := e.Plan(ctx, scope, *input.RoutingPlan)
+		if e.loadGeneration == nil || e.alignmentStatus == nil || e.bootstrapRepository == nil {
+			return RoutingApplyOutput{}, errors.New("batuta: repository bootstrap is unavailable")
+		}
+		generation, err := e.loadGeneration(scope.WorkspaceID, input.ExpectedGenerationDigest)
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
-		if fresh.Digest != input.ExpectedGenerationDigest {
-			return RoutingApplyOutput{}, errors.New("batuta: routing generation changed before repository bootstrap")
+		if generation.WorkspaceIdentityDigest != trustedWorkspaceDigest(scope) {
+			return RoutingApplyOutput{}, routing.ErrGenerationSuperseded
 		}
-		if e.alignmentStatus == nil || e.bootstrapRepository == nil {
-			return RoutingApplyOutput{}, errors.New("batuta: repository bootstrap is unavailable")
-		}
-		alignment, err := e.alignmentStatus(scope.WorkspaceID, fresh)
+		alignment, err := e.alignmentStatus(scope.WorkspaceID, generation)
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
@@ -175,15 +190,22 @@ func (e *routingEngine) Apply(
 		}
 		return RoutingApplyOutput{Operation: input.Operation, Repository: &result}, nil
 	case RoutingOperationApplyMatrix:
-		if e == nil || e.applyMatrix == nil {
+		if e == nil || e.applyMatrix == nil || e.loadGeneration == nil {
 			return RoutingApplyOutput{}, errors.New("batuta: routing matrix application is unavailable")
+		}
+		archived, err := e.loadGeneration(scope.WorkspaceID, input.ExpectedGenerationDigest)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		if archived.WorkspaceIdentityDigest != trustedWorkspaceDigest(scope) {
+			return RoutingApplyOutput{}, routing.ErrGenerationSuperseded
 		}
 		fresh, err := e.Plan(ctx, scope, *input.RoutingPlan)
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
 		if fresh.Digest != input.ExpectedGenerationDigest {
-			return RoutingApplyOutput{}, errors.New("batuta: routing generation changed before apply")
+			return RoutingApplyOutput{}, routing.ErrGenerationSuperseded
 		}
 		if e.inspectWorktree == nil || e.worktreeState == nil {
 			return RoutingApplyOutput{}, errors.New("batuta: trusted worktree evidence is unavailable")
@@ -209,7 +231,7 @@ func (e *routingEngine) Apply(
 			return RoutingApplyOutput{}, err
 		}
 		taskSnapshot, err := taskSet.DeliverySnapshot()
-		if err != nil || taskSet.Digest != fresh.TaskSetDigest {
+		if err != nil || taskSet.Digest != archived.TaskSetDigest {
 			return RoutingApplyOutput{}, errors.New("batuta: task set changed before apply")
 		}
 		result, err := e.applyMatrix(ctx, routing.MatrixApplyInput{
@@ -220,7 +242,7 @@ func (e *routingEngine) Apply(
 			InitialWorktreeFingerprint: routing.WorktreeFingerprint{
 				HeadSHA: state.HeadSHA, PorcelainSHA256: state.PorcelainSHA256, ContentSHA256: state.ContentSHA256,
 			},
-			Generation: fresh,
+			Generation: archived,
 		})
 		if err != nil {
 			return RoutingApplyOutput{}, err

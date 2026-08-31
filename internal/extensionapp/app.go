@@ -107,6 +107,20 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 			}
 			return (routing.AlignmentManager{Store: store}).Confirm(workspaceID, actorID, generation)
 		},
+		archiveGeneration: func(workspaceID string, generation routing.RoutingGeneration) error {
+			store, err := storeForCall()
+			if err != nil {
+				return err
+			}
+			return store.ArchiveGeneration(workspaceID, generation)
+		},
+		loadGeneration: func(workspaceID, digest string) (routing.RoutingGeneration, error) {
+			store, err := storeForCall()
+			if err != nil {
+				return routing.RoutingGeneration{}, err
+			}
+			return store.LoadGeneration(workspaceID, digest)
+		},
 		bootstrapRepository: (repository.Bootstrapper{GitExecutable: gitExecutable, Runner: runner}).Bootstrap,
 	}
 	deliveryClient := deliveryLoopCLIClient{Executable: compozyExecutable, Runner: runner}

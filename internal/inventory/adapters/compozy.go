@@ -2,10 +2,17 @@ package adapters
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/franciscpd/batuta-compozy/internal/inventory"
 )
+
+type compozyModelIdentity struct {
+	ProviderID   string `json:"provider_id"`
+	ModelID      string `json:"model_id"`
+	Availability string `json:"availability"`
+}
 
 func NewCompozy(executable, workspaceID string) (Adapter, error) {
 	ids := map[string]inventory.ProbeID{
@@ -48,22 +55,41 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 	modelIDs := make([]string, 0)
 	unknownModelIDs := make([]string, 0)
 	if len(modelRaw) > 0 && json.Unmarshal(modelRaw, &models) == nil {
+		identities := make([]compozyModelIdentity, 0, len(models.Models))
 		for _, model := range models.Models {
 			if model.Hidden || model.Deprecated || !safePublicIdentifier(model.ProviderID) || !safeRuntimeModelIdentifier(model.ModelID) {
 				continue
 			}
 			exactID := model.ProviderID + "/" + model.ModelID
+			availability := ""
 			switch {
 			case liveAvailableModel(model.AvailabilityState):
+				availability = "available"
 				modelIDs = append(modelIDs, exactID)
 			case model.AvailabilityState == string(inventory.AvailabilityUnknown):
+				availability = "unknown"
 				unknownModelIDs = append(unknownModelIDs, exactID)
+			default:
+				continue
 			}
+			identities = append(identities, compozyModelIdentity{
+				ProviderID: model.ProviderID, ModelID: model.ModelID, Availability: availability,
+			})
 		}
-		snapshot.Capabilities = append(snapshot.Capabilities, evidence("models", "compozy provider models list", inventory.ResolutionResolved, modelRaw, modelIDs))
+		slices.SortFunc(identities, func(a, b compozyModelIdentity) int {
+			if value := strings.Compare(a.ProviderID, b.ProviderID); value != 0 {
+				return value
+			}
+			if value := strings.Compare(a.ModelID, b.ModelID); value != 0 {
+				return value
+			}
+			return strings.Compare(a.Availability, b.Availability)
+		})
+		semanticModelRaw, _ := json.Marshal(identities)
+		snapshot.Capabilities = append(snapshot.Capabilities, evidence("models", "compozy provider models list", inventory.ResolutionResolved, semanticModelRaw, modelIDs))
 		if len(unknownModelIDs) > 0 {
 			snapshot.Capabilities = append(snapshot.Capabilities, evidence(
-				"catalog_models_unknown", "compozy provider models list", inventory.ResolutionResolved, modelRaw, unknownModelIDs,
+				"catalog_models_unknown", "compozy provider models list", inventory.ResolutionResolved, semanticModelRaw, unknownModelIDs,
 			))
 		}
 	} else {

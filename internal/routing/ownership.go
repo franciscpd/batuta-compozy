@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,10 +19,14 @@ import (
 const (
 	journalSchemaVersion   = 2
 	maxRoutingJournalBytes = 16 << 20
+	maxPendingGenerations  = 8
 )
 
 var (
 	ErrOwnershipUnproven       = errors.New("routing: matrix ownership cannot be proven")
+	ErrGenerationUnknown       = errors.New("routing: generation is not archived")
+	ErrGenerationSuperseded    = errors.New("routing: generation changed before mutation")
+	ErrGenerationCapacity      = errors.New("routing: pending generation capacity is exhausted")
 	ErrDeliveryBindingConflict = errors.New("routing: delivery generation binding conflict")
 	ErrDeliveryLivenessUnknown = errors.New("routing: delivery liveness is unknown")
 )
@@ -113,6 +118,112 @@ func (s *OwnershipStore) Load(workspaceID string) (RoutingJournal, bool, error) 
 		return err
 	})
 	return journal, exists, err
+}
+
+func (s *OwnershipStore) ArchiveGeneration(workspaceID string, generation RoutingGeneration) error {
+	recomputed, err := finalizeGeneration(generation)
+	if err != nil || recomputed.Digest != generation.Digest {
+		return ErrOwnershipUnproven
+	}
+	return s.WithLockedJournal(workspaceID, func(tx *JournalTx) error {
+		changed := false
+		if existing, exists := tx.Journal.Generations[generation.Digest]; exists {
+			if !reflect.DeepEqual(existing, generation) {
+				return ErrOwnershipUnproven
+			}
+		} else {
+			tx.Journal.Generations[generation.Digest] = generation
+			changed = true
+		}
+		pending := unreferencedGenerationDigests(*tx.Journal)
+		for len(pending) > maxPendingGenerations {
+			var evicted bool
+			pending, evicted = evictUnreferencedGeneration(tx.Journal, pending, generation.Digest)
+			if !evicted {
+				return ErrGenerationCapacity
+			}
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		for {
+			payload, err := json.Marshal(tx.Journal)
+			if err != nil {
+				return ErrOwnershipUnproven
+			}
+			if len(payload) <= maxRoutingJournalBytes {
+				break
+			}
+			var evicted bool
+			pending, evicted = evictUnreferencedGeneration(tx.Journal, pending, generation.Digest)
+			if !evicted {
+				return ErrGenerationCapacity
+			}
+		}
+		return tx.Persist()
+	})
+}
+
+func unreferencedGenerationDigests(journal RoutingJournal) []string {
+	pending := make([]string, 0)
+	for digest := range journal.Generations {
+		if !generationReferenced(journal, digest) {
+			pending = append(pending, digest)
+		}
+	}
+	slices.Sort(pending)
+	return pending
+}
+
+func evictUnreferencedGeneration(journal *RoutingJournal, pending []string, keep string) ([]string, bool) {
+	for index, digest := range pending {
+		if digest == keep {
+			continue
+		}
+		delete(journal.Generations, digest)
+		return append(pending[:index], pending[index+1:]...), true
+	}
+	return pending, false
+}
+
+func generationReferenced(journal RoutingJournal, digest string) bool {
+	if journal.CurrentGeneration == digest {
+		return true
+	}
+	for _, alignment := range journal.Alignments {
+		if alignment.GenerationDigest == digest {
+			return true
+		}
+	}
+	for _, delivery := range journal.Deliveries {
+		if delivery.RoutingGenerationDigest == digest {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *OwnershipStore) LoadGeneration(workspaceID, digest string) (RoutingGeneration, error) {
+	if !canonicalSHA256.MatchString(digest) {
+		return RoutingGeneration{}, ErrGenerationUnknown
+	}
+	journal, exists, err := s.Load(workspaceID)
+	if err != nil {
+		return RoutingGeneration{}, err
+	}
+	if !exists {
+		return RoutingGeneration{}, ErrGenerationUnknown
+	}
+	generation, exists := journal.Generations[digest]
+	if !exists {
+		return RoutingGeneration{}, ErrGenerationUnknown
+	}
+	recomputed, err := finalizeGeneration(generation)
+	if err != nil || recomputed.Digest != digest {
+		return RoutingGeneration{}, ErrOwnershipUnproven
+	}
+	return generation, nil
 }
 
 func (s *OwnershipStore) WithLockedJournal(workspaceID string, fn func(*JournalTx) error) error {
@@ -386,12 +497,17 @@ func validateJournalTransition(before, after RoutingJournal) error {
 		return err
 	}
 	for digest, generation := range before.Generations {
-		if candidate, exists := after.Generations[digest]; !exists || !reflect.DeepEqual(generation, candidate) {
+		candidate, exists := after.Generations[digest]
+		if !exists && !generationReferenced(before, digest) {
+			continue
+		}
+		if !exists || !reflect.DeepEqual(generation, candidate) {
 			return ErrDeliveryConflict
 		}
 	}
 	for digest, alignment := range before.Alignments {
-		if candidate, exists := after.Alignments[digest]; !exists || !reflect.DeepEqual(alignment, candidate) {
+		candidate, exists := after.Alignments[digest]
+		if !exists || !validAlignmentTransition(alignment, candidate, after.Generations) {
 			return ErrDeliveryConflict
 		}
 	}
@@ -410,6 +526,19 @@ func validateJournalTransition(before, after RoutingJournal) error {
 		}
 	}
 	return nil
+}
+
+func validAlignmentTransition(before, after AlignmentRecord, generations map[string]RoutingGeneration) bool {
+	if before.AlignmentDigest != after.AlignmentDigest || before.ConfirmedBy != after.ConfirmedBy ||
+		!before.ConfirmedAt.Equal(after.ConfirmedAt) || !reflect.DeepEqual(before.Cells, after.Cells) {
+		return false
+	}
+	generation, exists := generations[after.GenerationDigest]
+	if !exists {
+		return false
+	}
+	digest, _, err := alignmentIdentity(generation)
+	return err == nil && digest == after.AlignmentDigest
 }
 
 func emptyRoutingJournal() RoutingJournal {

@@ -118,6 +118,21 @@ func TestRoutingApplyReturnsActionableReplanErrors(t *testing.T) {
 			applyErr:   routing.ErrCatalogDrift,
 			reasonCode: "catalog_drift",
 		},
+		{
+			name:       "generation unknown",
+			applyErr:   routing.ErrGenerationUnknown,
+			reasonCode: "generation_unknown",
+		},
+		{
+			name:       "generation superseded",
+			applyErr:   routing.ErrGenerationSuperseded,
+			reasonCode: "generation_superseded",
+		},
+		{
+			name:       "generation capacity",
+			applyErr:   routing.ErrGenerationCapacity,
+			reasonCode: "generation_capacity_exhausted",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -317,9 +332,16 @@ func TestRoutingApplyBootstrapsOnlyConfirmedGenerationAtTrustedWorkspaceRoot(t *
 	writeRoutingTask(t, root)
 	snapshot := routingInventory(t, nil)
 	bootstrapCalls := 0
+	var planned routing.RoutingGeneration
 	engine := routingEngine{
 		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
 			return snapshot, nil
+		},
+		loadGeneration: func(_ string, digest string) (routing.RoutingGeneration, error) {
+			if digest != planned.Digest {
+				return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+			}
+			return planned, nil
 		},
 		alignmentStatus: func(_ string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
 			return routing.AlignmentStatus{
@@ -339,7 +361,8 @@ func TestRoutingApplyBootstrapsOnlyConfirmedGenerationAtTrustedWorkspaceRoot(t *
 	}
 	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
 	planInput := routingPlanFixture()
-	planned, err := engine.Plan(context.Background(), scope, planInput)
+	var err error
+	planned, err = engine.Plan(context.Background(), scope, planInput)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -363,15 +386,19 @@ func TestRoutingApplyBootstrapsOnlyConfirmedGenerationAtTrustedWorkspaceRoot(t *
 	}
 }
 
-func TestRoutingApplyRejectedReplanNeverBootstrapsRepository(t *testing.T) {
+func TestRoutingApplyUnknownGenerationNeverBootstrapsRepository(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	writeRoutingTask(t, root)
 	bootstrapCalls := 0
 	engine := routingEngine{
-		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
-			return routingInventory(t, nil), nil
+		loadGeneration: func(string, string) (routing.RoutingGeneration, error) {
+			return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+		},
+		alignmentStatus: func(string, routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			t.Fatal("alignment status must not run for an unknown generation")
+			return routing.AlignmentStatus{}, nil
 		},
 		bootstrapRepository: func(context.Context, string) (repository.BootstrapResult, error) {
 			bootstrapCalls++
@@ -379,8 +406,6 @@ func TestRoutingApplyRejectedReplanNeverBootstrapsRepository(t *testing.T) {
 		},
 	}
 	input := routingPlanFixture()
-	input.Fit[0].Candidates[0].ProviderID = "missing-provider"
-	input.Fit[0].Candidates[0].ModelID = "missing-model"
 
 	_, err := engine.Apply(context.Background(), publication.TrustedScope{
 		WorkspaceID: "ws_demo", WorkspaceRoot: root,
@@ -389,24 +414,113 @@ func TestRoutingApplyRejectedReplanNeverBootstrapsRepository(t *testing.T) {
 		RoutingPlan:              &input,
 		ExpectedGenerationDigest: digestValue("invented"),
 	})
-	if !errors.Is(err, routing.ErrSelectionRetryable) {
-		t.Fatalf("Apply() error = %v, want ErrSelectionRetryable", err)
+	if !errors.Is(err, routing.ErrGenerationUnknown) {
+		t.Fatalf("Apply() error = %v, want ErrGenerationUnknown", err)
 	}
 	if bootstrapCalls != 0 {
 		t.Fatalf("bootstrap calls = %d, want 0", bootstrapCalls)
 	}
 }
 
-func TestRoutingApplyAlignmentReplansBeforeStatusOrConfirmation(t *testing.T) {
+func TestRoutingApplyRejectsArchivedGenerationAfterWorkspaceRootRebinding(t *testing.T) {
+	t.Parallel()
+
+	originalRoot := t.TempDir()
+	reboundRoot := t.TempDir()
+	writeRoutingTask(t, originalRoot)
+	snapshot := routingInventory(t, nil)
+	var planned routing.RoutingGeneration
+	mutations := 0
+	inventoryCalls := 0
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			inventoryCalls++
+			return snapshot, nil
+		},
+		loadGeneration: func(string, string) (routing.RoutingGeneration, error) {
+			return planned, nil
+		},
+		alignmentConfirm: func(string, string, routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			mutations++
+			return routing.AlignmentStatus{}, nil
+		},
+		alignmentStatus: func(string, routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			mutations++
+			return routing.AlignmentStatus{State: routing.AlignmentConfirmed}, nil
+		},
+		bootstrapRepository: func(context.Context, string) (repository.BootstrapResult, error) {
+			mutations++
+			return repository.BootstrapResult{}, nil
+		},
+		inspectWorktree: func(context.Context, publication.TrustedScope, string) (publication.WorktreeInspection, error) {
+			mutations++
+			return publication.WorktreeInspection{}, nil
+		},
+		worktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			mutations++
+			return publication.WorktreeState{}, nil
+		},
+		applyMatrix: func(context.Context, routing.MatrixApplyInput) (routing.MatrixApplyResult, error) {
+			mutations++
+			return routing.MatrixApplyResult{}, nil
+		},
+	}
+	input := routingPlanFixture()
+	originalScope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: originalRoot}
+	var err error
+	planned, err = engine.Plan(context.Background(), originalScope, input)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	reboundScope := publication.TrustedScope{WorkspaceID: originalScope.WorkspaceID, WorkspaceRoot: reboundRoot}
+	for _, request := range []RoutingApplyInput{
+		{
+			Operation: RoutingOperationConfirmAlignment, RoutingPlan: &input,
+			ExpectedGenerationDigest: planned.Digest, OriginSessionID: "session_operator",
+		},
+		{
+			Operation: RoutingOperationBootstrapRepository, RoutingPlan: &input,
+			ExpectedGenerationDigest: planned.Digest,
+		},
+		{
+			Operation: RoutingOperationApplyMatrix, RoutingPlan: &input,
+			ExpectedGenerationDigest: planned.Digest, WorktreeRef: "wt_demo", OriginSessionID: "session_operator",
+		},
+	} {
+		if _, err := engine.Apply(context.Background(), reboundScope, request); !errors.Is(err, routing.ErrGenerationSuperseded) {
+			t.Fatalf("Apply(%s) error = %v, want ErrGenerationSuperseded", request.Operation, err)
+		}
+	}
+	if mutations != 0 {
+		t.Fatalf("rebound generation reached %d mutation callbacks, want 0", mutations)
+	}
+	if inventoryCalls != 1 {
+		t.Fatalf("rebound generation inventory calls = %d, want only the original plan", inventoryCalls)
+	}
+}
+
+func TestRoutingApplyArchivesAtStatusAndConfirmsWithoutReplanning(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	writeRoutingTask(t, root)
 	snapshot := routingInventory(t, nil)
-	var statusCalls, confirmCalls int
+	var statusCalls, confirmCalls, inventoryCalls int
+	var archived routing.RoutingGeneration
 	engine := routingEngine{
 		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			inventoryCalls++
 			return snapshot, nil
+		},
+		archiveGeneration: func(_ string, generation routing.RoutingGeneration) error {
+			archived = generation
+			return nil
+		},
+		loadGeneration: func(_ string, digest string) (routing.RoutingGeneration, error) {
+			if archived.Digest == "" || digest != archived.Digest {
+				return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+			}
+			return archived, nil
 		},
 		alignmentStatus: func(_ string, generation routing.RoutingGeneration) (routing.AlignmentStatus, error) {
 			statusCalls++
@@ -434,13 +548,118 @@ func TestRoutingApplyAlignmentReplansBeforeStatusOrConfirmation(t *testing.T) {
 	if err != nil || status.Alignment == nil || status.Alignment.State != routing.AlignmentRequired || statusCalls != 1 || confirmCalls != 0 {
 		t.Fatalf("Apply(alignment status) = %#v, error %v, calls status=%d confirm=%d", status, err, statusCalls, confirmCalls)
 	}
+	if archived.Digest != planned.Digest || inventoryCalls != 2 {
+		t.Fatalf("archived digest = %q, inventory calls = %d; want %q and 2", archived.Digest, inventoryCalls, planned.Digest)
+	}
+	engine.inventory = func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+		t.Fatal("confirm_alignment must not recollect inventory")
+		return inventory.InventorySnapshot{}, nil
+	}
 	confirmed, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
 		Operation: RoutingOperationConfirmAlignment, RoutingPlan: &planInput,
 		ExpectedGenerationDigest: planned.Digest, OriginSessionID: "session_operator",
 	})
 	if err != nil || confirmed.Alignment == nil || confirmed.Alignment.State != routing.AlignmentConfirmed ||
-		confirmed.Alignment.ConfirmedBy != "session_operator" || statusCalls != 1 || confirmCalls != 1 {
+		confirmed.Alignment.ConfirmedBy != "session_operator" || statusCalls != 1 || confirmCalls != 1 || inventoryCalls != 2 {
 		t.Fatalf("Apply(confirm alignment) = %#v, error %v, calls status=%d confirm=%d", confirmed, err, statusCalls, confirmCalls)
+	}
+}
+
+func TestRoutingApplyDoesNotArchiveFailedAlignmentStatus(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRoutingTask(t, root)
+	snapshot := routingInventory(t, nil)
+	archiveCalls := 0
+	statusErr := errors.New("alignment status unavailable")
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			return snapshot, nil
+		},
+		archiveGeneration: func(string, routing.RoutingGeneration) error {
+			archiveCalls++
+			return nil
+		},
+		alignmentStatus: func(string, routing.RoutingGeneration) (routing.AlignmentStatus, error) {
+			return routing.AlignmentStatus{}, statusErr
+		},
+	}
+	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
+	input := routingPlanFixture()
+	planned, err := engine.Plan(context.Background(), scope, input)
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	_, err = engine.Apply(context.Background(), scope, RoutingApplyInput{
+		Operation: RoutingOperationAlignmentStatus, RoutingPlan: &input, ExpectedGenerationDigest: planned.Digest,
+	})
+	if !errors.Is(err, statusErr) || archiveCalls != 0 {
+		t.Fatalf("Apply() error = %v, archive calls = %d; want status error and zero archive", err, archiveCalls)
+	}
+}
+
+func TestRoutingApplyKeepsTwoInterleavedAlignmentCandidatesConfirmable(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeRoutingTask(t, root)
+	store, err := routing.NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	manager := routing.AlignmentManager{Store: store}
+	engine := routingEngine{
+		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+			return routingInventory(t, nil), nil
+		},
+		archiveGeneration: store.ArchiveGeneration,
+		loadGeneration:    store.LoadGeneration,
+		alignmentStatus:   manager.Status,
+		alignmentConfirm:  manager.Confirm,
+	}
+	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
+	firstInput := routingPlanFixture()
+	secondInput := routingPlanFixture()
+	secondInput.Fit[0].Candidates = []routing.FitCandidate{{
+		ExecutorID: inventory.ExecutorCodex, ProviderID: "codex", ModelID: "gpt-5.6-luna", Score: 0.95,
+	}}
+	first, err := engine.Plan(context.Background(), scope, firstInput)
+	if err != nil {
+		t.Fatalf("Plan(first) error = %v", err)
+	}
+	second, err := engine.Plan(context.Background(), scope, secondInput)
+	if err != nil {
+		t.Fatalf("Plan(second) error = %v", err)
+	}
+	for _, candidate := range []struct {
+		input      RoutingPlanInput
+		generation routing.RoutingGeneration
+	}{
+		{input: firstInput, generation: first},
+		{input: secondInput, generation: second},
+	} {
+		if _, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
+			Operation: RoutingOperationAlignmentStatus, RoutingPlan: &candidate.input,
+			ExpectedGenerationDigest: candidate.generation.Digest,
+		}); err != nil {
+			t.Fatalf("Apply(alignment_status %q) error = %v", candidate.generation.Digest, err)
+		}
+	}
+	for index, candidate := range []struct {
+		input      RoutingPlanInput
+		generation routing.RoutingGeneration
+	}{
+		{input: firstInput, generation: first},
+		{input: secondInput, generation: second},
+	} {
+		output, err := engine.Apply(context.Background(), scope, RoutingApplyInput{
+			Operation: RoutingOperationConfirmAlignment, RoutingPlan: &candidate.input,
+			ExpectedGenerationDigest: candidate.generation.Digest, OriginSessionID: fmt.Sprintf("session-%d", index+1),
+		})
+		if err != nil || output.Alignment == nil || output.Alignment.State != routing.AlignmentConfirmed {
+			t.Fatalf("Apply(confirm %q) = %#v, error %v", candidate.generation.Digest, output, err)
+		}
 	}
 }
 
@@ -591,6 +810,7 @@ func TestRoutingApplyReplansAndRejectsChangedGeneration(t *testing.T) {
 	second := routingInventory(t, []inventory.Diagnostic{{Code: "catalog_refreshed"}})
 	collectCalls := 0
 	matrixCalls := 0
+	var planned routing.RoutingGeneration
 	engine := routingEngine{
 		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
 			collectCalls++
@@ -603,10 +823,17 @@ func TestRoutingApplyReplansAndRejectsChangedGeneration(t *testing.T) {
 			matrixCalls++
 			return routing.MatrixApplyResult{}, nil
 		},
+		loadGeneration: func(_ string, digest string) (routing.RoutingGeneration, error) {
+			if digest != planned.Digest {
+				return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+			}
+			return planned, nil
+		},
 	}
 	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
 	input := routingPlanFixture()
-	planned, err := engine.Plan(context.Background(), scope, input)
+	var err error
+	planned, err = engine.Plan(context.Background(), scope, input)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}
@@ -617,11 +844,11 @@ func TestRoutingApplyReplansAndRejectsChangedGeneration(t *testing.T) {
 		Operation: RoutingOperationApplyMatrix, RoutingPlan: &input, ExpectedGenerationDigest: planned.Digest,
 		WorktreeRef: "wt_demo", OriginSessionID: "session_demo",
 	})
-	if err == nil {
-		t.Fatal("Apply(changed inventory) error = nil")
+	if !errors.Is(err, routing.ErrGenerationSuperseded) {
+		t.Fatalf("Apply(changed inventory) error = %v, want ErrGenerationSuperseded", err)
 	}
-	if matrixCalls != 0 {
-		t.Fatalf("matrix calls = %d, want 0 before matching fresh digest", matrixCalls)
+	if collectCalls != 2 || matrixCalls != 0 {
+		t.Fatalf("calls inventory=%d matrix=%d, want 2 and 0 before matching fresh digest", collectCalls, matrixCalls)
 	}
 }
 
@@ -632,6 +859,7 @@ func TestRoutingApplyArchivesTrustedWorktreeAndTaskEvidence(t *testing.T) {
 	writeRoutingTask(t, root)
 	snapshot := routingInventory(t, nil)
 	var captured routing.MatrixApplyInput
+	var planned routing.RoutingGeneration
 	engine := routingEngine{
 		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
 			return snapshot, nil
@@ -652,10 +880,17 @@ func TestRoutingApplyArchivesTrustedWorktreeAndTaskEvidence(t *testing.T) {
 			captured = input
 			return routing.MatrixApplyResult{DeliveryID: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, nil
 		},
+		loadGeneration: func(_ string, digest string) (routing.RoutingGeneration, error) {
+			if digest != planned.Digest {
+				return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+			}
+			return planned, nil
+		},
 	}
 	scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
 	planInput := routingPlanFixture()
-	planned, err := engine.Plan(context.Background(), scope, planInput)
+	var err error
+	planned, err = engine.Plan(context.Background(), scope, planInput)
 	if err != nil {
 		t.Fatalf("Plan() error = %v", err)
 	}

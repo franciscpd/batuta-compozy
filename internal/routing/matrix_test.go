@@ -170,6 +170,9 @@ func validMatrixApplyInput(t *testing.T) MatrixApplyInput {
 
 func confirmMatrixInput(t *testing.T, store *OwnershipStore, input MatrixApplyInput) {
 	t.Helper()
+	if err := store.ArchiveGeneration(input.WorkspaceID, input.Generation); err != nil {
+		t.Fatalf("ArchiveGeneration(matrix input) error = %v", err)
+	}
 	if _, err := (AlignmentManager{Store: store}).Confirm(input.WorkspaceID, input.OriginSessionID, input.Generation); err != nil {
 		t.Fatalf("Confirm(matrix input) error = %v", err)
 	}

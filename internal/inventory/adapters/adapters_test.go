@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -371,6 +372,44 @@ func TestCompozyAdapterIncludesOnlyLiveAvailableModels(t *testing.T) {
 		return
 	}
 	t.Fatal("models capability missing")
+}
+
+func TestCompozyAdapterModelDigestIgnoresRefreshMetadata(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewCompozy(t, "/opt/compozy", "workspace-1")
+	modelOutput := func(refreshedAt, availability string) map[inventory.ProbeID][]byte {
+		return map[inventory.ProbeID][]byte{
+			adapter.ProbeID("version"): []byte("0.3.0-beta.21"),
+			adapter.ProbeID("models"): []byte(`{"models":[{
+				"provider_id":"cursor",
+				"model_id":"grok-4.6",
+				"availability_state":"` + availability + `",
+				"sources":[{"source_id":"provider_live:cursor","refreshed_at":"` + refreshedAt + `"}]
+			}]}`),
+		}
+	}
+	normalize := func(outputs map[inventory.ProbeID][]byte) (inventory.ExecutorSnapshot, string) {
+		t.Helper()
+		snapshot := adapter.Normalize(outputs)
+		for _, capability := range snapshot.Capabilities {
+			if capability.Name == "models" {
+				return snapshot, capability.Digest
+			}
+		}
+		t.Fatal("models capability missing")
+		return inventory.ExecutorSnapshot{}, ""
+	}
+
+	firstSnapshot, first := normalize(modelOutput("2026-08-31T19:42:04Z", "available_live"))
+	secondSnapshot, second := normalize(modelOutput("2026-08-31T19:42:38Z", "available_live"))
+	_, changed := normalize(modelOutput("2026-08-31T19:42:38Z", "unavailable_live"))
+	if first != second || !reflect.DeepEqual(firstSnapshot, secondSnapshot) {
+		t.Fatalf("refresh-only model evidence changed:\nfirst=%#v\nsecond=%#v", firstSnapshot, secondSnapshot)
+	}
+	if first == changed {
+		t.Fatalf("availability change kept model digest %q", first)
+	}
 }
 
 func TestCompozyAdapterRetainsUnknownCatalogModelsForExactExecutorProof(t *testing.T) {

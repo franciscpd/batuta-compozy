@@ -69,10 +69,24 @@ func (m AlignmentManager) Confirm(workspaceID, actorID string, generation Routin
 	}
 	var result AlignmentStatus
 	err = m.Store.WithLockedJournal(workspaceID, func(tx *JournalTx) error {
+		archived, exists := tx.Journal.Generations[generation.Digest]
+		if !exists {
+			return ErrGenerationUnknown
+		}
+		if archived.Digest != generation.Digest {
+			return ErrOwnershipUnproven
+		}
 		if tx.Journal.Alignments == nil {
 			tx.Journal.Alignments = map[string]AlignmentRecord{}
 		}
 		if existing, exists := tx.Journal.Alignments[digest]; exists {
+			if existing.GenerationDigest != generation.Digest {
+				existing.GenerationDigest = generation.Digest
+				tx.Journal.Alignments[digest] = existing
+				if err := tx.Persist(); err != nil {
+					return err
+				}
+			}
 			result = alignmentStatus(existing, generation.Digest, true)
 			return nil
 		}
