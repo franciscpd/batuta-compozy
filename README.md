@@ -18,9 +18,7 @@ selects each task by domain × complexity.
 ```text
 conversation -> interactive SDD cards -> tasks -> inventory -> routing graph
                                                     |
-                              batuta-deliver launcher run (journaled public ID)
-                                                    |
-                        internal batuta-deliver-core -> up to four task worktrees
+                batuta-deliver launcher -> internal core -> up to four task worktrees
                                                     |
                          task ask/resume -> canonical integration worktree
                                                     |
@@ -57,8 +55,7 @@ disable archive integrity verification. See [docs/verify.md](docs/verify.md).
 Update: `compozy extension update batuta --allow-unverified --yes` ·
 Remove: `compozy extension remove batuta --global`
 
-Current published release: [`v0.1.0-beta.3`](docs/releases/0.1.0-beta.3.md).
-Next candidate: [`v0.1.0-beta.6`](docs/releases/0.1.0-beta.6.md).
+Current published release: [`v0.1.0-beta.3`](docs/releases/0.1.0-beta.3.md) · Next candidate: [`v0.1.0-beta.6`](docs/releases/0.1.0-beta.6.md).
 
 ## Use
 

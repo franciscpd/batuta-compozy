@@ -19,9 +19,7 @@ e seleciona cada task por domínio × complexidade.
 ```text
 conversa -> cards interativos de SDD -> tasks -> inventário -> grafo de roteamento
                                                         |
-                          run launcher batuta-deliver (ID público registrado)
-                                                        |
-                    batuta-deliver-core interno -> até quatro worktrees de task
+                  launcher batuta-deliver -> core interno -> até quatro worktrees
                                                         |
                        ask/retomada da task -> worktree canônico de integração
                                                         |
