@@ -1,6 +1,6 @@
 # Batuta delivery launcher — design
 
-Status: proposed on 2026-09-01; pending operator review
+Status: approved by the operator on 2026-09-01
 
 ## Objective
 
