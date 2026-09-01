@@ -142,6 +142,9 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 		if closedUnion && schema["oneOf"] == nil {
 			t.Fatalf("descriptor[%d] %s schema has no closed union", index, descriptor.Handler)
 		}
+		if schema["type"] != "object" {
+			t.Fatalf("descriptor[%d] %s schema root type = %#v, want \"object\"", index, descriptor.Handler, schema["type"])
+		}
 	}
 }
 

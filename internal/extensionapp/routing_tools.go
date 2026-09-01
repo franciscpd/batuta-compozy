@@ -213,7 +213,9 @@ func routingPlanInputSchema() map[string]any {
 }
 
 func routingApplyInputSchema() map[string]any {
-	return map[string]any{"oneOf": []any{
+	// MCP hosts (modelcontextprotocol/go-sdk) require the schema root to be
+	// type "object"; a bare oneOf union crashes tool registration.
+	return map[string]any{"type": "object", "oneOf": []any{
 		objectSchema([]string{"operation", "routing_plan", "expected_generation_digest"}, map[string]any{
 			"operation":                  map[string]any{"enum": []string{string(RoutingOperationAlignmentStatus)}},
 			"routing_plan":               routingPlanInputSchema(),

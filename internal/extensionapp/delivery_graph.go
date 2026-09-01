@@ -301,7 +301,9 @@ func deliveryGraphInputSchema() map[string]any {
 		properties["execution"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 4}
 		return properties
 	}
-	return map[string]any{"oneOf": []any{
+	// MCP hosts (modelcontextprotocol/go-sdk) require the schema root to be
+	// type "object"; a bare oneOf union crashes tool registration.
+	return map[string]any{"type": "object", "oneOf": []any{
 		objectSchema([]string{"operation", "delivery_id"}, base(GraphOpPrepareWave)),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution"}, task(GraphOpTaskContext)),
 		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "prompt"}, withSchema(task(GraphOpRecordQuestion), map[string]any{
