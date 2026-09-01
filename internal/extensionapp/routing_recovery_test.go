@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -238,6 +240,7 @@ func TestDeliveryAttemptServiceMapsTerminalStateFromValidatedCore(t *testing.T) 
 		{name: "exhausted", launcherStatus: "exhausted", coreStatus: "exhausted", wantState: "exhausted", wantBlocker: "compozy_exhausted"},
 		{name: "stalled", launcherStatus: "stalled", coreStatus: "stalled", wantState: "blocked", wantBlocker: "terminal_not_recoverable"},
 		{name: "canceled", launcherStatus: "canceled", coreStatus: "canceled", wantState: "blocked", wantBlocker: "terminal_not_recoverable"},
+		{name: "generic launcher failure preserves blocked core status", launcherStatus: "failed", coreStatus: "blocked", wantState: "blocked", wantBlocker: "terminal_not_recoverable"},
 		{name: "generic launcher failure preserves exact core status", launcherStatus: "failed", coreStatus: "exhausted", wantState: "exhausted", wantBlocker: "compozy_exhausted"},
 	}
 	for _, test := range tests {
@@ -390,13 +393,28 @@ func TestDeliveryAttemptServiceConcurrentInstancesCreateOneLauncher(t *testing.T
 	case <-time.After(5 * time.Second):
 		t.Fatal("service A did not begin launcher creation")
 	}
-	secondInvoked := make(chan struct{})
+	secondContext := newStartEntryContext(context.Background())
+	secondReturned := make(chan struct{})
 	go func() {
-		close(secondInvoked)
-		result, err := serviceB.Start(context.Background(), fixture.scope, fixture.deliveryID)
+		defer close(secondReturned)
+		result, err := serviceB.Start(secondContext, fixture.scope, fixture.deliveryID)
 		secondAnswer <- startAnswer{result: result, err: err}
 	}()
-	<-secondInvoked
+	select {
+	case <-secondContext.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("service B did not enter Start")
+	}
+	close(secondContext.proceed)
+	if contentionFailure := waitForDeliveryStartJournalContention(client, secondReturned); contentionFailure != "" {
+		release()
+		<-firstAnswer
+		<-secondAnswer
+		t.Fatal(contentionFailure)
+	}
+	if client.StartCalls() != 1 {
+		t.Fatalf("launcher starts while service A held the journal lock = %d, want 1", client.StartCalls())
+	}
 	release()
 
 	first := <-firstAnswer
@@ -1113,17 +1131,19 @@ func (c *fakeDeliveryRunClient) Start(_ context.Context, workspaceID string, req
 }
 
 type blockingDeliveryRunClient struct {
-	now        time.Time
-	mu         sync.Mutex
-	startCalls int
-	started    chan struct{}
-	release    chan struct{}
-	startOnce  sync.Once
+	now           time.Time
+	mu            sync.Mutex
+	startCalls    int
+	started       chan struct{}
+	secondStarted chan struct{}
+	release       chan struct{}
+	startOnce     sync.Once
+	secondOnce    sync.Once
 }
 
 func newBlockingDeliveryRunClient(now time.Time) *blockingDeliveryRunClient {
 	return &blockingDeliveryRunClient{
-		now: now, started: make(chan struct{}), release: make(chan struct{}),
+		now: now, started: make(chan struct{}), secondStarted: make(chan struct{}), release: make(chan struct{}),
 	}
 }
 
@@ -1138,8 +1158,12 @@ func (*blockingDeliveryRunClient) Recent(context.Context, string, int) ([]delive
 func (c *blockingDeliveryRunClient) Start(ctx context.Context, workspaceID string, request deliveryStartRequest) (deliveryRun, error) {
 	c.mu.Lock()
 	c.startCalls++
+	startCalls := c.startCalls
 	c.mu.Unlock()
 	c.startOnce.Do(func() { close(c.started) })
+	if startCalls == 2 {
+		c.secondOnce.Do(func() { close(c.secondStarted) })
+	}
 	select {
 	case <-ctx.Done():
 		return deliveryRun{}, ctx.Err()
@@ -1155,4 +1179,75 @@ func (c *blockingDeliveryRunClient) StartCalls() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.startCalls
+}
+
+type startEntryContext struct {
+	context.Context
+	entered chan struct{}
+	proceed chan struct{}
+	once    sync.Once
+}
+
+func newStartEntryContext(ctx context.Context) *startEntryContext {
+	return &startEntryContext{Context: ctx, entered: make(chan struct{}), proceed: make(chan struct{})}
+}
+
+func (c *startEntryContext) Err() error {
+	c.once.Do(func() {
+		close(c.entered)
+		<-c.proceed
+	})
+	return c.Context.Err()
+}
+
+func waitForDeliveryStartJournalContention(
+	client *blockingDeliveryRunClient,
+	secondReturned <-chan struct{},
+) string {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if deliveryStartWaitsOnJournalMutex() {
+			return ""
+		}
+		select {
+		case <-client.secondStarted:
+			return "service B reached a second launcher creation while service A was blocked"
+		case <-secondReturned:
+			return "service B returned before service A released the journal lock"
+		default:
+		}
+		if time.Now().After(deadline) {
+			return "service B did not contend for the journal lock"
+		}
+		runtime.Gosched()
+	}
+}
+
+func deliveryStartWaitsOnJournalMutex() bool {
+	records := make([]runtime.StackRecord, runtime.NumGoroutine()+8)
+	for {
+		count, ok := runtime.GoroutineProfile(records)
+		if ok {
+			records = records[:count]
+			break
+		}
+		records = make([]runtime.StackRecord, count+8)
+	}
+	for _, record := range records {
+		frames := runtime.CallersFrames(record.Stack())
+		waitingOnMutex := false
+		insideJournalLock := false
+		for {
+			frame, more := frames.Next()
+			waitingOnMutex = waitingOnMutex || strings.Contains(frame.Function, "sync.(*Mutex).")
+			insideJournalLock = insideJournalLock || strings.HasSuffix(frame.Function, "routing.(*OwnershipStore).withWorkspaceLock")
+			if !more {
+				break
+			}
+		}
+		if waitingOnMutex && insideJournalLock {
+			return true
+		}
+	}
+	return false
 }
