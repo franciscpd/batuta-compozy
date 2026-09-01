@@ -184,15 +184,9 @@ func (s deliveryAttemptService) start(
 				return err
 			}
 		}
-		request := deliveryStartRequest{
-			DeliveryID: deliveryID, Attempt: attemptNumber, Slug: delivery.Slug, OriginSessionID: delivery.OriginSessionID,
-			WorktreeRef: delivery.WorktreeID, RoutingGeneration: delivery.RoutingGenerationDigest,
-			AbsoluteDeadline: delivery.AbsoluteDeadline, TokenCeiling: delivery.TokenCeiling,
-			RecoveryOperationID: planned.OperationID, IterationCap: deliveryParentIterationCap(delivery.Graph),
-			BudgetTokens: remainingTokens, BudgetWallSec: int(remainingWall),
-		}
-		if attemptNumber == 1 {
-			request.RecoveryOperationID = ""
+		request, err := deliveryRequestForAttempt(delivery, planned)
+		if err != nil {
+			return err
 		}
 		recent, err := s.Client.Recent(ctx, scope.WorkspaceID, 200)
 		if err != nil {
@@ -549,11 +543,15 @@ func (s deliveryAttemptService) settlementEvidence(
 }
 
 func runMatchesAttempt(run deliveryRun, delivery routing.DeliveryRecord, attempt routing.DeliveryAttempt) bool {
-	return stringInput(run.Inputs, "delivery_id") == delivery.DeliveryID && intInput(run.Inputs, "attempt") == int64(attempt.Attempt) &&
-		stringInput(run.Inputs, "slug") == delivery.Slug && stringInput(run.Inputs, "origin_session_id") == delivery.OriginSessionID &&
-		stringInput(run.Inputs, "worktree_ref") == delivery.WorktreeID && stringInput(run.Inputs, "routing_generation") == delivery.RoutingGenerationDigest &&
-		stringInput(run.Inputs, "absolute_deadline") == delivery.AbsoluteDeadline.Format(time.RFC3339) && intInput(run.Inputs, "token_ceiling") == delivery.TokenCeiling &&
-		((attempt.Attempt == 1 && stringInput(run.Inputs, "recovery_operation_id") == "") || stringInput(run.Inputs, "recovery_operation_id") == attempt.OperationID)
+	request, err := deliveryRequestForAttempt(delivery, attempt)
+	if err != nil {
+		return false
+	}
+	version, present := deliveryEnvelopeVersionOf(run)
+	if !present {
+		return deliveryIdentityMatchesRequest(run, request)
+	}
+	return version == deliveryEnvelopeVersion && deliveryRunMatchesRequest(run, request)
 }
 
 func terminalDeliveryStatus(status string) bool {

@@ -281,7 +281,7 @@ func deliveryParentWithImplementation(
 		Run: deliveryRun{
 			ID: started.DeliveryRunID, WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-deliver",
 			Status: "running", CreatedAt: fixture.now, StartedAt: fixture.now,
-			TokensUsedPresent: true, Inputs: deliveryInputs(fixture.client.lastRequest),
+			TokensUsedPresent: true, Inputs: legacyDeliveryInputs(fixture.client.lastRequest),
 		},
 		Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
 			NodeID: "implement", Status: "succeeded", ChildLoopRunID: implementationRunID,

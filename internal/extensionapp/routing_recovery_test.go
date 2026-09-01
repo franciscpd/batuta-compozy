@@ -255,7 +255,7 @@ func TestDeliveryAttemptServiceSettlesFailedTaskAndStartsExactFallback(t *testin
 	request := fixture.client.lastRequest
 	fixture.client.statuses = map[string]deliveryRunDetail{
 		started.DeliveryRunID: {
-			Run:         deliveryRun{ID: started.DeliveryRunID, WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-deliver", Status: "failed", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: deliveryInputs(request)},
+			Run:         deliveryRun{ID: started.DeliveryRunID, WorkspaceID: fixture.scope.WorkspaceID, LoopName: "batuta-deliver", Status: "failed", CreatedAt: fixture.now, StartedAt: fixture.now, Inputs: legacyDeliveryInputs(request)},
 			Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{NodeID: "implement", Status: "failed", ChildLoopRunID: "run_implement"}}}},
 		},
 		"run_implement": {
@@ -298,7 +298,7 @@ func TestDeliveryAttemptServiceReplaysSubmittedRecovery(t *testing.T) {
 			Run: deliveryRun{
 				ID: started.DeliveryRunID, WorkspaceID: fixture.scope.WorkspaceID,
 				LoopName: "batuta-deliver", Status: "failed", CreatedAt: fixture.now,
-				StartedAt: fixture.now, Inputs: deliveryInputs(request),
+				StartedAt: fixture.now, Inputs: legacyDeliveryInputs(request),
 			},
 			Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
 				NodeID: "implement", Status: "failed", ChildLoopRunID: "run_implement",
@@ -660,10 +660,19 @@ func testParentRunDetail(workspaceID, runID, status string, request deliveryStar
 	return deliveryRunDetail{
 		Run: deliveryRun{
 			ID: runID, WorkspaceID: workspaceID, LoopName: "batuta-deliver", Status: status,
-			CreatedAt: created, StartedAt: created, Inputs: deliveryInputs(request),
+			CreatedAt: created, StartedAt: created, Inputs: legacyDeliveryInputs(request),
 		},
 		Generations: []deliveryGeneration{{Generation: 1, Outputs: outputs}},
 	}
+}
+
+func legacyDeliveryInputs(request deliveryStartRequest) map[string]any {
+	inputs := deliveryInputs(request)
+	delete(inputs, "delivery_envelope_version")
+	delete(inputs, "iteration_cap")
+	delete(inputs, "budget_tokens")
+	delete(inputs, "budget_wall_seconds")
+	return inputs
 }
 
 func testChildRunDetail(workspaceID, runID, loopName, status string, tokens int64, outputs []deliveryOutput) deliveryRunDetail {
