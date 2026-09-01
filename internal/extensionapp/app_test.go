@@ -46,6 +46,35 @@ func TestApplicationDiscoversAbsoluteClaudeAndAgyExecutables(t *testing.T) {
 	}
 }
 
+func TestOptionalExecutableFallsBackToMiseWhenPathCandidateCannotRun(t *testing.T) {
+	directory := t.TempDir()
+	brokenPath := filepath.Join(directory, "codex")
+	if err := os.WriteFile(brokenPath, []byte("#!/bin/sh\nexit 127\n"), 0o700); err != nil {
+		t.Fatalf("write broken codex: %v", err)
+	}
+	misePath := filepath.Join(directory, "mise")
+	miseScript := `#!/bin/sh
+if [ "$1" = "which" ] && [ "$2" = "codex" ]; then
+  printf '%s\n' "$FAKE_MISE_TARGET"
+  exit 0
+fi
+exit 64
+`
+	if err := os.WriteFile(misePath, []byte(miseScript), 0o700); err != nil {
+		t.Fatalf("write mise: %v", err)
+	}
+	targetPath := filepath.Join(directory, "mise-codex")
+	if err := os.WriteFile(targetPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write mise codex: %v", err)
+	}
+	t.Setenv("PATH", directory)
+	t.Setenv("FAKE_MISE_TARGET", targetPath)
+
+	if got := optionalExecutable("codex"); got != targetPath {
+		t.Fatalf("optionalExecutable(codex) = %q, want mise target %q", got, targetPath)
+	}
+}
+
 type applicationWiringRunner struct{}
 
 func (*applicationWiringRunner) Run(context.Context, publication.Command) (publication.CommandResult, error) {

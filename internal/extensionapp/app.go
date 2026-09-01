@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/integration"
@@ -190,6 +191,28 @@ func discoverInventoryExecutables(compozyExecutable string) inventoryExecutables
 }
 
 func optionalExecutable(name string) string {
+	if path := lookupExecutable(name); executableRuns(path) {
+		return path
+	}
+
+	misePath := lookupExecutable("mise")
+	if misePath == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, misePath, "which", name).Output()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Clean(strings.TrimSpace(string(output)))
+	if !filepath.IsAbs(path) || !executableRuns(path) {
+		return ""
+	}
+	return path
+}
+
+func lookupExecutable(name string) string {
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return ""
@@ -202,6 +225,15 @@ func optionalExecutable(name string) string {
 		return ""
 	}
 	return filepath.Clean(absolute)
+}
+
+func executableRuns(path string) bool {
+	if path == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, path, "--version").Run() == nil
 }
 
 func requireAbsoluteExecutable(name, value string) error {
