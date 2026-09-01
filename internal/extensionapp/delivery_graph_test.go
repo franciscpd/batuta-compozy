@@ -3,12 +3,14 @@ package extensionapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
 func TestDeliveryGraphToolExposesNineClosedOperations(t *testing.T) {
@@ -53,7 +55,7 @@ func TestDeliveryGraphToolExposesNineClosedOperations(t *testing.T) {
 			t.Fatalf("variant[%d] operation = %#v, want %q", index, operation, want[index])
 		}
 		required := variant["required"].([]any)
-		if !containsAny(required, "operation") || !containsAny(required, "delivery_id") {
+		if !containsAny(required, "operation") || !containsAny(required, "delivery_id") || !containsAny(required, "worktree_ref") {
 			t.Fatalf("variant[%d] required = %#v", index, required)
 		}
 	}
@@ -76,7 +78,7 @@ func TestDeliveryGraphRecordAnswerDerivesRequestIdentity(t *testing.T) {
 	t.Parallel()
 
 	input := DeliveryGraphInput{
-		Operation: GraphOpRecordAnswer, DeliveryID: digestValue("delivery-derived-answer"),
+		Operation: GraphOpRecordAnswer, DeliveryID: digestValue("delivery-derived-answer"), WorktreeRef: "wt_1234567890abcdef",
 		Wave: 1, TaskID: "task_01", Execution: 1,
 		QuestionOperationID: digestValue("question-operation"), Answer: "Preserve compatibility",
 	}
@@ -88,7 +90,7 @@ func TestDeliveryGraphRecordAnswerDerivesRequestIdentity(t *testing.T) {
 	variant := schema["oneOf"].([]any)[3].(map[string]any)
 	properties := variant["properties"].(map[string]any)
 	required := variant["required"].([]string)
-	wantRequired := []string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "answer"}
+	wantRequired := []string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "question_operation_id", "answer"}
 	if !reflect.DeepEqual(required, wantRequired) {
 		t.Fatalf("record_answer required = %#v, want %#v", required, wantRequired)
 	}
@@ -103,7 +105,7 @@ func TestDeliveryGraphRecordQuestionDerivesCanonicalContextDigest(t *testing.T) 
 	t.Parallel()
 
 	input := DeliveryGraphInput{
-		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-derived-context"),
+		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-derived-context"), WorktreeRef: "wt_1234567890abcdef",
 		Wave: 1, TaskID: "task_01", Execution: 1, Prompt: "Which compatibility behavior should we ship?",
 		Choices: []string{"Preserve compatibility", "Adopt the new contract"},
 	}
@@ -170,7 +172,7 @@ func TestDeliveryGraphInputRejectsSecretPathQuestionsAndOpenVerification(t *test
 	t.Parallel()
 
 	baseQuestion := DeliveryGraphInput{
-		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-question-validation"),
+		Operation: GraphOpRecordQuestion, DeliveryID: digestValue("delivery-question-validation"), WorktreeRef: "wt_1234567890abcdef",
 		Wave: 1, TaskID: "task_01", Execution: 1, Prompt: "Choose the supported compatibility behavior",
 		Choices: []string{"Preserve compatibility", "Adopt new behavior"},
 	}
@@ -197,7 +199,7 @@ func TestDeliveryGraphInputRejectsSecretPathQuestionsAndOpenVerification(t *test
 
 	verification := json.RawMessage(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
 	baseCandidate := DeliveryGraphInput{
-		Operation: GraphOpRecordCandidate, DeliveryID: digestValue("delivery-candidate-validation"),
+		Operation: GraphOpRecordCandidate, DeliveryID: digestValue("delivery-candidate-validation"), WorktreeRef: "wt_1234567890abcdef",
 		Wave: 1, TaskID: "task_01", Execution: 1, ChildRunID: "run_task_01",
 		BaseSHA: "0123456789abcdef0123456789abcdef01234567", CommitSHA: "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
 		Verification: verification, VerificationDigest: digestValue(string(verification)),
@@ -247,5 +249,98 @@ func TestTaskVerificationMatchesThePublicSixteenCheckCeiling(t *testing.T) {
 	aboveCeiling := verification(17)
 	if validTaskVerification(aboveCeiling, digestValue(string(aboveCeiling)), "task_01") {
 		t.Fatal("validTaskVerification(17 checks) = true, want schema-aligned rejection")
+	}
+}
+
+type staticWorktreeClient struct {
+	worktree worktreeops.Worktree
+	err      error
+	lastID   string
+}
+
+func (c *staticWorktreeClient) Create(context.Context, publication.TrustedScope, worktreeops.CreateRequest) (worktreeops.Worktree, error) {
+	return worktreeops.Worktree{}, errors.New("unexpected create")
+}
+
+func (c *staticWorktreeClient) FindByName(context.Context, publication.TrustedScope, string) (worktreeops.Worktree, bool, error) {
+	return worktreeops.Worktree{}, false, errors.New("unexpected find")
+}
+
+func (c *staticWorktreeClient) Inspect(_ context.Context, _ publication.TrustedScope, worktreeID string) (worktreeops.Worktree, error) {
+	c.lastID = worktreeID
+	return c.worktree, c.err
+}
+
+func (c *staticWorktreeClient) Remove(context.Context, publication.TrustedScope, string) (worktreeops.Worktree, error) {
+	return worktreeops.Worktree{}, errors.New("unexpected remove")
+}
+
+func TestDeliveryGraphHandlerScopesServiceToInspectedWorktree(t *testing.T) {
+	t.Parallel()
+
+	worktrees := &staticWorktreeClient{worktree: worktreeops.Worktree{
+		ID: "wt_1234567890abcdef", WorkspaceID: "ws_fixture", Root: "/absolute/delivery-worktree",
+	}}
+	var seen publication.TrustedScope
+	app := application{services: serviceSet{worktrees: worktrees, deliveryGraph: func(
+		_ context.Context,
+		scope publication.TrustedScope,
+		_ DeliveryGraphInput,
+	) (DeliveryGraphOutput, error) {
+		seen = scope
+		return DeliveryGraphOutput{Operation: GraphOpPrepareWave, Disposition: GraphDispositionWaveReady}, nil
+	}}}
+	workspace := &compozysdk.ExtensionToolWorkspaceScope{ID: "ws_fixture", Root: "/absolute/workspace"}
+	if _, err := app.deliveryGraph(context.Background(), workspace, DeliveryGraphInput{
+		Operation: GraphOpPrepareWave, DeliveryID: digestValue("delivery-graph-worktree"),
+		WorktreeRef: "wt_1234567890abcdef",
+	}); err != nil {
+		t.Fatalf("deliveryGraph() error = %v", err)
+	}
+	if worktrees.lastID != "wt_1234567890abcdef" {
+		t.Fatalf("inspected worktree = %q", worktrees.lastID)
+	}
+	if seen.WorkspaceID != "ws_fixture" || seen.WorkspaceRoot != "/absolute/delivery-worktree" {
+		t.Fatalf("service scope = %#v, want workspace identity with delivery worktree root", seen)
+	}
+}
+
+func TestDeliveryGraphHandlerRejectsForeignOrMissingWorktree(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		client *staticWorktreeClient
+		ref    string
+	}{
+		{name: "missing ref", client: &staticWorktreeClient{}, ref: ""},
+		{name: "inspect error", client: &staticWorktreeClient{err: errors.New("gone")}, ref: "wt_1234567890abcdef"},
+		{name: "foreign workspace", client: &staticWorktreeClient{worktree: worktreeops.Worktree{
+			ID: "wt_1234567890abcdef", WorkspaceID: "ws_other", Root: "/absolute/delivery-worktree",
+		}}, ref: "wt_1234567890abcdef"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			called := false
+			app := application{services: serviceSet{worktrees: tt.client, deliveryGraph: func(
+				context.Context,
+				publication.TrustedScope,
+				DeliveryGraphInput,
+			) (DeliveryGraphOutput, error) {
+				called = true
+				return DeliveryGraphOutput{}, nil
+			}}}
+			workspace := &compozysdk.ExtensionToolWorkspaceScope{ID: "ws_fixture", Root: "/absolute/workspace"}
+			if _, err := app.deliveryGraph(context.Background(), workspace, DeliveryGraphInput{
+				Operation: GraphOpPrepareWave, DeliveryID: digestValue("delivery-graph-worktree"),
+				WorktreeRef: tt.ref,
+			}); err == nil {
+				t.Fatal("deliveryGraph() error = nil, want worktree scope rejection")
+			}
+			if called {
+				t.Fatal("delivery graph service called with unresolved worktree scope")
+			}
+		})
 	}
 }

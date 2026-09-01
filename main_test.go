@@ -507,9 +507,10 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 		}
 	}
 	answerParams := nodes["record_answer"].Params
-	if len(answerParams) != 7 || answerParams["question_operation_id"] != "{{ .nodes.record_question.output.question_operation_id }}" ||
-		answerParams["answer"] != "{{ .nodes.ask_operator.output.answer }}" {
-		t.Fatalf("record_answer must receive only question_operation_id and typed answer beyond task identity: %#v", answerParams)
+	if len(answerParams) != 8 || answerParams["question_operation_id"] != "{{ .nodes.record_question.output.question_operation_id }}" ||
+		answerParams["answer"] != "{{ .nodes.ask_operator.output.answer }}" ||
+		answerParams["worktree_ref"] != "{{ .inputs.delivery_worktree_ref }}" {
+		t.Fatalf("record_answer must receive only question_operation_id and typed answer beyond delivery identity: %#v", answerParams)
 	}
 	ask := nodes["ask_operator"].Params
 	responders := ask["responders"].(map[string]any)

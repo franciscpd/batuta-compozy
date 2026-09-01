@@ -67,7 +67,7 @@ graph:
     - id: prepare_wave
       class: action
       kind: ext__batuta__delivery_graph
-      params: {operation: prepare_wave, delivery_id: "{{ .inputs.delivery_id }}"}
+      params: {operation: prepare_wave, delivery_id: "{{ .inputs.delivery_id }}", worktree_ref: "{{ .inputs.worktree_ref }}"}
     - id: wave_route
       class: control
       kind: route
@@ -106,6 +106,7 @@ graph:
           routing_generation: "{{ .inputs.routing_generation }}"
           runtime: "{{ .item.runtime }}"
           worktree_ref: "{{ .item.worktree_id }}"
+          delivery_worktree_ref: "{{ .inputs.worktree_ref }}"
           base_sha: "{{ .item.base_sha }}"
           budget_tokens: "{{ .item.remaining_tokens }}"
           budget_wall_seconds: "{{ .item.remaining_active_wall_seconds }}"
@@ -115,6 +116,7 @@ graph:
       params:
         operation: record_candidate
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
         wave: "{{ .item.wave }}"
         task_id: "{{ .item.task_id }}"
         execution: "{{ .item.execution }}"
@@ -126,6 +128,7 @@ graph:
       params:
         operation: settle_wave
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
         wave: "{{ .nodes.prepare_wave.output.wave }}"
     - id: settle_route
       class: control
@@ -203,6 +206,7 @@ graph:
       params:
         operation: terminalize
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
         terminal_disposition: blocked
     - id: terminal_exhausted
       class: action
@@ -210,11 +214,12 @@ graph:
       params:
         operation: terminalize
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
         terminal_disposition: exhausted
     - id: cleanup
       class: action
       kind: ext__batuta__delivery_graph
-      params: {operation: cleanup, delivery_id: "{{ .inputs.delivery_id }}"}
+      params: {operation: cleanup, delivery_id: "{{ .inputs.delivery_id }}", worktree_ref: "{{ .inputs.worktree_ref }}"}
     - id: cleanup_route
       class: control
       kind: route

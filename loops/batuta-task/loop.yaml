@@ -26,6 +26,9 @@ inputs:
   routing_generation:
     type: string
     required: true
+  delivery_worktree_ref:
+    type: string
+    required: true
   runtime:
     type: runtime
     required: true
@@ -65,6 +68,7 @@ contract:
       with:
         operation: record_failure
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.delivery_worktree_ref }}"
         wave: "{{ .inputs.wave }}"
         task_id: "{{ .inputs.task_id }}"
         execution: "{{ .inputs.execution }}"
@@ -91,6 +95,7 @@ graph:
       params:
         operation: task_context
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.delivery_worktree_ref }}"
         wave: "{{ .inputs.wave }}"
         task_id: "{{ .inputs.task_id }}"
         execution: "{{ .inputs.execution }}"
@@ -213,6 +218,7 @@ graph:
       params:
         operation: record_question
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.delivery_worktree_ref }}"
         wave: "{{ .inputs.wave }}"
         task_id: "{{ .inputs.task_id }}"
         execution: "{{ .inputs.execution }}"
@@ -256,6 +262,7 @@ graph:
       params:
         operation: record_answer
         delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.delivery_worktree_ref }}"
         wave: "{{ .inputs.wave }}"
         task_id: "{{ .inputs.task_id }}"
         execution: "{{ .inputs.execution }}"

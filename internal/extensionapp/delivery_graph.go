@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"path/filepath"
 	"strings"
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
 type GraphOperation string
@@ -47,6 +49,7 @@ const (
 type DeliveryGraphInput struct {
 	Operation           GraphOperation   `json:"operation"`
 	DeliveryID          string           `json:"delivery_id"`
+	WorktreeRef         string           `json:"worktree_ref"`
 	Wave                int              `json:"wave,omitempty"`
 	TaskID              string           `json:"task_id,omitempty"`
 	Execution           int              `json:"execution,omitempty"`
@@ -141,9 +144,20 @@ func (a application) deliveryGraph(
 	if err := input.validate(); err != nil {
 		return compozysdk.ToolResult{}, err
 	}
-	if a.services.deliveryGraph == nil {
+	if a.services.deliveryGraph == nil || a.services.worktrees == nil {
 		return compozysdk.ToolResult{}, errors.New("batuta: delivery graph service is unavailable")
 	}
+	// Loop action calls carry the workspace root, so the delivery worktree is
+	// named explicitly and re-resolved through the daemon before any graph
+	// state is compared against it.
+	worktree, err := a.services.worktrees.Inspect(ctx, scope, strings.TrimSpace(input.WorktreeRef))
+	if err != nil {
+		return compozysdk.ToolResult{}, err
+	}
+	if worktree.WorkspaceID != scope.WorkspaceID || !filepath.IsAbs(worktree.Root) {
+		return compozysdk.ToolResult{}, worktreeops.ErrInvalidWorktreeIdentity
+	}
+	scope.WorkspaceRoot = filepath.Clean(worktree.Root)
 	output, err := a.services.deliveryGraph(ctx, scope, input)
 	if err != nil {
 		return compozysdk.ToolResult{}, err
@@ -154,6 +168,9 @@ func (a application) deliveryGraph(
 func (input DeliveryGraphInput) validate() error {
 	if !routingDigestPattern.MatchString(input.DeliveryID) {
 		return errors.New("batuta: delivery graph requires delivery_id")
+	}
+	if !validOpaqueRunID(strings.TrimSpace(input.WorktreeRef)) {
+		return errors.New("batuta: delivery graph requires worktree_ref")
 	}
 	if input.Operation != GraphOpTerminalize && input.TerminalDisposition != "" {
 		return errors.New("batuta: delivery graph operation has unexpected terminal disposition")
@@ -290,8 +307,9 @@ func deliveryGraphInputSchema() map[string]any {
 	operation := func(value GraphOperation) map[string]any { return map[string]any{"enum": []string{string(value)}} }
 	base := func(value GraphOperation) map[string]any {
 		return map[string]any{
-			"operation":   operation(value),
-			"delivery_id": sha256OutputSchema(),
+			"operation":    operation(value),
+			"delivery_id":  sha256OutputSchema(),
+			"worktree_ref": opaqueRunIDSchema(),
 		}
 	}
 	task := func(value GraphOperation) map[string]any {
@@ -304,31 +322,31 @@ func deliveryGraphInputSchema() map[string]any {
 	// MCP hosts (modelcontextprotocol/go-sdk) require the schema root to be
 	// type "object"; a bare oneOf union crashes tool registration.
 	return map[string]any{"type": "object", "oneOf": []any{
-		objectSchema([]string{"operation", "delivery_id"}, base(GraphOpPrepareWave)),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution"}, task(GraphOpTaskContext)),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "prompt"}, withSchema(task(GraphOpRecordQuestion), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref"}, base(GraphOpPrepareWave)),
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution"}, task(GraphOpTaskContext)),
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "prompt"}, withSchema(task(GraphOpRecordQuestion), map[string]any{
 			"prompt":  map[string]any{"type": "string", "minLength": 1, "maxLength": 2048},
 			"choices": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 512}},
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "question_operation_id", "answer"}, withSchema(task(GraphOpRecordAnswer), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "question_operation_id", "answer"}, withSchema(task(GraphOpRecordAnswer), map[string]any{
 			"question_operation_id": sha256OutputSchema(),
 			"answer":                map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "child_run_id"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(),
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "child_run_id", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(), "base_sha": gitSHAInputSchema(), "commit_sha": gitSHAInputSchema(),
 			"verification": taskVerificationSchema(), "verification_digest": sha256OutputSchema(),
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave", "task_id", "execution", "child_run_id", "blocker_code"}, withSchema(task(GraphOpRecordFailure), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "child_run_id", "blocker_code"}, withSchema(task(GraphOpRecordFailure), map[string]any{
 			"child_run_id": opaqueRunIDSchema(), "blocker_code": map[string]any{"type": "string", "minLength": 1, "maxLength": 256},
 		})),
-		objectSchema([]string{"operation", "delivery_id", "wave"}, withSchema(base(GraphOpSettleWave), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave"}, withSchema(base(GraphOpSettleWave), map[string]any{
 			"wave": map[string]any{"type": "integer", "minimum": 1},
 		})),
-		objectSchema([]string{"operation", "delivery_id"}, base(GraphOpCleanup)),
-		objectSchema([]string{"operation", "delivery_id", "terminal_disposition"}, withSchema(base(GraphOpTerminalize), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref"}, base(GraphOpCleanup)),
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "terminal_disposition"}, withSchema(base(GraphOpTerminalize), map[string]any{
 			"terminal_disposition": map[string]any{"enum": []string{string(GraphDispositionBlocked), string(GraphDispositionExhausted)}},
 		})),
 	}}
