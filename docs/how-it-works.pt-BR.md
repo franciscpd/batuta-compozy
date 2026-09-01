@@ -76,8 +76,13 @@ armazenada de Loop do Compozy nunca é alterada.
 
 `start_delivery` inicia `batuta-deliver` com identidades estáveis da entrega,
 teto original de tokens, deadline absoluto e overrides efetivos de configuração
-por execução. Os literais de orçamento escritos nas duas definições de Loop
-documentam intenção; o Compozy não deriva a aplicação efetiva desses literais.
+por execução, depois retorna seu ID público durável de run launcher; o journal
+armazena o ID do launcher. Esse launcher cria exatamente um filho core interno
+`batuta-deliver-core`, proprietário do grafo dependency-safe existente. A tool
+protegida valida esse filho core internamente; nem operador nem o agente Batuta
+fornecem ou reconciliam seu ID. Os literais de orçamento escritos nas duas
+definições de Loop documentam intenção; o Compozy não deriva a aplicação efetiva
+desses literais.
 Starts manuais diretos por CLI, HTTP, UDS, tool nativa ou agendamento fora da
 operação protegida do Batuta não são suportados e podem ficar sem limites.
 `ext__batuta__delivery_graph` prepara somente nós elegíveis no grafo de tasks.
@@ -102,10 +107,11 @@ HEAD revisado; `ext__batuta__publish_worktree` envia exatamente esse HEAD e abre
 ou reutiliza um PR; `publication_verify` verifica o resultado remoto. A
 publicação saudável não tem gate humano; o merge continua manual.
 
-O efeito terminal coloca uma mensagem na fila de `origin_session_id`. O Batuta
-lê o pai exato com `compozy__loop_status`, chama `reconcile_fallbacks` e inicia
-no máximo uma tentativa pai nova e elegível por `recover_delivery`. Um pai novo
-não duplica o uso nem a revisão do pai anterior.
+O efeito terminal do launcher coloca uma mensagem na fila de `origin_session_id`.
+O Batuta lê o run launcher exato com `compozy__loop_status`, chama
+`reconcile_fallbacks` e inicia no máximo uma tentativa launcher nova e elegível
+por `recover_delivery`. Um launcher novo não duplica o uso nem a revisão do
+grafo core anterior.
 
 ## 5. Replay e condições de parada
 
@@ -114,13 +120,13 @@ start do filho, pergunta, resposta, candidato, integração, retry, revisão,
 publicação, verificação ou cleanup retorna o resultado atual verdadeiro sem
 duplicar filhos, commits, pushes, PRs ou mutações de worktree.
 
-Capacidade (quatro worktrees), quatro execuções físicas por task, quatro pais
-novos, teto de tokens, deadline de relógio ativo, estado terminal cancelado ou
-stalled, ausência de progresso, pausa humana aberta, fallback esgotado e
-evidência ambígua interrompem antes de uma nova mutação. Worktree removido é a
-única disposição de cleanup bem-sucedida. Um worktree de diagnóstico retido
-registra estado terminal bloqueado e evidência estável; ele não pode iniciar
-outra geração, revisão ou publicação.
+Capacidade (quatro worktrees), quatro runs launcher novos, quatro execuções
+físicas por task, teto de tokens, deadline de relógio ativo, estado terminal
+cancelado ou stalled, ausência de progresso, pausa humana aberta, fallback
+esgotado e evidência ambígua interrompem antes de uma nova mutação. Worktree
+removido é a única disposição de cleanup bem-sucedida. Um worktree de
+diagnóstico retido registra estado terminal bloqueado e evidência estável; ele
+não pode iniciar outra geração, revisão ou publicação.
 
 ## Compatibilidade
 

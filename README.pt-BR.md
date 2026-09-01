@@ -8,18 +8,20 @@ ou endossado do CompozyOS. É uma extensão Go para o
 ([github.com/compozy/compozy](https://github.com/compozy/compozy)) que conduz
 uma entrega sem escrever o código de produto diretamente.
 
-Ele inclui o agente `batuta`, a skill `batuta-routing`, dois Loops
-(`batuta-deliver` e `batuta-task`) e exatamente nove ferramentas hospedadas,
-incluindo `ext__batuta__delivery_graph`. O Batuta escreve o SDD e as tasks
-canônicas, coleta o inventário automático de executores e seleciona cada task
-por domínio × complexidade.
+Ele inclui o agente `batuta`, a skill `batuta-routing`, três Loops
+(`batuta-deliver`, o interno `batuta-deliver-core` e `batuta-task`) e exatamente
+nove ferramentas hospedadas, incluindo `ext__batuta__delivery_graph`. O Batuta
+escreve o SDD e as tasks canônicas, coleta o inventário automático de executores
+e seleciona cada task por domínio × complexidade.
 
 ![Roadmap de entrega do Batuta](docs/images/batuta-next-roadmap.png)
 
 ```text
 conversa -> cards interativos de SDD -> tasks -> inventário -> grafo de roteamento
                                                         |
-                                      até quatro worktrees de task
+                          run launcher batuta-deliver (ID público registrado)
+                                                        |
+                    batuta-deliver-core interno -> até quatro worktrees de task
                                                         |
                        ask/retomada da task -> worktree canônico de integração
                                                         |
@@ -96,6 +98,11 @@ automático não chama o comando de rede `agy models`.
 
 O Compozy atual exibe as sessões dos executores na hierarquia pai/filho e
 encerra as sessões run-agent após o assentamento terminal.
+
+`start_delivery` e `recover_delivery` retornam o ID público durável do run
+launcher `batuta-deliver`; o journal armazena o ID do launcher. A tool protegida
+valida seu filho core `batuta-deliver-core` interno exato, portanto operadores
+nunca fornecem nem reconciliam um ID de run core.
 
 Os contratos completos estão em
 [docs/how-it-works.pt-BR.md](docs/how-it-works.pt-BR.md) e

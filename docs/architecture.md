@@ -14,7 +14,8 @@ The Go extension exposes exactly these executable resources:
 
 - agent: `batuta`;
 - skill: `batuta-routing`;
-- Loops: `batuta-deliver` and `batuta-task`;
+- three Loops: public `batuta-deliver`, internal `batuta-deliver-core`, and
+  `batuta-task`;
 - nine hosted Batuta tools: `ext__batuta__delivery_budget_context`,
   `ext__batuta__delivery_graph`, `ext__batuta__executor_inventory`,
   `ext__batuta__publication_plan`, `ext__batuta__publication_verify`,
@@ -50,15 +51,17 @@ Operator
   -> automatic executor inventory and domain x complexity routing proposal
   -> exact operator confirmation and guarded repository bootstrap
   -> integration worktree and stable delivery_id
-  -> batuta-deliver parent run
-     -> dependency-safe wave (at most four isolated task worktrees)
-        -> batuta-task run-agent implementation
-        -> optional typed ask -> durable answer -> same child/worktree resume
-        -> one implementation commit and completed evidence
-     -> deterministic canonical integration
-        -> conflict: new immutable execution and task worktree
-     -> one review-and-fix child
-     -> exact-HEAD publication plan, push/PR, and independent verification
+  -> batuta-deliver launcher run (returned to the conversation)
+     -> journal stores the launcher ID
+     -> exactly one batuta-deliver-core child (validated internally)
+        -> dependency-safe wave (at most four isolated task worktrees)
+           -> batuta-task run-agent implementation
+           -> optional typed ask -> durable answer -> same child/worktree resume
+           -> one implementation commit and completed evidence
+        -> deterministic canonical integration
+           -> conflict: new immutable execution and task worktree
+        -> one review-and-fix child
+        -> exact-HEAD publication plan, push/PR, and independent verification
   -> compozy__session_prompt terminal return
   -> original Batuta conversation
 ```

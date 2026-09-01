@@ -86,7 +86,9 @@ for text in \
   'Operator' \
   'Batuta session' \
   'spec-cycle' \
+  'three Loops' \
   'batuta-deliver' \
+  'batuta-deliver-core' \
   'batuta-task' \
   'nine hosted Batuta tools' \
   'ext__batuta__delivery_graph' \
@@ -98,6 +100,12 @@ for text in \
   'retained diagnostic worktree' \
   'merge remains manual'; do
   require_text docs/architecture.md "$text"
+done
+
+for text in \
+  'três Loops' \
+  'batuta-deliver-core'; do
+  require_text docs/architecture.pt-BR.md "$text"
 done
 
 if grep -Fq -- 'batuta-publisher' docs/architecture.md; then
@@ -207,6 +215,8 @@ for text in \
 done
 require_text docs/verify.md 'all nine hosted Batuta tools'
 require_text docs/verify.md 'loops/batuta-task/loop.yaml'
+require_text docs/verify.md 'loops/batuta-deliver-core/loop.yaml'
+require_text docs/verify.pt-BR.md 'loops/batuta-deliver-core/loop.yaml'
 require_text docs/verify.md 'staged Go sources'
 require_text docs/verify.md '382976d4b43274630a4b67445812fd4a0216dbcc'
 

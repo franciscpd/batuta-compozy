@@ -16,7 +16,8 @@ A extensão Go expõe exatamente estes recursos executáveis:
 
 - agente: `batuta`;
 - skill: `batuta-routing`;
-- Loops: `batuta-deliver` e `batuta-task`;
+- três Loops: `batuta-deliver` público, `batuta-deliver-core` interno e
+  `batuta-task`;
 - nove tools hospedadas do Batuta: `ext__batuta__delivery_budget_context`,
   `ext__batuta__delivery_graph`, `ext__batuta__executor_inventory`,
   `ext__batuta__publication_plan`, `ext__batuta__publication_verify`,
@@ -46,15 +47,17 @@ Operador
   -> inventário automático de executores e proposta de roteamento domínio x complexidade
   -> confirmação exata do operador e bootstrap protegido do repositório
   -> worktree de integração e delivery_id estável
-  -> execução pai batuta-deliver
-     -> onda dependency-safe (no máximo quatro worktrees isoladas de task)
-        -> implementação run-agent do batuta-task
-        -> ask tipado opcional -> resposta durável -> retomada no mesmo filho/worktree
-        -> um commit de implementação e evidência concluída
-     -> integração canônica determinística
-        -> conflito: nova execução imutável e novo worktree da task
-     -> um filho review-and-fix
-     -> plano de publicação do HEAD exato, push/PR e verificação independente
+  -> run launcher batuta-deliver (retornado à conversa)
+     -> journal armazena o ID do launcher
+     -> exatamente um filho core batuta-deliver-core (validado internamente)
+        -> onda dependency-safe (no máximo quatro worktrees isoladas de task)
+           -> implementação run-agent do batuta-task
+           -> ask tipado opcional -> resposta durável -> retomada no mesmo filho/worktree
+           -> um commit de implementação e evidência concluída
+        -> integração canônica determinística
+           -> conflito: nova execução imutável e novo worktree da task
+        -> um filho review-and-fix
+        -> plano de publicação do HEAD exato, push/PR e verificação independente
   -> retorno terminal compozy__session_prompt
   -> conversa original do Batuta
 ```

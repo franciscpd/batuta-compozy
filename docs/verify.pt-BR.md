@@ -48,12 +48,13 @@ compozy extension remove batuta --global
 
 `scripts/stage-extension.sh` cria uma geração candidata imutável. Suas fontes
 Go em staging incluem `go.mod`, `go.sum`, o agente `batuta`, a skill
-`batuta-routing` e os dois arquivos de Loop:
+`batuta-routing` e os três arquivos de Loop:
 
 ```text
 agents/batuta/AGENT.md
 resources/skills/batuta-routing/SKILL.md
 loops/batuta-deliver/loop.yaml
+loops/batuta-deliver-core/loop.yaml
 loops/batuta-task/loop.yaml
 ```
 
@@ -71,8 +72,9 @@ compozy extension validate "$stage" -o json
 Para uma instalação local completa, use `scripts/republish.sh` com um
 `COMPOZY_HOME` isolado. Ele prepara a mesma geração de fonte Go, valida,
 instala e exige este inventário exato: um agente `batuta`, os Loops
-`batuta-deliver` e `batuta-task`, `batuta-routing` e todas as nove tools
-hospedadas do Batuta, incluindo `ext__batuta__delivery_graph`.
+`batuta-deliver` público, `batuta-deliver-core` interno e `batuta-task`,
+`batuta-routing` e todas as nove tools hospedadas do Batuta, incluindo
+`ext__batuta__delivery_graph`.
 
 O pin exato de fonte é um piso de compatibilidade de desenvolvimento; valide a
 superfície pública do daemon que será operado. Uma instalação por caminho local

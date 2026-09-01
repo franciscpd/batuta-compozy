@@ -68,8 +68,13 @@ task snapshot, integration worktree, and stable `delivery_id`. Stored Compozy Lo
 
 `start_delivery` starts `batuta-deliver` with the stable delivery identities,
 original token ceiling, absolute deadline, and effective per-run configuration
-overrides. The budget literals authored in the two Loop definitions document
-intent; Compozy does not derive effective enforcement from those literals.
+overrides, then returns its durable public launcher run ID; the journal stores
+the launcher ID. That launcher creates exactly one internal
+`batuta-deliver-core` child, which owns the existing dependency-safe graph.
+The guarded tooling validates that core child internally; neither an operator
+nor the Batuta agent supplies or reconciles its ID. The budget literals authored
+in the two Loop definitions document intent; Compozy does not derive effective
+enforcement from those literals.
 Direct manual, CLI, HTTP, UDS, native-tool, or scheduled starts outside the
 guarded Batuta operation are unsupported and may be unbounded.
 `ext__batuta__delivery_graph` prepares only eligible nodes in the task graph. It has max-four dependency-safe parallelism:
@@ -96,10 +101,11 @@ integration worktree. `publication_plan` freezes the reviewed HEAD;
 PR; `publication_verify` checks the remote result. Healthy publication has no
 human gate; merge remains manual.
 
-The terminal effect queues a message for `origin_session_id`. Batuta reads the
-exact parent with `compozy__loop_status`, calls `reconcile_fallbacks`, and starts
-at most one eligible fresh parent attempt through `recover_delivery`. A fresh
-parent does not duplicate the previous parent usage or review.
+The launcher terminal effect queues a message for `origin_session_id`. Batuta
+reads the exact launcher run with `compozy__loop_status`, calls
+`reconcile_fallbacks`, and starts at most one eligible fresh launcher attempt
+through `recover_delivery`. A fresh launcher does not duplicate the previous
+core graph usage or review.
 
 ## 5. Replay and stop conditions
 
@@ -108,13 +114,13 @@ child start, question, answer, candidate, integration, retry, review,
 publication, verification, or cleanup returns the truthful current result
 without duplicate child runs, commits, pushes, PRs, or worktree mutations.
 
-Capacity (four worktrees), four physical task executions, four fresh parents,
-token ceiling, active wall-clock deadline, terminal canceled/stalled state,
-no-progress, an open human pause, exhausted fallback, and ambiguous evidence
-all stop before a new mutation. A cleaned worktree is the only successful
-cleanup disposition. A retained diagnostic worktree records terminal blocked
-state and stable evidence; it cannot launch another generation, review, or
-publication.
+Capacity (four worktrees), four fresh launcher runs, four physical task
+executions, token ceiling, active wall-clock deadline, terminal
+canceled/stalled state, no-progress, an open human pause, exhausted fallback,
+and ambiguous evidence all stop before a new mutation. A cleaned worktree is
+the only successful cleanup disposition. A retained diagnostic worktree records
+terminal blocked state and stable evidence; it cannot launch another generation,
+review, or publication.
 
 ## Compatibility
 

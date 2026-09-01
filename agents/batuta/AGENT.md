@@ -223,8 +223,10 @@ journal. Never author or mutate raw `runtime_rules` yourself.
    generation digest. Retain its `delivery_id`.
 6. Call `ext__batuta__routing_apply` exactly once with operation `start_delivery`
    and only that `delivery_id`. The guarded tool submits the bounded Loop with
-   typed ephemeral overrides and returns the accepted fresh parent run ID.
-   Retain that `delivery_run_id`; durable acceptance is a hard turn boundary.
+   typed ephemeral overrides and returns a durable public `batuta-deliver`
+   launcher ID: the accepted fresh launcher run ID. The journal stores the
+   launcher ID. Retain that `delivery_run_id`; durable acceptance is a hard turn
+   boundary.
    Tell the operator the daemon will return to this session and end the turn.
 
 The authored `contract.budget` values are declared intent, not effective
@@ -232,27 +234,40 @@ enforcement. Only the guarded `start_delivery`/`recover_delivery` path supplies
 the per-run effective token and wall budgets. Direct starts of either bundled
 Loop are unsupported and may be unbounded.
 
-`batuta-deliver` prepares dependency-safe waves through
-`ext__batuta__delivery_graph` and dispatches `batuta-task` once per isolated
-task worktree (at most four at once). A typed in-delivery `ask` resumes that
-same child/worktree only. The graph derives completed child evidence, performs
-canonical integration, reexecutes a conflict with a fresh immutable attempt,
-then invokes `review-and-fix` once in the integration worktree before the
-deterministic publication and verification tools. Never dispatch those children
-or publication tools separately. No publisher agent or publication LLM exists.
+`batuta-deliver` is the launcher ownership chain:
+
+```text
+batuta-deliver launcher (journaled public identity)
+  -> exactly one batuta-deliver-core child (validated internally)
+     -> dependency-safe batuta-task waves
+     -> one review-and-fix child
+     -> publication, verification, and cleanup
+```
+
+The guarded tool alone validates the exact `batuta-deliver-core` child.
+Never inspect, infer, or pass a core run ID. That core prepares dependency-safe
+waves through `ext__batuta__delivery_graph` and dispatches `batuta-task` once
+per isolated task worktree (at most four at once). A typed in-delivery `ask`
+resumes that same child/worktree only. The graph derives completed child
+evidence, performs canonical integration, reexecutes a conflict with a fresh
+immutable attempt, then invokes `review-and-fix` once in the integration
+worktree before the deterministic publication and verification tools. Never
+dispatch those children or publication tools separately. No publisher agent or
+publication LLM exists.
 
 ## Terminal return and bounded fallback
 
 Every terminal effect returns to the originating session with identity scoped
 by delivery run, effect generation, and trigger. On that turn:
 
-1. Call `compozy__loop_status` for the exact parent delivery run.
+1. Call `compozy__loop_status` for the exact launcher run.
 2. Call `ext__batuta__routing_apply` with operation `reconcile_fallbacks` and
    the exact stable `delivery_id` plus this terminal `delivery_run_id`.
 3. If it returns `recoverable`, call `ext__batuta__routing_apply` exactly once
    with operation `recover_delivery` and those same two identities. Retain the
-   accepted fresh parent run ID, acknowledge the durable operation ID, and end
-   the turn.
+   returned durable public `batuta-deliver` launcher ID: the accepted fresh
+   launcher run ID. The journal stores the launcher ID; acknowledge the durable
+   operation ID and end the turn.
 4. If it returns `in_progress`, end the turn without another action. If it
    returns `complete`, report exact child outcomes, commits, reviewed HEAD, PR
    URL, and that merge remains manual. If it returns `exhausted` or `blocked`,
@@ -261,7 +276,7 @@ by delivery run, effect generation, and trigger. On that turn:
 
 The guarded tool loads the pinned routing generation, direct child/item
 failure, prior attempt runtime, and original budget itself. Each fallback is a
-fresh parent run in the same worktree and stable Batuta delivery; completed
+fresh launcher run in the same worktree and stable Batuta delivery; completed
 tasks and their commits carry forward while only incomplete tasks execute with
 the next exact runtime. No stored Loop rule changes. A delivery allows one
 initial attempt and at most three fallback attempts, further limited by the

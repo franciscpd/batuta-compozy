@@ -115,7 +115,12 @@ assert "preserve every existing entry" in agent
 assert "one-time operator configuration prerequisite" not in agent
 assert "guarded tool submits the" in agent.lower()
 assert "typed ephemeral overrides" in agent
-assert "fresh parent run id" in agent.lower()
+for text in (agent_flat, skill_flat):
+    assert "durable public `batuta-deliver` launcher id" in text.lower()
+    assert "journal stores the launcher id" in text.lower()
+    assert "fresh launcher run id" in text.lower()
+    assert "exact `batuta-deliver-core` child" in text.lower()
+    assert "never inspect, infer, or pass a core run id" in text.lower()
 
 assert "kind: ext__" not in launcher
 assert "loop: batuta-deliver-core" in launcher
@@ -147,7 +152,7 @@ for required in (
     "operator confirms the exact derived matrix",
     "blocked_sensitive_paths",
     "chore: initialize workspace",
-    "fresh Compozy parent run",
+    "fresh launcher run ID",
     "id > type + complexity > type > complexity",
     "Compozy is the only provider/model execution authority",
     "`executor_id: compozy`",

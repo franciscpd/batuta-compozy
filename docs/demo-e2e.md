@@ -9,8 +9,9 @@ interface do CompozyOS.
 - CompozyOS: `0.3.0-beta.21.preview.738edb54f`
 - Batuta: `0.1.0-beta.6`
 - Estado da extensão Batuta: `active` e `healthy`
-- Recursos Batuta: um agente, dois Loops, uma skill e nove tools
-- Loops: `batuta-deliver` e `batuta-task`
+- Recursos Batuta: um agente, três Loops, uma skill e nove tools
+- Loops: `batuta-deliver` público, `batuta-deliver-core` interno e
+  `batuta-task`
 
 O CompozyOS acima é uma build local de prévia, não uma release oficial. O
 Batuta foi instalado localmente com consentimento `allow_unverified`; isso é
@@ -74,7 +75,9 @@ Na interface do CompozyOS:
 3. selecione a pasta `batuta-status-lab`;
 4. confirme que o workspace aparece como disponível;
 5. abra **Extensions** e confirme `batuta` como **Active / Healthy**;
-6. abra o catálogo de Loops e confirme `batuta-deliver` e `batuta-task`.
+6. abra o catálogo de Loops e confirme `batuta-deliver`,
+   `batuta-deliver-core` e `batuta-task`; `batuta-deliver-core` é execução
+   interna, não um ponto de entrada manual.
 
 Se a UI já estiver aberta desde antes da instalação, recarregue a janela para
 atualizar o catálogo.
@@ -204,8 +207,11 @@ Evidências esperadas:
 
 ## 6. Acompanhar a entrega paralela
 
-O Batuta cria um worktree de integração e inicia `batuta-deliver`. Abra a página
-do run e mostre o grafo.
+O Batuta cria um worktree de integração e inicia o run launcher
+`batuta-deliver`. Abra a página do run e mostre o grafo. O journal armazena o
+ID do launcher; o run cria exatamente um filho core interno
+`batuta-deliver-core`, validado pela tool protegida, e esse filho possui o
+grafo de entrega. Não inicie nem forneça o ID do core manualmente.
 
 Na primeira onda, o esperado é:
 
@@ -220,7 +226,7 @@ limites de segurança relevantes são:
 
 - no máximo quatro worktrees de task ativos ao mesmo tempo;
 - no máximo quatro execuções físicas por task;
-- uma tentativa inicial do pai mais até três fallbacks;
+- uma tentativa launcher inicial mais até três fallbacks;
 - deadline ativo e teto de tokens preservados entre tentativas;
 - cancelamento, stall, pausa, evidência ambígua ou fallback esgotado impedem
   uma nova mutação.
@@ -350,7 +356,8 @@ imagem de arquitetura:
 
 - [ ] O workspace é descartável e começou limpo.
 - [ ] Batuta aparece `active` e `healthy`.
-- [ ] `batuta-deliver` e `batuta-task` aparecem no workspace.
+- [ ] Os três Loops aparecem no workspace: `batuta-deliver`,
+  `batuta-deliver-core` interno e `batuta-task`.
 - [ ] O Batuta gerou SDD e tasks sem implementar código diretamente.
 - [ ] A ambiguidade de produto foi resolvida por um card da UI.
 - [ ] Todas as tasks têm domínio, complexidade e dependências válidos.
@@ -370,7 +377,8 @@ imagem de arquitetura:
 Se providers, forge ou rede estiverem indisponíveis:
 
 1. mostre a extensão Batuta ativa;
-2. abra `batuta-deliver` e `batuta-task` no catálogo de Loops;
+2. abra os três Loops no catálogo: `batuta-deliver`, `batuta-deliver-core`
+   interno e `batuta-task`; não use o core como entrada manual;
 3. apresente o SDD e as tasks já gerados no workspace descartável;
 4. mostre o inventário e o dry-run/estrutura do grafo;
 5. abra a imagem de arquitetura;

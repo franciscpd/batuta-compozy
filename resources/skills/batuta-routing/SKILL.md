@@ -210,25 +210,41 @@ state.
 
 After `apply_matrix`, Batuta calls `start_delivery` with only the returned
 stable `delivery_id`. The guarded tool loads the archived generation and starts
-attempt 1 as a fresh Compozy parent run with typed ephemeral routing, worktree,
-and budget overrides. The run receives the exact applied digest as required
+attempt 1 as a durable public `batuta-deliver` launcher ID: a fresh launcher
+run with typed ephemeral routing, worktree, and budget overrides. The journal
+stores the launcher ID. The run receives the exact applied digest as required
 input `routing_generation`, binding it to the archive even after inventory
 refresh or extension restart.
 
+The durable execution ownership chain is:
+
+```text
+batuta-deliver launcher (journaled public identity)
+  -> exactly one batuta-deliver-core child (validated internally)
+     -> dependency-safe batuta-task waves
+     -> one review-and-fix child
+     -> publication, verification, and cleanup
+```
+
+Terminal handling reads and submits the exact launcher run ID. The guarded tool
+alone validates its exact `batuta-deliver-core` child. Never inspect, infer, or
+pass a core run ID.
+
 On failure, Batuta first calls `reconcile_fallbacks` with the stable delivery
-ID and exact terminal parent run ID. The guarded tool validates parent and child
-ownership, direct task failures, usage, worktree continuity, and publication
-state. If recoverable, `recover_delivery` chooses only the next candidate from
-the immutable generation and starts a fresh Compozy parent run in the same
-worktree. Completed tasks and literal commits carry forward; the next attempt
-imports only incomplete tasks and applies their next exact runtime ephemerally.
+ID and exact terminal launcher run ID. The guarded tool validates launcher and
+child ownership, direct task failures, usage, worktree continuity, and
+publication state. If recoverable, `recover_delivery` chooses only the next
+candidate from the immutable generation and returns a durable public
+`batuta-deliver` launcher ID: a fresh launcher run ID in the same worktree.
+Completed tasks and literal commits carry forward; the next attempt imports
+only incomplete tasks and applies their next exact runtime ephemerally.
 
 Recovery stops at the lowest applicable boundary:
 
 - remaining candidates in the task cell;
 - the cell fallback limit;
 - the delivery-wide limit of three fallbacks;
-- the delivery-wide ceiling of four fresh parent runs;
+- the delivery-wide ceiling of four fresh launcher runs;
 - original token and wall-clock budget;
 - pause or cancellation state.
 

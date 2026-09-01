@@ -7,17 +7,20 @@ CompozyOS component. It is a Go extension for [CompozyOS](https://www.compozy.co
 ([github.com/compozy/compozy](https://github.com/compozy/compozy)) that conducts
 an engineering delivery without writing product code itself.
 
-Batuta bundles one `batuta` agent, the `batuta-routing` skill, two Loops
-(`batuta-deliver` and `batuta-task`), and exactly nine hosted tools, including
-`ext__batuta__delivery_graph`. It writes the SDD and canonical tasks, collects
-an automatic executor inventory, then selects each task by domain × complexity.
+Batuta bundles one `batuta` agent, the `batuta-routing` skill, three Loops
+(`batuta-deliver`, internal `batuta-deliver-core`, and `batuta-task`), and
+exactly nine hosted tools, including `ext__batuta__delivery_graph`. It writes
+the SDD and canonical tasks, collects an automatic executor inventory, then
+selects each task by domain × complexity.
 
 ![Batuta delivery roadmap](docs/images/batuta-next-roadmap.png)
 
 ```text
 conversation -> interactive SDD cards -> tasks -> inventory -> routing graph
                                                     |
-                                      up to four task worktrees
+                              batuta-deliver launcher run (journaled public ID)
+                                                    |
+                        internal batuta-deliver-core -> up to four task worktrees
                                                     |
                          task ask/resume -> canonical integration worktree
                                                     |
@@ -96,6 +99,11 @@ network-backed `models` command is not called by automatic inventory.
 
 Current Compozy renders executor sessions in their parent/child hierarchy and
 stops run-agent sessions after terminal settlement.
+
+`start_delivery` and `recover_delivery` return the durable public
+`batuta-deliver` launcher run ID; the journal stores the launcher ID. The
+guarded tooling validates its exact internal `batuta-deliver-core` child, so
+operators never supply or reconcile a core run ID.
 
 The complete contracts are in [docs/how-it-works.md](docs/how-it-works.md) and
 [docs/architecture.md](docs/architecture.md).
