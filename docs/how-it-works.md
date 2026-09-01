@@ -73,7 +73,7 @@ the launcher ID. That launcher creates exactly one internal
 `batuta-deliver-core` child, which owns the existing dependency-safe graph.
 The guarded tooling validates that core child internally; neither an operator
 nor the Batuta agent supplies or reconciles its ID. The budget literals authored
-in the two Loop definitions document intent; Compozy does not derive effective
+in all three Loop definitions document intent; Compozy does not derive effective
 enforcement from those literals.
 Direct manual, CLI, HTTP, UDS, native-tool, or scheduled starts outside the
 guarded Batuta operation are unsupported and may be unbounded.

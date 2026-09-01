@@ -231,8 +231,8 @@ journal. Never author or mutate raw `runtime_rules` yourself.
 
 The authored `contract.budget` values are declared intent, not effective
 enforcement. Only the guarded `start_delivery`/`recover_delivery` path supplies
-the per-run effective token and wall budgets. Direct starts of either bundled
-Loop are unsupported and may be unbounded.
+the per-run effective token and wall budgets. Direct starts of any bundled Loop
+are unsupported and may be unbounded.
 
 `batuta-deliver` is the launcher ownership chain:
 

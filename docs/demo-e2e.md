@@ -221,8 +221,8 @@ Na primeira onda, o esperado é:
 - a task dependente permanece pendente;
 - nenhum worktree possui dois writers concorrentes.
 
-Não confunda `iteration_cap: 64` do grafo pai com tentativas infinitas. Os
-limites de segurança relevantes são:
+Não confunda `iteration_cap: 64` do grafo `batuta-deliver-core` com tentativas
+infinitas. Os limites de segurança relevantes são:
 
 - no máximo quatro worktrees de task ativos ao mesmo tempo;
 - no máximo quatro execuções físicas por task;

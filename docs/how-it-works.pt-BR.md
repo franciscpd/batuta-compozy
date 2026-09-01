@@ -80,7 +80,7 @@ por execução, depois retorna seu ID público durável de run launcher; o journ
 armazena o ID do launcher. Esse launcher cria exatamente um filho core interno
 `batuta-deliver-core`, proprietário do grafo dependency-safe existente. A tool
 protegida valida esse filho core internamente; nem operador nem o agente Batuta
-fornecem ou reconciliam seu ID. Os literais de orçamento escritos nas duas
+fornecem ou reconciliam seu ID. Os literais de orçamento escritos nas três
 definições de Loop documentam intenção; o Compozy não deriva a aplicação efetiva
 desses literais.
 Starts manuais diretos por CLI, HTTP, UDS, tool nativa ou agendamento fora da

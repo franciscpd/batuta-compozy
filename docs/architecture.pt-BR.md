@@ -89,12 +89,13 @@ torna instrução entre tasks nem cria um worktree novo.
 ## Condições de parada e evidência retida
 
 O journal impede outra geração, revisão ou publicação quando capacidade, limite
-de tentativas físicas, limite de pais novos, teto de tokens, relógio ativo,
-fallback esgotado, cancelamento, ausência de progresso/stall, pausa humana
-aberta, evidência ambígua de worktree/Git/journal ou estado terminal de
-publicação interrompem a entrega. Cleanup seguro é o único caminho terminal de
-sucesso. Quando um worktree de diagnóstico precisa ser retido, ele recebe
-evidência estável de bloqueio, em vez de alegar sucesso ou repetir a operação.
+de tentativas físicas, limite de quatro novos runs launcher `batuta-deliver`,
+teto de tokens, relógio ativo, fallback esgotado, cancelamento, ausência de
+progresso/stall, pausa humana aberta, evidência ambígua de worktree/Git/journal
+ou estado terminal de publicação interrompem a entrega. Cleanup seguro é o
+único caminho terminal de sucesso. Quando um worktree de diagnóstico precisa
+ser retido, ele recebe evidência estável de bloqueio, em vez de alegar sucesso
+ou repetir a operação.
 
 Todas as operações de criação, pergunta/resposta, candidato, settlement, retry,
 revisão, publicação, verificação e cleanup são registradas no journal e são

@@ -92,12 +92,13 @@ attempt. An answer never becomes a cross-task instruction or a new worktree.
 ## Stop conditions and retained evidence
 
 The journal prevents another generation/review/publication when capacity,
-physical-attempt cap, fresh-parent cap, token ceiling, active wall-clock,
-fallback exhaustion, cancellation, no-progress/stall, open human pause,
-ambiguous worktree/Git/journal evidence, or a terminal publication state stops
-the delivery. Safe cleanup is the sole successful terminal path. If cleanup
-must retain a diagnostic worktree, the retained diagnostic worktree has stable
-blocked evidence rather than claiming success or retrying it.
+physical-attempt cap, the cap of four fresh `batuta-deliver` launcher runs,
+token ceiling, active wall-clock, fallback exhaustion, cancellation,
+no-progress/stall, open human pause, ambiguous worktree/Git/journal evidence,
+or a terminal publication state stops the delivery. Safe cleanup is the sole
+successful terminal path. If cleanup must retain a diagnostic worktree, the
+retained diagnostic worktree has stable blocked evidence rather than claiming
+success or retrying it.
 
 All create, question/answer, candidate, settlement, retry, review, publication,
 verification, and cleanup operations are journaled and replay-safe.

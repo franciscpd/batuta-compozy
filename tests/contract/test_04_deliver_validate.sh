@@ -240,13 +240,29 @@ assert "Never call `compozy__loop_recover_nested`" in conductor
 assert "operation `start_delivery`" in conductor
 assert "operation `reconcile_fallbacks`" in conductor
 assert "operation `recover_delivery`" in conductor
-assert "fresh parent run" in conductor
+conductor_flat = " ".join(conductor.split())
+for required in (
+    "durable public `batuta-deliver` launcher ID",
+    "journal stores the launcher ID",
+    "fresh launcher run ID",
+    "exact `batuta-deliver-core` child",
+    "Never inspect, infer, or pass a core run ID",
+):
+    assert required in conductor_flat, required
 for forbidden in ("compozy__loop_configure", "compozy__loop_run", "expected_revision", "config_revision", "same-lineage"):
     assert forbidden not in conductor, forbidden
 
 routing_skill = Path("resources/skills/batuta-routing/SKILL.md").read_text(encoding="utf-8")
-assert "start_delivery" in routing_skill
-assert "fresh Compozy parent run" in routing_skill
+routing_skill_flat = " ".join(routing_skill.split())
+assert "start_delivery" in routing_skill_flat
+for required in (
+    "durable public `batuta-deliver` launcher ID",
+    "journal stores the launcher ID",
+    "fresh launcher run ID",
+    "exact `batuta-deliver-core` child",
+    "Never inspect, infer, or pass a core run ID",
+):
+    assert required in routing_skill_flat, required
 for forbidden in ("revision CAS", "same-lineage", "stored Loop rules"):
     assert forbidden not in routing_skill, forbidden
 print("OK: delivery is automatic, bounded, exact-head verified, and human-gate free")
