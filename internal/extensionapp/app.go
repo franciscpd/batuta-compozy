@@ -41,6 +41,10 @@ type serviceSet struct {
 	deliveryBudgetContext deliveryBudgetContextFunc
 	deliveryGraph         deliveryGraphFunc
 	worktrees             worktreeops.Client
+	// inspectDeliveryWorktree resolves the delivery worktree by ref through
+	// the daemon; unlike worktreeops.Inspect it accepts operator-created
+	// worktrees whose base ref is a branch name.
+	inspectDeliveryWorktree routingWorktreeInspectFunc
 }
 
 type application struct {
@@ -167,6 +171,7 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 		inventory: inventoryService, routingPlan: engine.Plan, routingApply: engine.Apply,
 		routingContext: contextService.Routing, deliveryBudgetContext: contextService.Budget,
 		deliveryGraph: graphService.Execute, worktrees: taskWorktrees,
+		inspectDeliveryWorktree: client.Inspect,
 	})
 }
 

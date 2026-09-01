@@ -13,7 +13,6 @@ import (
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/routing"
-	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
 type GraphOperation string
@@ -144,20 +143,22 @@ func (a application) deliveryGraph(
 	if err := input.validate(); err != nil {
 		return compozysdk.ToolResult{}, err
 	}
-	if a.services.deliveryGraph == nil || a.services.worktrees == nil {
+	if a.services.deliveryGraph == nil || a.services.inspectDeliveryWorktree == nil {
 		return compozysdk.ToolResult{}, errors.New("batuta: delivery graph service is unavailable")
 	}
 	// Loop action calls carry the workspace root, so the delivery worktree is
 	// named explicitly and re-resolved through the daemon before any graph
 	// state is compared against it.
-	worktree, err := a.services.worktrees.Inspect(ctx, scope, strings.TrimSpace(input.WorktreeRef))
+	ref := strings.TrimSpace(input.WorktreeRef)
+	inspection, err := a.services.inspectDeliveryWorktree(ctx, scope, ref)
 	if err != nil {
 		return compozysdk.ToolResult{}, err
 	}
-	if worktree.WorkspaceID != scope.WorkspaceID || !filepath.IsAbs(worktree.Root) {
-		return compozysdk.ToolResult{}, worktreeops.ErrInvalidWorktreeIdentity
+	if inspection.Worktree.ID != ref || inspection.Worktree.WorkspaceID != scope.WorkspaceID ||
+		!filepath.IsAbs(inspection.Worktree.Path) {
+		return compozysdk.ToolResult{}, errors.New("batuta: trusted worktree evidence is inconsistent")
 	}
-	scope.WorkspaceRoot = filepath.Clean(worktree.Root)
+	scope.WorkspaceRoot = filepath.Clean(inspection.Worktree.Path)
 	output, err := a.services.deliveryGraph(ctx, scope, input)
 	if err != nil {
 		return compozysdk.ToolResult{}, err

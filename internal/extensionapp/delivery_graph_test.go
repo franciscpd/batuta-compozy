@@ -10,7 +10,6 @@ import (
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
 func TestDeliveryGraphToolExposesNineClosedOperations(t *testing.T) {
@@ -252,37 +251,18 @@ func TestTaskVerificationMatchesThePublicSixteenCheckCeiling(t *testing.T) {
 	}
 }
 
-type staticWorktreeClient struct {
-	worktree worktreeops.Worktree
-	err      error
-	lastID   string
-}
-
-func (c *staticWorktreeClient) Create(context.Context, publication.TrustedScope, worktreeops.CreateRequest) (worktreeops.Worktree, error) {
-	return worktreeops.Worktree{}, errors.New("unexpected create")
-}
-
-func (c *staticWorktreeClient) FindByName(context.Context, publication.TrustedScope, string) (worktreeops.Worktree, bool, error) {
-	return worktreeops.Worktree{}, false, errors.New("unexpected find")
-}
-
-func (c *staticWorktreeClient) Inspect(_ context.Context, _ publication.TrustedScope, worktreeID string) (worktreeops.Worktree, error) {
-	c.lastID = worktreeID
-	return c.worktree, c.err
-}
-
-func (c *staticWorktreeClient) Remove(context.Context, publication.TrustedScope, string) (worktreeops.Worktree, error) {
-	return worktreeops.Worktree{}, errors.New("unexpected remove")
-}
-
 func TestDeliveryGraphHandlerScopesServiceToInspectedWorktree(t *testing.T) {
 	t.Parallel()
 
-	worktrees := &staticWorktreeClient{worktree: worktreeops.Worktree{
-		ID: "wt_1234567890abcdef", WorkspaceID: "ws_fixture", Root: "/absolute/delivery-worktree",
-	}}
+	var inspectedRef string
+	inspect := func(_ context.Context, _ publication.TrustedScope, ref string) (publication.WorktreeInspection, error) {
+		inspectedRef = ref
+		return publication.WorktreeInspection{Worktree: publication.Worktree{
+			ID: "wt_1234567890abcdef", WorkspaceID: "ws_fixture", Path: "/absolute/delivery-worktree",
+		}}, nil
+	}
 	var seen publication.TrustedScope
-	app := application{services: serviceSet{worktrees: worktrees, deliveryGraph: func(
+	app := application{services: serviceSet{inspectDeliveryWorktree: inspect, deliveryGraph: func(
 		_ context.Context,
 		scope publication.TrustedScope,
 		_ DeliveryGraphInput,
@@ -297,8 +277,8 @@ func TestDeliveryGraphHandlerScopesServiceToInspectedWorktree(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("deliveryGraph() error = %v", err)
 	}
-	if worktrees.lastID != "wt_1234567890abcdef" {
-		t.Fatalf("inspected worktree = %q", worktrees.lastID)
+	if inspectedRef != "wt_1234567890abcdef" {
+		t.Fatalf("inspected worktree = %q", inspectedRef)
 	}
 	if seen.WorkspaceID != "ws_fixture" || seen.WorkspaceRoot != "/absolute/delivery-worktree" {
 		t.Fatalf("service scope = %#v, want workspace identity with delivery worktree root", seen)
@@ -309,21 +289,27 @@ func TestDeliveryGraphHandlerRejectsForeignOrMissingWorktree(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		client *staticWorktreeClient
-		ref    string
+		name    string
+		inspect routingWorktreeInspectFunc
+		ref     string
 	}{
-		{name: "missing ref", client: &staticWorktreeClient{}, ref: ""},
-		{name: "inspect error", client: &staticWorktreeClient{err: errors.New("gone")}, ref: "wt_1234567890abcdef"},
-		{name: "foreign workspace", client: &staticWorktreeClient{worktree: worktreeops.Worktree{
-			ID: "wt_1234567890abcdef", WorkspaceID: "ws_other", Root: "/absolute/delivery-worktree",
-		}}, ref: "wt_1234567890abcdef"},
+		{name: "missing ref", ref: "", inspect: func(context.Context, publication.TrustedScope, string) (publication.WorktreeInspection, error) {
+			return publication.WorktreeInspection{}, nil
+		}},
+		{name: "inspect error", ref: "wt_1234567890abcdef", inspect: func(context.Context, publication.TrustedScope, string) (publication.WorktreeInspection, error) {
+			return publication.WorktreeInspection{}, errors.New("gone")
+		}},
+		{name: "foreign workspace", ref: "wt_1234567890abcdef", inspect: func(context.Context, publication.TrustedScope, string) (publication.WorktreeInspection, error) {
+			return publication.WorktreeInspection{Worktree: publication.Worktree{
+				ID: "wt_1234567890abcdef", WorkspaceID: "ws_other", Path: "/absolute/delivery-worktree",
+			}}, nil
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			called := false
-			app := application{services: serviceSet{worktrees: tt.client, deliveryGraph: func(
+			app := application{services: serviceSet{inspectDeliveryWorktree: tt.inspect, deliveryGraph: func(
 				context.Context,
 				publication.TrustedScope,
 				DeliveryGraphInput,
