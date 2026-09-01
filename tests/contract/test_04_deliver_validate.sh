@@ -54,8 +54,8 @@ cleanup() {
   if ! reject_new_repository_marker "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
     cleanup_failed=true
   fi
-  if [[ $cleanup_failed == true ]]; then
-    exit 1
+  if [[ $original_status -eq 0 && $cleanup_failed == true ]]; then
+    original_status=1
   fi
   exit "$original_status"
 }
