@@ -72,6 +72,10 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 		"--input", "absolute_deadline=" + request.AbsoluteDeadline.Format(time.RFC3339),
 		"--input", "token_ceiling=1000000",
 		"--input", "recovery_operation_id=" + request.RecoveryOperationID,
+		"--input", "delivery_envelope_version=1",
+		"--input", "iteration_cap=3",
+		"--input", "budget_tokens=750000",
+		"--input", "budget_wall_seconds=7200",
 		"--config-file",
 	}
 	start := runner.commands[2]
@@ -173,10 +177,48 @@ func TestDeliveryClientRejectsUnsafeInputsAndMalformedResponses(t *testing.T) {
 	t.Parallel()
 
 	valid := validDeliveryStartRequest()
+	responseRunner := func(inputs map[string]any) *deliveryRecordingRunner {
+		run := deliveryRun{ID: "run_demo", WorkspaceID: "ws_demo", LoopName: "batuta-deliver", Status: "queued", CreatedAt: time.Date(2026, time.August, 26, 15, 0, 0, 0, time.UTC), Inputs: inputs}
+		return &deliveryRecordingRunner{results: []publication.CommandResult{{Stdout: mustJSON(t, map[string]any{"run": run})}}}
+	}
+	startCall := func(runner *deliveryRecordingRunner, request deliveryStartRequest) func(deliveryLoopCLIClient) error {
+		return func(client deliveryLoopCLIClient) error {
+			_, err := client.Start(context.Background(), "ws_demo", request)
+			return err
+		}
+	}
+
+	envelopeMismatchInputs := deliveryInputs(valid)
+	envelopeMismatchInputs["delivery_envelope_version"] = int64(2)
+	envelopeMismatchRunner := responseRunner(envelopeMismatchInputs)
+	iterationMismatchInputs := deliveryInputs(valid)
+	iterationMismatchInputs["iteration_cap"] = valid.IterationCap + 1
+	iterationMismatchRunner := responseRunner(iterationMismatchInputs)
+	tokensMismatchInputs := deliveryInputs(valid)
+	tokensMismatchInputs["budget_tokens"] = valid.BudgetTokens - 1
+	tokensMismatchRunner := responseRunner(tokensMismatchInputs)
+	wallMismatchInputs := deliveryInputs(valid)
+	wallMismatchInputs["budget_wall_seconds"] = valid.BudgetWallSec - 1
+	wallMismatchRunner := responseRunner(wallMismatchInputs)
+	zeroTokensRunner := &deliveryRecordingRunner{}
+	overTokensRunner := &deliveryRecordingRunner{}
+	zeroWallRunner := &deliveryRecordingRunner{}
+	overWallRunner := &deliveryRecordingRunner{}
+	zeroTokensRequest := valid
+	zeroTokensRequest.BudgetTokens = 0
+	overTokensRequest := valid
+	overTokensRequest.BudgetTokens = valid.TokenCeiling + 1
+	zeroWallRequest := valid
+	zeroWallRequest.BudgetWallSec = 0
+	overWallRequest := valid
+	overWallRequest.BudgetWallSec = 14401
 	tests := []struct {
-		name   string
-		client deliveryLoopCLIClient
-		call   func(deliveryLoopCLIClient) error
+		name           string
+		client         deliveryLoopCLIClient
+		call           func(deliveryLoopCLIClient) error
+		runner         *deliveryRecordingRunner
+		wantErr        string
+		wantNoCommands bool
 	}{
 		{name: "relative executable", client: deliveryLoopCLIClient{Executable: "compozy", Runner: &deliveryRecordingRunner{}}, call: func(client deliveryLoopCLIClient) error {
 			_, err := client.Start(context.Background(), "ws_demo", valid)
@@ -202,11 +244,26 @@ func TestDeliveryClientRejectsUnsafeInputsAndMalformedResponses(t *testing.T) {
 			_, err := client.Recent(context.Background(), "ws_demo", 200)
 			return err
 		}},
+		{name: "returned envelope version mismatch", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: envelopeMismatchRunner}, runner: envelopeMismatchRunner, wantErr: "batuta: started delivery does not match the requested attempt", call: startCall(envelopeMismatchRunner, valid)},
+		{name: "returned iteration cap mismatch", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: iterationMismatchRunner}, runner: iterationMismatchRunner, wantErr: "batuta: started delivery does not match the requested attempt", call: startCall(iterationMismatchRunner, valid)},
+		{name: "returned token budget mismatch", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: tokensMismatchRunner}, runner: tokensMismatchRunner, wantErr: "batuta: started delivery does not match the requested attempt", call: startCall(tokensMismatchRunner, valid)},
+		{name: "returned wall budget mismatch", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: wallMismatchRunner}, runner: wallMismatchRunner, wantErr: "batuta: started delivery does not match the requested attempt", call: startCall(wallMismatchRunner, valid)},
+		{name: "zero token budget", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: zeroTokensRunner}, runner: zeroTokensRunner, wantErr: "batuta: invalid delivery start request", wantNoCommands: true, call: startCall(zeroTokensRunner, zeroTokensRequest)},
+		{name: "token budget above ceiling", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: overTokensRunner}, runner: overTokensRunner, wantErr: "batuta: invalid delivery start request", wantNoCommands: true, call: startCall(overTokensRunner, overTokensRequest)},
+		{name: "zero wall budget", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: zeroWallRunner}, runner: zeroWallRunner, wantErr: "batuta: invalid delivery start request", wantNoCommands: true, call: startCall(zeroWallRunner, zeroWallRequest)},
+		{name: "wall budget above maximum", client: deliveryLoopCLIClient{Executable: "/controlled/compozy", Runner: overWallRunner}, runner: overWallRunner, wantErr: "batuta: invalid delivery start request", wantNoCommands: true, call: startCall(overWallRunner, overWallRequest)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.call(tt.client); err == nil {
+			err := tt.call(tt.client)
+			if err == nil {
 				t.Fatal("error = nil, want closed-boundary rejection")
+			}
+			if tt.wantErr != "" && err.Error() != tt.wantErr {
+				t.Fatalf("error = %q, want %q", err, tt.wantErr)
+			}
+			if tt.wantNoCommands && len(tt.runner.commands) != 0 {
+				t.Fatalf("commands = %#v, want none", tt.runner.commands)
 			}
 		})
 	}
@@ -263,6 +320,8 @@ func deliveryInputs(request deliveryStartRequest) map[string]any {
 		"origin_session_id": request.OriginSessionID, "worktree_ref": request.WorktreeRef,
 		"routing_generation": request.RoutingGeneration, "absolute_deadline": request.AbsoluteDeadline.Format(time.RFC3339),
 		"token_ceiling": request.TokenCeiling, "recovery_operation_id": request.RecoveryOperationID,
+		"delivery_envelope_version": int64(1), "iteration_cap": request.IterationCap,
+		"budget_tokens": request.BudgetTokens, "budget_wall_seconds": request.BudgetWallSec,
 	}
 }
 

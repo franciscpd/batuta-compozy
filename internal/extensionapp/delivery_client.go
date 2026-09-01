@@ -22,6 +22,8 @@ const (
 	deliveryStderrLimit       = int64(64 << 10)
 )
 
+const deliveryEnvelopeVersion int64 = 1
+
 type deliveryRun struct {
 	ID                string         `json:"id"`
 	WorkspaceID       string         `json:"workspace_id"`
@@ -191,6 +193,10 @@ func (c deliveryLoopCLIClient) Start(ctx context.Context, workspaceID string, re
 		"--input", "absolute_deadline=" + request.AbsoluteDeadline.Format(time.RFC3339),
 		"--input", "token_ceiling=" + strconv.FormatInt(request.TokenCeiling, 10),
 		"--input", "recovery_operation_id=" + request.RecoveryOperationID,
+		"--input", "delivery_envelope_version=" + strconv.FormatInt(deliveryEnvelopeVersion, 10),
+		"--input", "iteration_cap=" + strconv.Itoa(request.IterationCap),
+		"--input", "budget_tokens=" + strconv.FormatInt(request.BudgetTokens, 10),
+		"--input", "budget_wall_seconds=" + strconv.Itoa(request.BudgetWallSec),
 		"--config-file", path, "-o", "json",
 	}
 	result, err := c.run(ctx, args)
@@ -393,6 +399,14 @@ func validDeliveryRunStatus(status string) bool {
 }
 
 func deliveryRunMatchesRequest(run deliveryRun, request deliveryStartRequest) bool {
+	return deliveryIdentityMatchesRequest(run, request) &&
+		intInput(run.Inputs, "delivery_envelope_version") == deliveryEnvelopeVersion &&
+		intInput(run.Inputs, "iteration_cap") == int64(request.IterationCap) &&
+		intInput(run.Inputs, "budget_tokens") == request.BudgetTokens &&
+		intInput(run.Inputs, "budget_wall_seconds") == int64(request.BudgetWallSec)
+}
+
+func deliveryIdentityMatchesRequest(run deliveryRun, request deliveryStartRequest) bool {
 	values := run.Inputs
 	return stringInput(values, "delivery_id") == request.DeliveryID && intInput(values, "attempt") == int64(request.Attempt) &&
 		stringInput(values, "slug") == request.Slug && stringInput(values, "origin_session_id") == request.OriginSessionID &&
