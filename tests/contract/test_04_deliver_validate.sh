@@ -43,12 +43,12 @@ fi
 
 for loop_file in loops/batuta-deliver/loop.yaml loops/batuta-deliver-core/loop.yaml; do
   out=$(timeout 60s compozy loop validate --file "$loop_file" --workspace "$WS" -o json)
-  printf '%s' "$out" | python3 - "$loop_file" <<'PY'
+  printf '%s' "$out" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 assert d.get("valid") is True, f"{sys.argv[1]} invalido: {d}"
 print(f"OK: {sys.argv[1]} valido (lint+compile)")
-PY
+' "$loop_file"
 done
 
 INSTALLED_HERE=true
@@ -120,17 +120,20 @@ for _ in {1..100}; do
       printf 'installed Batuta core action became unknown_action_kind\n' >&2
       exit 1
     fi
-    if python3 - "$SMOKE_STATUS" "$SMOKE_LAUNCHER_STATUS" "$SMOKE_RUN_ID" "$SMOKE_CORE_RUN_ID" <<'PY'
+    if python3 - "$SMOKE_STATUS" "$SMOKE_LAUNCHER_STATUS" "$SMOKE_RUN_ID" "$SMOKE_CORE_RUN_ID" "$WS" <<'PY'
 import json, sys
 payload = json.load(open(sys.argv[1], encoding="utf-8"))
 launcher_payload = json.load(open(sys.argv[2], encoding="utf-8"))
 launcher_id = sys.argv[3]
+workspace_id = sys.argv[5]
 launcher_run = launcher_payload["run"]
 core_run = payload["run"]
 assert launcher_run["id"] == launcher_id, launcher_run
 assert core_run["id"] == sys.argv[4], core_run
 assert core_run["loop_name"] == "batuta-deliver-core", core_run
 assert core_run["parent_loop_run_id"] == launcher_id, core_run
+assert launcher_run["workspace_id"] == workspace_id, launcher_run
+assert core_run["workspace_id"] == workspace_id, core_run
 assert core_run["workspace_id"] == launcher_run["workspace_id"], core_run
 for key in (
     "delivery_envelope_version", "delivery_id", "attempt", "slug",
@@ -174,6 +177,8 @@ conductor = open(sys.argv[3], encoding="utf-8").read()
 assert launcher.count("kind: run-loop") == 1
 assert "kind: ext__" not in launcher
 assert "loop: batuta-deliver-core" in launcher
+assert "tool: compozy__session_prompt" in launcher
+assert "compozy__session_prompt" not in core
 assert "\n  auto_commit:\n" not in core
 assert core.count("auto_commit: true") == 1
 assert core.count("kind: run-loop") == 2
