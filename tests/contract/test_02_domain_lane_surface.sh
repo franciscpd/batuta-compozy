@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 
 agent = Path("agents/batuta/AGENT.md").read_text(encoding="utf-8")
-loop = Path("loops/batuta-deliver/loop.yaml").read_text(encoding="utf-8")
+launcher = Path("loops/batuta-deliver/loop.yaml").read_text(encoding="utf-8")
+core = Path("loops/batuta-deliver-core/loop.yaml").read_text(encoding="utf-8")
 skill = Path("resources/skills/batuta-routing/SKILL.md").read_text(encoding="utf-8")
 readme_en = Path("README.md").read_text(encoding="utf-8")
 readme_pt = Path("README.pt-BR.md").read_text(encoding="utf-8")
@@ -106,17 +107,19 @@ assert "guarded tool submits the" in agent.lower()
 assert "typed ephemeral overrides" in agent
 assert "fresh parent run id" in agent.lower()
 
-assert re.search(r"iteration_cap:\s*4\b", loop)
-assert "routing_generation: {type: string, required: true}" in loop
-assert "kind: human" not in loop
-assert "recovery_gate" not in loop
-assert "auto_commit: true" in loop
+assert "kind: ext__" not in launcher
+assert "loop: batuta-deliver-core" in launcher
+assert re.search(r"iteration_cap:\s*64\b", core)
+assert "auto_commit: true" in core
+assert "routing_generation: {type: string, required: true}" in launcher
+assert "kind: human" not in launcher
+assert "recovery_gate" not in launcher
 for identity in (
     "{{ .effect.identity.loop_run_id }}",
     "{{ .effect.identity.generation }}",
     "{{ .effect.identity.trigger }}",
 ):
-    assert identity in loop, identity
+    assert identity in launcher, identity
 
 for required in (
     "resolved | declared | unknown",

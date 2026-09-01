@@ -89,6 +89,7 @@ actual = {(item["kind"], item["name"]) for item in items}
 expected = {
     ("agent", "batuta"),
     ("loop", "batuta-deliver"),
+    ("loop", "batuta-deliver-core"),
     ("loop", "batuta-task"),
     ("skill", "batuta-routing"),
     ("tool", "ext__batuta__executor_inventory"),

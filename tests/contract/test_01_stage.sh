@@ -18,6 +18,7 @@ expected=$({
     './go.mod' \
     './go.sum' \
     './loops/batuta-deliver/loop.yaml' \
+    './loops/batuta-deliver-core/loop.yaml' \
     './loops/batuta-task/loop.yaml' \
     './main.go' \
     './resources/skills/batuta-routing/SKILL.md'

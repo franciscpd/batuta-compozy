@@ -338,6 +338,7 @@ require_release 'expected={'
 for expected_inventory_item in \
   "('agent','batuta')" \
   "('loop','batuta-deliver')" \
+  "('loop','batuta-deliver-core')" \
   "('loop','batuta-task')" \
   "('skill','batuta-routing')" \
   "('tool','ext__batuta__delivery_budget_context')" \
