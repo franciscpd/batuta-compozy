@@ -145,6 +145,26 @@ func TestDescribeRegistersPublicationInventoryAndRoutingTools(t *testing.T) {
 		if schema["type"] != "object" {
 			t.Fatalf("descriptor[%d] %s schema root type = %#v, want \"object\"", index, descriptor.Handler, schema["type"])
 		}
+		assertNoNullRequired(t, descriptor.Handler, schema)
+	}
+}
+
+// assertNoNullRequired walks a schema tree and fails on "required": null,
+// which MCP clients reject for the whole tools/list result.
+func assertNoNullRequired(t *testing.T, handler string, node any) {
+	t.Helper()
+	switch value := node.(type) {
+	case map[string]any:
+		if required, present := value["required"]; present && required == nil {
+			t.Fatalf("%s schema contains \"required\": null", handler)
+		}
+		for _, child := range value {
+			assertNoNullRequired(t, handler, child)
+		}
+	case []any:
+		for _, child := range value {
+			assertNoNullRequired(t, handler, child)
+		}
 	}
 }
 

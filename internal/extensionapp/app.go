@@ -544,10 +544,15 @@ func verifyOutputSchema() map[string]any {
 }
 
 func objectSchema(required []string, properties map[string]any) map[string]any {
-	return map[string]any{
+	schema := map[string]any{
 		"type":                 "object",
-		"required":             required,
 		"properties":           properties,
 		"additionalProperties": false,
 	}
+	// A nil slice would serialize as "required": null, which MCP clients
+	// reject for the whole tools/list result.
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
 }
