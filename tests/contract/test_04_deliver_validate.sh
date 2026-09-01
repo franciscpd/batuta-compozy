@@ -15,8 +15,19 @@ SMOKE_LAUNCHER_STATUS=$(mktemp)
 SMOKE_STATUS=$(mktemp)
 SMOKE_RUN_ID=
 SMOKE_CORE_RUN_ID=
+validate_loop() {
+  local loop_file=$1 out
+  out=$(timeout 60s compozy loop validate --file "$loop_file" --workspace "$WS" -o json)
+  printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d.get("valid") is True, f"{sys.argv[1]} invalido: {d}"
+print(f"OK: {sys.argv[1]} valido (lint+compile)")
+' "$loop_file"
+}
 cleanup() {
   local original_status=$?
+  local cleanup_failed=false
   trap - EXIT
   if [[ -n $SMOKE_CORE_RUN_ID ]]; then
     timeout 15s compozy loop cancel --workspace "$WS" --run-id "$SMOKE_CORE_RUN_ID" -o json >/dev/null 2>&1 || true
@@ -25,13 +36,27 @@ cleanup() {
     timeout 15s compozy loop cancel --workspace "$WS" --run-id "$SMOKE_RUN_ID" -o json >/dev/null 2>&1 || true
   fi
   if [[ -d $SMOKE_ROOT && ! -L $SMOKE_ROOT ]]; then
-    rm -rf -- "$SMOKE_ROOT"
+    if ! rm -rf -- "$SMOKE_ROOT"; then
+      printf 'cleanup failed to remove smoke task root: %s\n' "$SMOKE_ROOT" >&2
+      cleanup_failed=true
+    fi
   fi
   if [[ $INSTALLED_HERE == true ]]; then
-    timeout 30s compozy extension remove batuta --global -o json >/dev/null || exit 1
+    if ! timeout 30s compozy extension remove batuta --global -o json >/dev/null; then
+      printf 'cleanup failed to remove global batuta after delivery smoke\n' >&2
+      cleanup_failed=true
+    fi
   fi
-  rm -f -- "$SMOKE_LAUNCHER_STATUS" "$SMOKE_STATUS"
-  reject_new_repository_marker "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED" || exit 1
+  if ! rm -f -- "$SMOKE_LAUNCHER_STATUS" "$SMOKE_STATUS"; then
+    printf 'cleanup failed to remove delivery smoke status files\n' >&2
+    cleanup_failed=true
+  fi
+  if ! reject_new_repository_marker "$REPO_ROOT" "$REPO_WORKSPACE_PREEXISTED"; then
+    cleanup_failed=true
+  fi
+  if [[ $cleanup_failed == true ]]; then
+    exit 1
+  fi
   exit "$original_status"
 }
 trap cleanup EXIT
@@ -41,18 +66,11 @@ if timeout 15s compozy extension list -o json | python3 -c 'import json,sys; rai
   exit 1
 fi
 
-for loop_file in loops/batuta-deliver/loop.yaml loops/batuta-deliver-core/loop.yaml; do
-  out=$(timeout 60s compozy loop validate --file "$loop_file" --workspace "$WS" -o json)
-  printf '%s' "$out" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-assert d.get("valid") is True, f"{sys.argv[1]} invalido: {d}"
-print(f"OK: {sys.argv[1]} valido (lint+compile)")
-' "$loop_file"
-done
+validate_loop loops/batuta-deliver/loop.yaml
 
 INSTALLED_HERE=true
 timeout 180s scripts/republish.sh
+validate_loop loops/batuta-deliver-core/loop.yaml
 
 mkdir -p "$(dirname "$SMOKE_ROOT")"
 cp -R tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo "$SMOKE_ROOT"
