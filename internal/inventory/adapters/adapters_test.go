@@ -27,7 +27,7 @@ func TestAdaptersUseOnlyClosedCommandShapes(t *testing.T) {
 			name:    "compozy",
 			adapter: mustNewCompozy(t, "/opt/bin/compozy", workspaceID),
 			want: [][]string{
-				{"version"},
+				{"version", "-o", "json"},
 				{"status", "-o", "json"},
 				{"config", "path", "--scope", "global", "--workspace", workspaceID, "-o", "json"},
 				{"config", "path", "--scope", "workspace", "--workspace", workspaceID, "-o", "json"},

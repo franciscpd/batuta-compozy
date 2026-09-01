@@ -277,7 +277,7 @@ func (r *fixtureCollectorRunner) Run(_ context.Context, command publication.Comm
 	args := strings.Join(command.Args, " ")
 	var output string
 	switch name + " " + args {
-	case "compozy version":
+	case "compozy version -o json":
 		output = `{"Version":"0.3.0-beta.21"}`
 	case "compozy status -o json":
 		output = `{"schema_version":"1","daemon":{"status":"running"}}`

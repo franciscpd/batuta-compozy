@@ -22,7 +22,7 @@ func NewCompozy(executable, workspaceID string) (Adapter, error) {
 		"models": "compozy.models", "skills": "compozy.skills", "toolsets": "compozy.toolsets", "tools": "compozy.tools",
 	}
 	args := map[string][]string{
-		"version": {"version"}, "status": {"status", "-o", "json"},
+		"version": {"version", "-o", "json"}, "status": {"status", "-o", "json"},
 		"config_global":    {"config", "path", "--scope", "global", "--workspace", workspaceID, "-o", "json"},
 		"config_workspace": {"config", "path", "--scope", "workspace", "--workspace", workspaceID, "-o", "json"},
 		"config":           {"config", "show", "--workspace", workspaceID, "-o", "json"},
