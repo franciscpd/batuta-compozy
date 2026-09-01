@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 )
@@ -66,17 +67,32 @@ type ProviderBinding struct {
 	ModelID    string `json:"model_id,omitempty"`
 }
 
+// ModelCost carries catalog list rates in USD per million tokens.
+type ModelCost struct {
+	InputPerMillion      float64 `json:"input_per_million,omitempty"`
+	OutputPerMillion     float64 `json:"output_per_million,omitempty"`
+	CacheReadPerMillion  float64 `json:"cache_read_per_million,omitempty"`
+	CacheWritePerMillion float64 `json:"cache_write_per_million,omitempty"`
+}
+
+type CatalogModelCost struct {
+	ProviderID string    `json:"provider_id"`
+	ModelID    string    `json:"model_id"`
+	Cost       ModelCost `json:"cost"`
+}
+
 type ExecutorSnapshot struct {
-	ID                   ExecutorID        `json:"executor_id"`
-	Availability         AvailabilityState `json:"availability"`
-	Version              Evidence          `json:"version"`
-	Health               Evidence          `json:"health,omitempty"`
-	ConfigurationDigests []Evidence        `json:"configuration,omitempty"`
-	InstructionDigests   []Evidence        `json:"instructions,omitempty"`
-	Capabilities         []Evidence        `json:"capabilities,omitempty"`
-	CredentialState      CredentialState   `json:"credential_state,omitempty"`
-	ProviderBindings     []ProviderBinding `json:"provider_bindings,omitempty"`
-	Diagnostics          []Diagnostic      `json:"diagnostics,omitempty"`
+	ID                   ExecutorID         `json:"executor_id"`
+	Availability         AvailabilityState  `json:"availability"`
+	Version              Evidence           `json:"version"`
+	Health               Evidence           `json:"health,omitempty"`
+	ConfigurationDigests []Evidence         `json:"configuration,omitempty"`
+	InstructionDigests   []Evidence         `json:"instructions,omitempty"`
+	Capabilities         []Evidence         `json:"capabilities,omitempty"`
+	CredentialState      CredentialState    `json:"credential_state,omitempty"`
+	ProviderBindings     []ProviderBinding  `json:"provider_bindings,omitempty"`
+	CatalogModelCosts    []CatalogModelCost `json:"catalog_model_costs,omitempty"`
+	Diagnostics          []Diagnostic       `json:"diagnostics,omitempty"`
 }
 
 type InventorySnapshot struct {
@@ -187,6 +203,19 @@ func validateExecutor(executor ExecutorSnapshot) error {
 			return errors.New("invalid provider binding")
 		}
 	}
+	for _, entry := range executor.CatalogModelCosts {
+		if !validProviderID(entry.ProviderID) || !validModelID(entry.ModelID) {
+			return errors.New("invalid catalog model cost binding")
+		}
+		for _, rate := range []float64{
+			entry.Cost.InputPerMillion, entry.Cost.OutputPerMillion,
+			entry.Cost.CacheReadPerMillion, entry.Cost.CacheWritePerMillion,
+		} {
+			if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+				return errors.New("invalid catalog model cost rate")
+			}
+		}
+	}
 	return nil
 }
 
@@ -227,6 +256,7 @@ func cloneExecutors(executors []ExecutorSnapshot) []ExecutorSnapshot {
 		cloned[i].Version.Identifiers = slices.Clone(executors[i].Version.Identifiers)
 		cloned[i].Health.Identifiers = slices.Clone(executors[i].Health.Identifiers)
 		cloned[i].ProviderBindings = slices.Clone(executors[i].ProviderBindings)
+		cloned[i].CatalogModelCosts = slices.Clone(executors[i].CatalogModelCosts)
 		cloned[i].Diagnostics = slices.Clone(executors[i].Diagnostics)
 	}
 	return cloned
@@ -250,6 +280,13 @@ func canonicalizeExecutors(executors []ExecutorSnapshot) {
 		slices.Sort(executors[i].Health.Identifiers)
 		slices.SortFunc(executors[i].ProviderBindings, compareProviderBindings)
 		executors[i].ProviderBindings = slices.Compact(executors[i].ProviderBindings)
+		slices.SortFunc(executors[i].CatalogModelCosts, func(a, b CatalogModelCost) int {
+			if value := strings.Compare(a.ProviderID, b.ProviderID); value != 0 {
+				return value
+			}
+			return strings.Compare(a.ModelID, b.ModelID)
+		})
+		executors[i].CatalogModelCosts = slices.Compact(executors[i].CatalogModelCosts)
 		slices.SortFunc(executors[i].Diagnostics, func(a, b Diagnostic) int {
 			if value := strings.Compare(a.Code, b.Code); value != 0 {
 				return value

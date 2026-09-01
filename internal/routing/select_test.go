@@ -333,10 +333,10 @@ func TestBuildCandidateBindingsUsesOnlyLiveCompozyCatalogPairs(t *testing.T) {
 		t.Fatalf("BuildCandidateBindings() error = %v", err)
 	}
 	want := []CandidateBinding{
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", PermissionScore: 1},
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "first", ModelID: "shared", PermissionScore: 1},
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "openai", ModelID: "gpt-5.6-terra", PermissionScore: 1},
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "second", ModelID: "shared", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "cursor", ModelID: "grok-4.6[effort=high,fast=true]", PermissionScore: 1, CostScore: unknownCostScore},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "first", ModelID: "shared", PermissionScore: 1, CostScore: unknownCostScore},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "openai", ModelID: "gpt-5.6-terra", PermissionScore: 1, CostScore: unknownCostScore},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "second", ModelID: "shared", PermissionScore: 1, CostScore: unknownCostScore},
 	}
 	if !equalCandidateBindings(bindings, want) {
 		t.Fatalf("bindings = %#v, want all and only live catalog pairs %#v", bindings, want)
@@ -361,8 +361,8 @@ func TestBuildCandidateBindingsIncludesLivePairWithoutDedicatedAdapter(t *testin
 		t.Fatalf("BuildCandidateBindings() error = %v", err)
 	}
 	want := []CandidateBinding{
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: "claude-fixture", PermissionScore: 2},
-		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "gemini", ModelID: "gemini-fixture", PermissionScore: 1},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "claude", ModelID: "claude-fixture", PermissionScore: 2, CostScore: unknownCostScore},
+		{ExecutorID: inventory.ExecutorCompozy, ProviderID: "gemini", ModelID: "gemini-fixture", PermissionScore: 1, CostScore: unknownCostScore},
 	}
 	if !equalCandidateBindings(got, want) {
 		t.Fatalf("bindings = %#v, want generic live pairs %#v", got, want)
@@ -395,7 +395,7 @@ func TestBuildCandidateBindingsPromotesUnknownCatalogPairOnlyWithExactExecutorPr
 	}
 	want := []CandidateBinding{{
 		ExecutorID: inventory.ExecutorCompozy, ProviderID: "codex", ModelID: "gpt-5.6-terra",
-		PermissionScore: 1, EnrichmentIDs: []inventory.ExecutorID{inventory.ExecutorCodex},
+		PermissionScore: 1, CostScore: unknownCostScore, EnrichmentIDs: []inventory.ExecutorID{inventory.ExecutorCodex},
 	}}
 	if !equalCandidateBindings(got, want) {
 		t.Fatalf("bindings = %#v, want only exact catalog-and-adapter proof %#v", got, want)
@@ -906,5 +906,79 @@ func selectionFixtureWithCandidates(count int) selectorFixture {
 		Policy:       SelectionPolicy{Version: "test-v1", ModelTiers: tiers},
 		WorkspaceKey: "sha256:workspace",
 		Budget:       LoopBudgetCeiling{IterationCap: 4, TokenBudget: 100_000, WallTimeSeconds: 3_600},
+	}
+}
+
+func TestBuildCandidateBindingsCarriesCatalogModelCosts(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	priced := &inventory.ModelCost{InputPerMillion: 5, OutputPerMillion: 25}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "claude", ModelID: "claude-opus-5", Availability: inventory.AvailabilityAvailable, Cost: priced},
+		{ProviderID: "cursor", ModelID: "grok-4.6", Availability: inventory.AvailabilityAvailable},
+	}}
+	bindings, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	if len(bindings) != 2 {
+		t.Fatalf("bindings = %#v, want two", bindings)
+	}
+	opus, grok := bindings[0], bindings[1]
+	if opus.Cost == nil || *opus.Cost != *priced || opus.CostScore != 3000 {
+		t.Fatalf("priced binding = %#v, want cost carried and score 3000", opus)
+	}
+	if grok.Cost != nil || grok.CostScore != unknownCostScore {
+		t.Fatalf("unpriced binding = %#v, want nil cost and unknown score", grok)
+	}
+}
+
+func TestSelectPrefersCheaperCandidateOnFullTie(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := inventory.NewSnapshot("catalog-generation", []inventory.ExecutorSnapshot{
+		{ID: inventory.ExecutorCompozy, Availability: inventory.AvailabilityAvailable},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	catalog := LiveCatalog{Generation: "catalog-generation", Models: []CatalogModel{
+		{ProviderID: "aaa", ModelID: "pricey", Availability: inventory.AvailabilityAvailable, Cost: &inventory.ModelCost{InputPerMillion: 5, OutputPerMillion: 25}},
+		{ProviderID: "zzz", ModelID: "cheap", Availability: inventory.AvailabilityAvailable, Cost: &inventory.ModelCost{InputPerMillion: 1, OutputPerMillion: 5}},
+	}}
+	bindings, err := BuildCandidateBindings(snapshot, catalog)
+	if err != nil {
+		t.Fatalf("BuildCandidateBindings() error = %v", err)
+	}
+	generation, err := NewSelector(DefaultSelectionPolicy()).Select(SelectionInput{
+		Graph: ValidatedTaskGraph{Slug: "cost-tie-demo", TaskSetDigest: "task-set-digest", Tasks: []ValidatedTask{{
+			ID: "task_01", Domain: DomainBackend, Complexity: ComplexityLow, Confidence: 0.95,
+		}}},
+		Inventory: snapshot, Catalog: catalog, Bindings: bindings,
+		Fit: []CellFitRecommendation{{
+			Domain: DomainBackend, Complexity: ComplexityLow,
+			Candidates: []FitCandidate{
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "aaa", ModelID: "pricey", Score: 0.5},
+				{ExecutorID: inventory.ExecutorCompozy, ProviderID: "zzz", ModelID: "cheap", Score: 0.5},
+			},
+		}},
+		WorkspaceIdentityDigest: "sha256:workspace",
+		EnclosingBudget:         LoopBudgetCeiling{IterationCap: 4, WallTimeSeconds: 14_400},
+	})
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	cell := generation.Cells[0]
+	if cell.Selected.ProviderID != "zzz" || cell.Selected.ModelID != "cheap" {
+		t.Fatalf("selected = %#v, want cheaper candidate on full tie", cell.Selected)
+	}
+	if cell.Selected.Cost == nil || cell.Selected.Cost.OutputPerMillion != 5 {
+		t.Fatalf("selected cost = %#v, want carried for display", cell.Selected.Cost)
 	}
 }

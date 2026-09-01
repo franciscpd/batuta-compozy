@@ -125,3 +125,56 @@ func TestSnapshotRejectsUnknownExecutorAndResolutionState(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotCanonicalizesAndDigestsCatalogModelCosts(t *testing.T) {
+	t.Parallel()
+
+	costs := []CatalogModelCost{
+		{ProviderID: "codex", ModelID: "gpt-5.5", Cost: ModelCost{InputPerMillion: 1.25, OutputPerMillion: 10}},
+		{ProviderID: "claude", ModelID: "claude-opus-5", Cost: ModelCost{InputPerMillion: 5, OutputPerMillion: 25, CacheReadPerMillion: 0.5, CacheWritePerMillion: 6.25}},
+	}
+	snapshot, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
+		ID: ExecutorCompozy, Availability: AvailabilityAvailable, CatalogModelCosts: costs,
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	got := snapshot.Executors[0].CatalogModelCosts
+	if len(got) != 2 || got[0].ProviderID != "claude" || got[1].ProviderID != "codex" {
+		t.Fatalf("catalog model costs = %#v, want sorted by provider/model", got)
+	}
+	without, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
+		ID: ExecutorCompozy, Availability: AvailabilityAvailable,
+	}})
+	if err != nil {
+		t.Fatalf("NewSnapshot() error = %v", err)
+	}
+	if snapshot.Digest == without.Digest {
+		t.Fatal("snapshot digest ignores catalog model costs")
+	}
+}
+
+func TestSnapshotRejectsInvalidCatalogModelCost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cost CatalogModelCost
+	}{
+		{name: "invalid provider", cost: CatalogModelCost{ProviderID: "bad provider!", ModelID: "m", Cost: ModelCost{InputPerMillion: 1}}},
+		{name: "invalid model", cost: CatalogModelCost{ProviderID: "claude", ModelID: "bad model!", Cost: ModelCost{InputPerMillion: 1}}},
+		{name: "negative rate", cost: CatalogModelCost{ProviderID: "claude", ModelID: "claude-opus-5", Cost: ModelCost{InputPerMillion: -1}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewSnapshot("catalog-generation-7", []ExecutorSnapshot{{
+				ID: ExecutorCompozy, Availability: AvailabilityAvailable,
+				CatalogModelCosts: []CatalogModelCost{tt.cost},
+			}})
+			if err == nil {
+				t.Fatal("NewSnapshot() error = nil, want catalog model cost validation error")
+			}
+		})
+	}
+}

@@ -667,3 +667,26 @@ func specArgs(specs []inventory.ProbeSpec) [][]string {
 	}
 	return args
 }
+
+func TestCompozyAdapterCapturesCatalogModelCosts(t *testing.T) {
+	t.Parallel()
+
+	adapter := mustNewCompozy(t, "/opt/compozy", "workspace-1")
+	outputs := map[inventory.ProbeID][]byte{
+		adapter.ProbeID("version"): []byte(`{"Version":"0.3.0-beta.21"}`),
+		adapter.ProbeID("models"): []byte(`{"models":[
+			{"provider_id":"claude","model_id":"claude-opus-5","availability_state":"available_live","cost":{"input_per_million":5,"output_per_million":25,"cache_read_per_million":0.5,"cache_write_per_million":6.25}},
+			{"provider_id":"codex","model_id":"gpt-5.5","availability_state":"unknown","cost":{"input_per_million":1.25,"output_per_million":10}},
+			{"provider_id":"cursor","model_id":"grok-4.6","availability_state":"available_live"},
+			{"provider_id":"claude","model_id":"hidden-model","availability_state":"available_live","hidden":true,"cost":{"input_per_million":1,"output_per_million":1}}
+		]}`),
+	}
+	snapshot := adapter.Normalize(outputs)
+	want := []inventory.CatalogModelCost{
+		{ProviderID: "claude", ModelID: "claude-opus-5", Cost: inventory.ModelCost{InputPerMillion: 5, OutputPerMillion: 25, CacheReadPerMillion: 0.5, CacheWritePerMillion: 6.25}},
+		{ProviderID: "codex", ModelID: "gpt-5.5", Cost: inventory.ModelCost{InputPerMillion: 1.25, OutputPerMillion: 10}},
+	}
+	if !slices.Equal(snapshot.CatalogModelCosts, want) {
+		t.Fatalf("catalog model costs = %#v, want live and unknown priced pairs only %#v", snapshot.CatalogModelCosts, want)
+	}
+}

@@ -139,9 +139,13 @@ byte-equivalent request and generation digest. This boundary revalidates the
 live semantic catalog once and archives that exact candidate; refresh
 timestamps alone do not change its identity. Present one row per populated cell
 with task IDs, exact provider/model/reasoning/tier, ordered fallbacks, and a
-cost column. The generation has no authoritative monetary cost snapshot, so
-the cost is always displayed as `unknown`; it is display-only and excluded
-from the durable task/selected/fallback projection. Never infer it. Use a
+cost column. Each candidate carries the catalog list rates when the live
+Compozy catalog knows them (`cost` on the selected and fallback runtimes, USD
+per million tokens); render known rates as `$<input>/$<output> per Mtok` and
+show `unknown` only for pairs the catalog does not price. Never infer or
+estimate a missing rate. Known cost already participates in ranking as the
+late tie-breaker after health, quality, and permission posture; unpriced pairs
+rank after priced ones only at that final tie. Use a
 typed `compozy__clarify` choice so the operator can approve the exact proposal
 or request adjusted requirements. On approval, call `confirm_alignment`, which
 loads and confirms the archived generation without planning or recollecting

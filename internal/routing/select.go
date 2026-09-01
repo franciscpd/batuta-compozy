@@ -40,6 +40,7 @@ type CatalogModel struct {
 	Hidden          bool                        `json:"hidden,omitempty"`
 	Deprecated      bool                        `json:"deprecated,omitempty"`
 	CredentialState inventory.CredentialState   `json:"credential_state,omitempty"`
+	Cost            *inventory.ModelCost        `json:"cost,omitempty"`
 }
 
 type LiveCatalog struct {
@@ -53,7 +54,19 @@ type CandidateBinding struct {
 	ModelID         string                 `json:"model_id"`
 	PermissionScore int                    `json:"permission_score"`
 	CostScore       int                    `json:"cost_score"`
+	Cost            *inventory.ModelCost   `json:"cost,omitempty"`
 	EnrichmentIDs   []inventory.ExecutorID `json:"enrichment_ids,omitempty"`
+}
+
+// unknownCostScore ranks unpriced pairs after every priced pair at the
+// cost tie-break, without letting missing data beat a known cheap rate.
+const unknownCostScore = math.MaxInt32
+
+func costScore(cost *inventory.ModelCost) int {
+	if cost == nil || *cost == (inventory.ModelCost{}) {
+		return unknownCostScore
+	}
+	return int(math.Round((cost.InputPerMillion + cost.OutputPerMillion) * 100))
 }
 
 type CapabilityProbeResult struct {
@@ -129,7 +142,8 @@ func BuildCandidateBindings(snapshot inventory.InventorySnapshot, catalog LiveCa
 		slices.Sort(enrichments)
 		bindings = append(bindings, CandidateBinding{
 			ExecutorID: inventory.ExecutorCompozy, ProviderID: model.ProviderID, ModelID: model.ModelID,
-			PermissionScore: permissionScore, EnrichmentIDs: slices.Compact(enrichments),
+			PermissionScore: permissionScore, CostScore: costScore(model.Cost), Cost: model.Cost,
+			EnrichmentIDs: slices.Compact(enrichments),
 		})
 	}
 	bindings = canonicalBindings(bindings)
@@ -534,6 +548,7 @@ func runtimeCandidate(candidate rankedCandidate, reasoning string) RuntimeCandid
 	return RuntimeCandidate{
 		ExecutorID: candidate.binding.ExecutorID, ProviderID: candidate.binding.ProviderID, ModelID: candidate.binding.ModelID,
 		EnrichmentIDs: slices.Clone(candidate.binding.EnrichmentIDs), Reasoning: reasoning, ModelTier: candidate.tier,
+		Cost: candidate.binding.Cost,
 	}
 }
 

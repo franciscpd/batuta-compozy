@@ -290,6 +290,11 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 		if executor.ID != inventory.ExecutorCompozy || executor.Availability != inventory.AvailabilityAvailable {
 			continue
 		}
+		modelCosts := make(map[string]*inventory.ModelCost, len(executor.CatalogModelCosts))
+		for i := range executor.CatalogModelCosts {
+			entry := executor.CatalogModelCosts[i]
+			modelCosts[routing.ModelKey(entry.ProviderID, entry.ModelID)] = &entry.Cost
+		}
 		providerAuth := make(map[string]inventory.CredentialState)
 		for _, capability := range executor.Capabilities {
 			if capability.Name != "provider_auth" || capability.State != inventory.ResolutionResolved {
@@ -327,7 +332,10 @@ func liveCatalogFromInventory(snapshot inventory.InventorySnapshot) (routing.Liv
 				if existing, found := models[key]; found && existing.Availability == inventory.AvailabilityAvailable {
 					continue
 				}
-				models[key] = routing.CatalogModel{ProviderID: provider, ModelID: model, Availability: availability, CredentialState: providerAuth[provider]}
+				models[key] = routing.CatalogModel{
+					ProviderID: provider, ModelID: model, Availability: availability,
+					CredentialState: providerAuth[provider], Cost: modelCosts[key],
+				}
 			}
 		}
 	}

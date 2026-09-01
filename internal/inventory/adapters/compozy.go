@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 	"strings"
 
@@ -44,11 +45,12 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 
 	var models struct {
 		Models []struct {
-			ProviderID        string `json:"provider_id"`
-			ModelID           string `json:"model_id"`
-			AvailabilityState string `json:"availability_state"`
-			Hidden            bool   `json:"hidden"`
-			Deprecated        bool   `json:"deprecated"`
+			ProviderID        string               `json:"provider_id"`
+			ModelID           string               `json:"model_id"`
+			AvailabilityState string               `json:"availability_state"`
+			Hidden            bool                 `json:"hidden"`
+			Deprecated        bool                 `json:"deprecated"`
+			Cost              *inventory.ModelCost `json:"cost"`
 		} `json:"models"`
 	}
 	modelRaw := outputs[ids["models"]]
@@ -75,6 +77,11 @@ func normalizeCompozy(ids map[string]inventory.ProbeID, outputs map[inventory.Pr
 			identities = append(identities, compozyModelIdentity{
 				ProviderID: model.ProviderID, ModelID: model.ModelID, Availability: availability,
 			})
+			if cost := model.Cost; cost != nil && pricedModelCost(*cost) {
+				snapshot.CatalogModelCosts = append(snapshot.CatalogModelCosts, inventory.CatalogModelCost{
+					ProviderID: model.ProviderID, ModelID: model.ModelID, Cost: *cost,
+				})
+			}
 		}
 		slices.SortFunc(identities, func(a, b compozyModelIdentity) int {
 			if value := strings.Compare(a.ProviderID, b.ProviderID); value != 0 {
@@ -148,6 +155,17 @@ func reducedProviderCredentialState(state string) inventory.CredentialState {
 	default:
 		return inventory.CredentialUnknown
 	}
+}
+
+func pricedModelCost(cost inventory.ModelCost) bool {
+	for _, rate := range []float64{
+		cost.InputPerMillion, cost.OutputPerMillion, cost.CacheReadPerMillion, cost.CacheWritePerMillion,
+	} {
+		if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			return false
+		}
+	}
+	return cost != inventory.ModelCost{}
 }
 
 func liveAvailableModel(state string) bool {

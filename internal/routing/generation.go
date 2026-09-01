@@ -40,6 +40,7 @@ type RuntimeCandidate struct {
 	EnrichmentIDs []inventory.ExecutorID `json:"enrichment_ids,omitempty"`
 	Reasoning     string                 `json:"reasoning"`
 	ModelTier     ModelTier              `json:"model_tier"`
+	Cost          *inventory.ModelCost   `json:"cost,omitempty"`
 }
 
 type RoutingCell struct {
