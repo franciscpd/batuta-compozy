@@ -34,14 +34,18 @@ import sys
 
 agent = Path(sys.argv[1]).read_text(encoding="utf-8")
 loop = Path(sys.argv[2]).read_text(encoding="utf-8")
+agent_flat = " ".join(agent.split())
 
-assert "durable acceptance is a hard turn boundary" in agent
-assert "end the turn" in agent
-assert "For an explicit progress question, make one `compozy__loop_status` read" in agent
-assert "reconcile_fallbacks" in agent and "recover_delivery" in agent
-assert agent.index("Call `compozy__loop_status`") < agent.index("reconcile_fallbacks") < agent.index("recover_delivery")
+assert "durable acceptance is a hard turn boundary" in agent_flat
+assert "end the turn" in agent_flat
+assert "For an explicit progress question, make one `compozy__loop_status` read" in agent_flat
+assert "reconcile_fallbacks" in agent_flat and "recover_delivery" in agent_flat
+status_index = agent_flat.index("Call `compozy__loop_status`")
+reconcile_index = agent_flat.index("reconcile_fallbacks", status_index)
+recover_index = agent_flat.index("recover_delivery", reconcile_index)
+assert status_index < reconcile_index < recover_index
 for forbidden in ("poll until", "keep watching", "watcher agent"):
-    assert forbidden not in agent.lower(), forbidden
+    assert forbidden not in agent_flat.lower(), forbidden
 
 identity = "batuta-terminal-{{ .inputs.delivery_id }}-{{ .effect.identity.loop_run_id }}-g{{ .effect.identity.generation }}-{{ .effect.identity.trigger }}"
 assert loop.count("message_id: \"" + identity + "\"") == 1
