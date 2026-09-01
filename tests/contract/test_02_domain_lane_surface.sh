@@ -16,6 +16,16 @@ flatten = lambda text: " ".join(text.split())
 agent_flat = flatten(agent)
 skill_flat = flatten(skill)
 
+def action_kind(loop_text, node_id):
+    node = re.search(
+        rf"(?ms)^    - id: {re.escape(node_id)}\n(?P<body>.*?)(?=^    - |\Z)",
+        loop_text,
+    )
+    assert node, node_id
+    kind = re.search(r"^      class: action\n      kind: ([^\n]+)$", node["body"], re.M)
+    assert kind, node_id
+    return kind.group(1)
+
 frontmatter = agent.split("---", 2)[1]
 assert "permissions: approve-all" in frontmatter
 for tool_pattern in (
@@ -111,9 +121,11 @@ assert "kind: ext__" not in launcher
 assert "loop: batuta-deliver-core" in launcher
 assert launcher.count("kind: run-loop") == 1
 assert core.count("kind: run-loop") == 2
-assert "id: delivery_core" in launcher
+assert action_kind(launcher, "delivery_core") == "run-loop"
 assert re.search(r"iteration_cap:\s*64\b", core)
 assert "auto_commit: true" in core
+assert action_kind(core, "run_task") == "run-loop"
+assert action_kind(core, "review") == "run-loop"
 for node_id in ("load_check", "routing_context", "prepare_wave", "run_task", "review", "cleanup"):
     assert f"id: {node_id}" in core, node_id
 assert "routing_generation: {type: string, required: true}" in launcher
