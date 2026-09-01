@@ -2,15 +2,16 @@ apiVersion: compozy.loop/v1
 kind: Loop
 meta:
   name: batuta-deliver
-  description: Batuta delivers a validated dependency graph through bounded task waves, one final review, and one publication boundary.
+  description: Batuta creates one durable public delivery envelope and supervises its exact internal core run.
   catalog:
-    use_when: "You have approved tasks and an applied Batuta routing generation ready for autonomous graph delivery."
-    keywords: [batuta, deliver, route, graph, review, publish]
+    use_when: "You have approved tasks and an applied Batuta routing generation ready for guarded autonomous delivery."
+    keywords: [batuta, deliver, launcher, route, graph]
     category: Engineering
 
 concurrency: queue
 
 inputs:
+  delivery_envelope_version: {type: number, required: true}
   delivery_id: {type: string, required: true}
   attempt: {type: number, required: true}
   slug: {type: string, required: true}
@@ -20,20 +21,19 @@ inputs:
   absolute_deadline: {type: string, required: true}
   token_ceiling: {type: number, required: true}
   recovery_operation_id: {type: string, required: true}
+  iteration_cap: {type: number, required: true}
+  budget_tokens: {type: number, required: true}
+  budget_wall_seconds: {type: number, required: true}
 
 contract:
   goal: >
-    Deliver .compozy/tasks/{{ .inputs.slug }} through immutable, dependency-safe task waves
-    in the isolated integration worktree using routing generation {{ .inputs.routing_generation }}.
+    Supervise the exact batuta-deliver-core run for delivery {{ .inputs.delivery_id }}
+    attempt {{ .inputs.attempt }} and return its terminal outcome to the origin session.
   definition_of_done: >
-    Every graph task is integrated, one final review completed, publication verification proved
-    the reviewed HEAD or a truthful nothing-to-publish result, and safe task worktrees were cleaned.
-    Merge remains manual.
-  iteration_cap: 64
-  # Declared intent only. The guarded start_delivery operation injects the
-  # effective per-run token and wall budgets through config_overrides.
+    Exactly one batuta-deliver-core child with matching immutable inputs reached a terminal outcome.
+  iteration_cap: 1
   budget: {tokens: 0, wall_clock_sec: 14400, on_exceeded: halt}
-  stop_when: "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'"
+  stop_when: "nodes.delivery_core.status == 'succeeded'"
   terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]
   on_done:
     - &return_to_origin
@@ -44,12 +44,12 @@ contract:
         idempotency_key: "batuta-terminal-{{ .inputs.delivery_id }}-{{ .effect.identity.loop_run_id }}-g{{ .effect.identity.generation }}-{{ .effect.identity.trigger }}"
         mode: queue
         message: |
-          Batuta delivery_id {{ .inputs.delivery_id }} parent run
+          Batuta delivery_id {{ .inputs.delivery_id }} launcher run
           {{ .effect.identity.loop_run_id }} reached trigger {{ .effect.identity.trigger }} in generation {{ .effect.identity.generation }}.
-          Read this exact parent once with compozy__loop_status, then call ext__batuta__routing_apply
+          Read this exact launcher once with compozy__loop_status, then call ext__batuta__routing_apply
           reconcile_fallbacks with delivery_id {{ .inputs.delivery_id }} and delivery_run_id {{ .effect.identity.loop_run_id }}.
           If recoverable, call recover_delivery exactly once with those same identities and end the turn.
-          Otherwise report the authoritative terminal result, commits, reviewed HEAD, publication operation IDs,
+          Otherwise report the authoritative core result, commits, reviewed HEAD, publication operation IDs,
           verified PR URL, blocker, and that merge remains manual.
   on_noop: [*return_to_origin]
   on_blocked: [*return_to_origin]
@@ -68,211 +68,29 @@ start:
 
 graph:
   nodes:
-    - {id: slug_input, class: source, kind: input, input_ref: slug}
-    - id: load_check
-      class: action
-      kind: ext__spec_cycle__import_tasks
-      params: {pattern: ".compozy/tasks/{{ .inputs.slug }}/task_*.md"}
-      produces: {tasks: array, count: integer}
-    - id: routing_context
-      class: action
-      kind: ext__batuta__routing_context
-      params:
-        delivery_id: "{{ .inputs.delivery_id }}"
-        attempt: "{{ .inputs.attempt }}"
-        slug: "{{ .inputs.slug }}"
-        routing_generation: "{{ .inputs.routing_generation }}"
-    - id: prepare_wave
-      class: action
-      kind: ext__batuta__delivery_graph
-      params: {operation: prepare_wave, delivery_id: "{{ .inputs.delivery_id }}"}
-    - id: wave_route
-      class: control
-      kind: route
-      routes:
-        - {when: "nodes.prepare_wave.output.disposition == 'wave_ready'", to: task_wave}
-        - {when: "nodes.prepare_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
-        - {when: "nodes.prepare_wave.output.disposition == 'preparing'", to: generation_continue}
-        - {when: "nodes.prepare_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
-      default: terminal_blocked
-    - id: task_wave
-      class: control
-      kind: fan-out
-      collection: "{{ .nodes.prepare_wave.output.tasks }}"
-      batch_size: 1
-      max_parallel: 4
-      max_fan_out: 4
-    - id: run_task
+    - id: delivery_core
       class: action
       kind: run-loop
       produces: {loop_run_id: string, status: string}
       params:
-        loop: batuta-task
+        loop: batuta-deliver-core
         config_overrides:
-          iteration_cap: 4
-          budget_tokens: "{{ .item.remaining_tokens }}"
-          budget_wall_sec: "{{ .item.remaining_active_wall_seconds }}"
+          iteration_cap: "{{ .inputs.iteration_cap }}"
+          budget_tokens: "{{ .inputs.budget_tokens }}"
+          budget_wall_sec: "{{ .inputs.budget_wall_seconds }}"
           budget_on_exceeded: halt
           reattempt_strategy: halt
-          runtime_rules: "{{ .nodes.routing_context.output.runtime_rules }}"
-          environment: {mode: worktree, worktree_ref: "{{ .item.worktree_id }}"}
         inputs:
+          delivery_envelope_version: "{{ .inputs.delivery_envelope_version }}"
           delivery_id: "{{ .inputs.delivery_id }}"
-          wave: "{{ .item.wave }}"
-          task_id: "{{ .item.task_id }}"
-          execution: "{{ .item.execution }}"
+          attempt: "{{ .inputs.attempt }}"
+          slug: "{{ .inputs.slug }}"
+          origin_session_id: "{{ .inputs.origin_session_id }}"
+          worktree_ref: "{{ .inputs.worktree_ref }}"
           routing_generation: "{{ .inputs.routing_generation }}"
-          runtime: "{{ .item.runtime }}"
-          worktree_ref: "{{ .item.worktree_id }}"
-          base_sha: "{{ .item.base_sha }}"
-          budget_tokens: "{{ .item.remaining_tokens }}"
-          budget_wall_seconds: "{{ .item.remaining_active_wall_seconds }}"
-    - id: record_candidate
-      class: action
-      kind: ext__batuta__delivery_graph
-      params:
-        operation: record_candidate
-        delivery_id: "{{ .inputs.delivery_id }}"
-        wave: "{{ .item.wave }}"
-        task_id: "{{ .item.task_id }}"
-        execution: "{{ .item.execution }}"
-        child_run_id: "{{ .nodes.run_task.output.loop_run_id }}"
-    - {id: collect_wave, class: control, kind: collect}
-    - id: settle_wave
-      class: action
-      kind: ext__batuta__delivery_graph
-      params:
-        operation: settle_wave
-        delivery_id: "{{ .inputs.delivery_id }}"
-        wave: "{{ .nodes.prepare_wave.output.wave }}"
-    - id: settle_route
-      class: control
-      kind: route
-      routes:
-        - {when: "nodes.settle_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
-        - {when: "nodes.settle_wave.output.disposition == 'wave_integrated'", to: generation_continue}
-        - {when: "nodes.settle_wave.output.disposition == 'reexecute_conflict'", to: generation_continue_conflict}
-        - {when: "nodes.settle_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
-      default: terminal_blocked
-    - id: generation_continue
-      class: action
-      kind: transform
-      params: {map: {status: {value: pending_next_generation}}}
-    - id: generation_continue_conflict
-      class: action
-      kind: transform
-      params: {map: {status: {value: pending_next_generation}}}
-    - id: delivery_budget_context
-      class: action
-      kind: ext__batuta__delivery_budget_context
-      params: {delivery_id: "{{ .inputs.delivery_id }}", attempt: "{{ .inputs.attempt }}"}
-    - id: review
-      class: action
-      kind: run-loop
-      params:
-        loop: review-and-fix
-        config_overrides:
-          iteration_cap: 4
-          budget_tokens: "{{ .nodes.delivery_budget_context.output.remaining_tokens }}"
-          budget_wall_sec: "{{ .nodes.delivery_budget_context.output.remaining_wall_seconds }}"
-          budget_on_exceeded: halt
-          reattempt_strategy: halt
-          environment: {mode: worktree, worktree_ref: "{{ .inputs.worktree_ref }}"}
-        inputs: {task_name: "{{ .inputs.slug }}", auto_commit: true}
-    - id: publication_plan
-      class: action
-      kind: ext__batuta__publication_plan
-      params: {worktree_ref: "{{ .inputs.worktree_ref }}"}
-    - id: publication_route
-      class: control
-      kind: route
-      routes:
-        - {when: "nodes.publication_plan.output.disposition == 'publishable'", to: publish}
-        - {when: "nodes.publication_plan.output.disposition == 'nothing_to_publish'", to: publication_verify_nothing}
-      default: publication_blocked_stop
-    - id: publish
-      class: action
-      kind: ext__batuta__publish_worktree
-      params: {worktree_ref: "{{ .inputs.worktree_ref }}", expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"}
-    - id: publication_verify
-      class: action
-      kind: ext__batuta__publication_verify
-      params:
-        worktree_ref: "{{ .inputs.worktree_ref }}"
-        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
-        publisher_result: "{{ .nodes.publish.output }}"
-    - id: publication_verify_nothing
-      class: action
-      kind: ext__batuta__publication_verify
-      params:
-        worktree_ref: "{{ .inputs.worktree_ref }}"
-        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
-        publisher_result: {status: nothing_to_publish, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "fresh publication plan found no commits to publish", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
-    - id: publication_blocked_stop
-      class: action
-      kind: ext__batuta__publication_verify
-      params:
-        worktree_ref: "{{ .inputs.worktree_ref }}"
-        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
-        publisher_result: {status: blocked, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "publication planning found a deterministic external blocker", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
-    - id: terminal_blocked
-      class: action
-      kind: ext__batuta__delivery_graph
-      params:
-        operation: terminalize
-        delivery_id: "{{ .inputs.delivery_id }}"
-        terminal_disposition: blocked
-    - id: terminal_exhausted
-      class: action
-      kind: ext__batuta__delivery_graph
-      params:
-        operation: terminalize
-        delivery_id: "{{ .inputs.delivery_id }}"
-        terminal_disposition: exhausted
-    - id: cleanup
-      class: action
-      kind: ext__batuta__delivery_graph
-      params: {operation: cleanup, delivery_id: "{{ .inputs.delivery_id }}"}
-    - id: cleanup_route
-      class: control
-      kind: route
-      routes:
-        - {when: "nodes.cleanup.output.disposition == 'cleaned'", to: cleanup_complete}
-      default: terminal_blocked
-    - id: cleanup_complete
-      class: action
-      kind: transform
-      params: {map: {status: {value: cleaned}}}
-
-  edges:
-    - {from: slug_input, to: load_check}
-    - {from: load_check, to: routing_context}
-    - {from: routing_context, to: prepare_wave}
-    - {from: prepare_wave, to: wave_route}
-    - {from: wave_route, to: task_wave}
-    - {from: wave_route, to: delivery_budget_context}
-    - {from: wave_route, to: generation_continue}
-    - {from: wave_route, to: terminal_blocked}
-    - {from: wave_route, to: terminal_exhausted}
-    - {from: task_wave, to: run_task}
-    - {from: run_task, to: record_candidate}
-    - {from: record_candidate, to: collect_wave}
-    - {from: collect_wave, to: settle_wave}
-    - {from: settle_wave, to: settle_route}
-    - {from: settle_route, to: delivery_budget_context}
-    - {from: settle_route, to: generation_continue}
-    - {from: settle_route, to: generation_continue_conflict}
-    - {from: settle_route, to: terminal_blocked}
-    - {from: settle_route, to: terminal_exhausted}
-    - {from: delivery_budget_context, to: review}
-    - {from: review, to: publication_plan}
-    - {from: publication_plan, to: publication_route}
-    - {from: publication_route, to: publish}
-    - {from: publication_route, to: publication_verify_nothing}
-    - {from: publication_route, to: publication_blocked_stop}
-    - {from: publish, to: publication_verify}
-    - {from: publication_verify, to: cleanup}
-    - {from: publication_verify_nothing, to: cleanup}
-    - {from: cleanup, to: cleanup_route}
-    - {from: cleanup_route, to: cleanup_complete}
-    - {from: cleanup_route, to: terminal_blocked}
+          absolute_deadline: "{{ .inputs.absolute_deadline }}"
+          token_ceiling: "{{ .inputs.token_ceiling }}"
+          recovery_operation_id: "{{ .inputs.recovery_operation_id }}"
+          iteration_cap: "{{ .inputs.iteration_cap }}"
+          budget_tokens: "{{ .inputs.budget_tokens }}"
+          budget_wall_seconds: "{{ .inputs.budget_wall_seconds }}"

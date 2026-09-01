@@ -1,0 +1,260 @@
+apiVersion: compozy.loop/v1
+kind: Loop
+meta:
+  name: batuta-deliver-core
+  description: Batuta executes the internal validated delivery graph through bounded task waves, one final review, and one publication boundary.
+  catalog:
+    use_when: "You have approved tasks and an applied Batuta routing generation ready for autonomous graph delivery."
+    keywords: [batuta, deliver, route, graph, review, publish]
+    category: Engineering
+
+concurrency: queue
+
+inputs:
+  delivery_envelope_version: {type: number, required: true}
+  delivery_id: {type: string, required: true}
+  attempt: {type: number, required: true}
+  slug: {type: string, required: true}
+  origin_session_id: {type: string, required: true}
+  worktree_ref: {type: string, required: true}
+  routing_generation: {type: string, required: true}
+  absolute_deadline: {type: string, required: true}
+  token_ceiling: {type: number, required: true}
+  recovery_operation_id: {type: string, required: true}
+  iteration_cap: {type: number, required: true}
+  budget_tokens: {type: number, required: true}
+  budget_wall_seconds: {type: number, required: true}
+
+contract:
+  goal: >
+    Deliver .compozy/tasks/{{ .inputs.slug }} through immutable, dependency-safe task waves
+    in the isolated integration worktree using routing generation {{ .inputs.routing_generation }}.
+  definition_of_done: >
+    Every graph task is integrated, one final review completed, publication verification proved
+    the reviewed HEAD or a truthful nothing-to-publish result, and safe task worktrees were cleaned.
+    Merge remains manual.
+  iteration_cap: 64
+  # Declared intent only. The guarded start_delivery operation injects the
+  # effective per-run token and wall budgets through config_overrides.
+  budget: {tokens: 0, wall_clock_sec: 14400, on_exceeded: halt}
+  stop_when: "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'"
+  terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]
+
+start:
+  - {kind: manual}
+  - {kind: cli}
+  - {kind: http}
+  - {kind: uds}
+  - {kind: native_tool}
+  - {kind: schedule}
+
+graph:
+  nodes:
+    - {id: slug_input, class: source, kind: input, input_ref: slug}
+    - id: load_check
+      class: action
+      kind: ext__spec_cycle__import_tasks
+      params: {pattern: ".compozy/tasks/{{ .inputs.slug }}/task_*.md"}
+      produces: {tasks: array, count: integer}
+    - id: routing_context
+      class: action
+      kind: ext__batuta__routing_context
+      params:
+        delivery_id: "{{ .inputs.delivery_id }}"
+        attempt: "{{ .inputs.attempt }}"
+        slug: "{{ .inputs.slug }}"
+        routing_generation: "{{ .inputs.routing_generation }}"
+    - id: prepare_wave
+      class: action
+      kind: ext__batuta__delivery_graph
+      params: {operation: prepare_wave, delivery_id: "{{ .inputs.delivery_id }}"}
+    - id: wave_route
+      class: control
+      kind: route
+      routes:
+        - {when: "nodes.prepare_wave.output.disposition == 'wave_ready'", to: task_wave}
+        - {when: "nodes.prepare_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
+        - {when: "nodes.prepare_wave.output.disposition == 'preparing'", to: generation_continue}
+        - {when: "nodes.prepare_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
+      default: terminal_blocked
+    - id: task_wave
+      class: control
+      kind: fan-out
+      collection: "{{ .nodes.prepare_wave.output.tasks }}"
+      batch_size: 1
+      max_parallel: 4
+      max_fan_out: 4
+    - id: run_task
+      class: action
+      kind: run-loop
+      produces: {loop_run_id: string, status: string}
+      params:
+        loop: batuta-task
+        config_overrides:
+          iteration_cap: 4
+          budget_tokens: "{{ .item.remaining_tokens }}"
+          budget_wall_sec: "{{ .item.remaining_active_wall_seconds }}"
+          budget_on_exceeded: halt
+          reattempt_strategy: halt
+          runtime_rules: "{{ .nodes.routing_context.output.runtime_rules }}"
+          environment: {mode: worktree, worktree_ref: "{{ .item.worktree_id }}"}
+        inputs:
+          delivery_id: "{{ .inputs.delivery_id }}"
+          wave: "{{ .item.wave }}"
+          task_id: "{{ .item.task_id }}"
+          execution: "{{ .item.execution }}"
+          routing_generation: "{{ .inputs.routing_generation }}"
+          runtime: "{{ .item.runtime }}"
+          worktree_ref: "{{ .item.worktree_id }}"
+          base_sha: "{{ .item.base_sha }}"
+          budget_tokens: "{{ .item.remaining_tokens }}"
+          budget_wall_seconds: "{{ .item.remaining_active_wall_seconds }}"
+    - id: record_candidate
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: record_candidate
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .item.wave }}"
+        task_id: "{{ .item.task_id }}"
+        execution: "{{ .item.execution }}"
+        child_run_id: "{{ .nodes.run_task.output.loop_run_id }}"
+    - {id: collect_wave, class: control, kind: collect}
+    - id: settle_wave
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: settle_wave
+        delivery_id: "{{ .inputs.delivery_id }}"
+        wave: "{{ .nodes.prepare_wave.output.wave }}"
+    - id: settle_route
+      class: control
+      kind: route
+      routes:
+        - {when: "nodes.settle_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
+        - {when: "nodes.settle_wave.output.disposition == 'wave_integrated'", to: generation_continue}
+        - {when: "nodes.settle_wave.output.disposition == 'reexecute_conflict'", to: generation_continue_conflict}
+        - {when: "nodes.settle_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
+      default: terminal_blocked
+    - id: generation_continue
+      class: action
+      kind: transform
+      params: {map: {status: {value: pending_next_generation}}}
+    - id: generation_continue_conflict
+      class: action
+      kind: transform
+      params: {map: {status: {value: pending_next_generation}}}
+    - id: delivery_budget_context
+      class: action
+      kind: ext__batuta__delivery_budget_context
+      params: {delivery_id: "{{ .inputs.delivery_id }}", attempt: "{{ .inputs.attempt }}"}
+    - id: review
+      class: action
+      kind: run-loop
+      params:
+        loop: review-and-fix
+        config_overrides:
+          iteration_cap: 4
+          budget_tokens: "{{ .nodes.delivery_budget_context.output.remaining_tokens }}"
+          budget_wall_sec: "{{ .nodes.delivery_budget_context.output.remaining_wall_seconds }}"
+          budget_on_exceeded: halt
+          reattempt_strategy: halt
+          environment: {mode: worktree, worktree_ref: "{{ .inputs.worktree_ref }}"}
+        inputs: {task_name: "{{ .inputs.slug }}", auto_commit: true}
+    - id: publication_plan
+      class: action
+      kind: ext__batuta__publication_plan
+      params: {worktree_ref: "{{ .inputs.worktree_ref }}"}
+    - id: publication_route
+      class: control
+      kind: route
+      routes:
+        - {when: "nodes.publication_plan.output.disposition == 'publishable'", to: publish}
+        - {when: "nodes.publication_plan.output.disposition == 'nothing_to_publish'", to: publication_verify_nothing}
+      default: publication_blocked_stop
+    - id: publish
+      class: action
+      kind: ext__batuta__publish_worktree
+      params: {worktree_ref: "{{ .inputs.worktree_ref }}", expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"}
+    - id: publication_verify
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result: "{{ .nodes.publish.output }}"
+    - id: publication_verify_nothing
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result: {status: nothing_to_publish, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "fresh publication plan found no commits to publish", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
+    - id: publication_blocked_stop
+      class: action
+      kind: ext__batuta__publication_verify
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result: {status: blocked, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "publication planning found a deterministic external blocker", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
+    - id: terminal_blocked
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        terminal_disposition: blocked
+    - id: terminal_exhausted
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        terminal_disposition: exhausted
+    - id: cleanup
+      class: action
+      kind: ext__batuta__delivery_graph
+      params: {operation: cleanup, delivery_id: "{{ .inputs.delivery_id }}"}
+    - id: cleanup_route
+      class: control
+      kind: route
+      routes:
+        - {when: "nodes.cleanup.output.disposition == 'cleaned'", to: cleanup_complete}
+      default: terminal_blocked
+    - id: cleanup_complete
+      class: action
+      kind: transform
+      params: {map: {status: {value: cleaned}}}
+
+  edges:
+    - {from: slug_input, to: load_check}
+    - {from: load_check, to: routing_context}
+    - {from: routing_context, to: prepare_wave}
+    - {from: prepare_wave, to: wave_route}
+    - {from: wave_route, to: task_wave}
+    - {from: wave_route, to: delivery_budget_context}
+    - {from: wave_route, to: generation_continue}
+    - {from: wave_route, to: terminal_blocked}
+    - {from: wave_route, to: terminal_exhausted}
+    - {from: task_wave, to: run_task}
+    - {from: run_task, to: record_candidate}
+    - {from: record_candidate, to: collect_wave}
+    - {from: collect_wave, to: settle_wave}
+    - {from: settle_wave, to: settle_route}
+    - {from: settle_route, to: delivery_budget_context}
+    - {from: settle_route, to: generation_continue}
+    - {from: settle_route, to: generation_continue_conflict}
+    - {from: settle_route, to: terminal_blocked}
+    - {from: settle_route, to: terminal_exhausted}
+    - {from: delivery_budget_context, to: review}
+    - {from: review, to: publication_plan}
+    - {from: publication_plan, to: publication_route}
+    - {from: publication_route, to: publish}
+    - {from: publication_route, to: publication_verify_nothing}
+    - {from: publication_route, to: publication_blocked_stop}
+    - {from: publish, to: publication_verify}
+    - {from: publication_verify, to: cleanup}
+    - {from: publication_verify_nothing, to: cleanup}
+    - {from: cleanup, to: cleanup_route}
+    - {from: cleanup_route, to: cleanup_complete}
+    - {from: cleanup_route, to: terminal_blocked}

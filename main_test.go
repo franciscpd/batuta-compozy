@@ -113,14 +113,155 @@ func TestRunPropagatesResolverAndRuntimeFailures(t *testing.T) {
 	}
 }
 
-func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing.T) {
+func TestDeliveryLauncherDefersExtensionGraphToExactCore(t *testing.T) {
 	t.Parallel()
 
-	payload, err := os.ReadFile("loops/batuta-deliver/loop.yaml")
+	launcherPayload, err := os.ReadFile("loops/batuta-deliver/loop.yaml")
 	if err != nil {
 		t.Fatalf("read batuta-deliver: %v", err)
 	}
-	type deliveryParentNode struct {
+	corePayload, err := os.ReadFile("loops/batuta-deliver-core/loop.yaml")
+	if err != nil {
+		t.Fatalf("read batuta-deliver-core: %v", err)
+	}
+	type deliveryLauncherNode struct {
+		ID     string `yaml:"id"`
+		Class  string `yaml:"class"`
+		Kind   string `yaml:"kind"`
+		Params struct {
+			Loop            string `yaml:"loop"`
+			ConfigOverrides struct {
+				IterationCap      string `yaml:"iteration_cap"`
+				BudgetTokens      string `yaml:"budget_tokens"`
+				BudgetWallSec     string `yaml:"budget_wall_sec"`
+				BudgetOnExceeded  string `yaml:"budget_on_exceeded"`
+				ReattemptStrategy string `yaml:"reattempt_strategy"`
+			} `yaml:"config_overrides"`
+			Inputs map[string]string `yaml:"inputs"`
+		} `yaml:"params"`
+	}
+	var launcher struct {
+		Meta struct {
+			Name string `yaml:"name"`
+		} `yaml:"meta"`
+		Concurrency string `yaml:"concurrency"`
+		Inputs      map[string]struct {
+			Required bool `yaml:"required"`
+		} `yaml:"inputs"`
+		Contract struct {
+			IterationCap int `yaml:"iteration_cap"`
+			Budget       struct {
+				Tokens       int    `yaml:"tokens"`
+				WallClockSec int    `yaml:"wall_clock_sec"`
+				OnExceeded   string `yaml:"on_exceeded"`
+			} `yaml:"budget"`
+			OnDone      []taskLoopEffect `yaml:"on_done"`
+			OnNoop      []taskLoopEffect `yaml:"on_noop"`
+			OnBlocked   []taskLoopEffect `yaml:"on_blocked"`
+			OnFailed    []taskLoopEffect `yaml:"on_failed"`
+			OnExhausted []taskLoopEffect `yaml:"on_exhausted"`
+			OnStalled   []taskLoopEffect `yaml:"on_stalled"`
+			OnCanceled  []taskLoopEffect `yaml:"on_canceled"`
+		} `yaml:"contract"`
+		Graph struct {
+			Nodes []deliveryLauncherNode `yaml:"nodes"`
+		} `yaml:"graph"`
+	}
+	if err := yaml.Unmarshal(launcherPayload, &launcher); err != nil {
+		t.Fatalf("decode batuta-deliver: %v", err)
+	}
+	if launcher.Meta.Name != "batuta-deliver" || launcher.Concurrency != "queue" {
+		t.Fatalf("launcher identity = %#v", launcher)
+	}
+	for _, name := range []string{
+		"delivery_envelope_version", "delivery_id", "attempt", "slug",
+		"origin_session_id", "worktree_ref", "routing_generation",
+		"absolute_deadline", "token_ceiling", "recovery_operation_id",
+		"iteration_cap", "budget_tokens", "budget_wall_seconds",
+	} {
+		if input, exists := launcher.Inputs[name]; !exists || !input.Required {
+			t.Fatalf("missing launcher input %q", name)
+		}
+	}
+	if len(launcher.Graph.Nodes) != 1 || launcher.Graph.Nodes[0].ID != "delivery_core" ||
+		launcher.Graph.Nodes[0].Kind != "run-loop" ||
+		launcher.Graph.Nodes[0].Params.Loop != "batuta-deliver-core" {
+		t.Fatalf("launcher graph = %#v", launcher.Graph)
+	}
+	for _, node := range launcher.Graph.Nodes {
+		if strings.HasPrefix(node.Kind, "ext__") {
+			t.Fatalf("public launcher resolves a hosted extension action: %#v", node)
+		}
+	}
+	if launcher.Contract.IterationCap != 1 || launcher.Contract.Budget.Tokens != 0 ||
+		launcher.Contract.Budget.WallClockSec != 14400 || launcher.Contract.Budget.OnExceeded != "halt" {
+		t.Fatalf("launcher contract = %#v", launcher.Contract)
+	}
+	for name, effects := range map[string][]taskLoopEffect{
+		"on_done": launcher.Contract.OnDone, "on_noop": launcher.Contract.OnNoop,
+		"on_blocked": launcher.Contract.OnBlocked, "on_failed": launcher.Contract.OnFailed,
+		"on_exhausted": launcher.Contract.OnExhausted, "on_stalled": launcher.Contract.OnStalled,
+		"on_canceled": launcher.Contract.OnCanceled,
+	} {
+		if len(effects) != 1 || effects[0].Tool != "compozy__session_prompt" {
+			t.Fatalf("launcher %s = %#v", name, effects)
+		}
+	}
+	overrides := launcher.Graph.Nodes[0].Params.ConfigOverrides
+	if overrides.IterationCap != "{{ .inputs.iteration_cap }}" ||
+		overrides.BudgetTokens != "{{ .inputs.budget_tokens }}" ||
+		overrides.BudgetWallSec != "{{ .inputs.budget_wall_seconds }}" ||
+		overrides.BudgetOnExceeded != "halt" || overrides.ReattemptStrategy != "halt" {
+		t.Fatalf("delivery core overrides = %#v", overrides)
+	}
+	for _, name := range []string{
+		"delivery_envelope_version", "delivery_id", "attempt", "slug",
+		"origin_session_id", "worktree_ref", "routing_generation",
+		"absolute_deadline", "token_ceiling", "recovery_operation_id",
+		"iteration_cap", "budget_tokens", "budget_wall_seconds",
+	} {
+		if got := launcher.Graph.Nodes[0].Params.Inputs[name]; got != "{{ .inputs."+name+" }}" {
+			t.Fatalf("delivery core input %q = %q", name, got)
+		}
+	}
+	if len(launcher.Graph.Nodes[0].Params.Inputs) != 13 {
+		t.Fatalf("delivery core inputs = %#v", launcher.Graph.Nodes[0].Params.Inputs)
+	}
+
+	var core struct {
+		Contract struct {
+			OnDone      []taskLoopEffect `yaml:"on_done"`
+			OnNoop      []taskLoopEffect `yaml:"on_noop"`
+			OnBlocked   []taskLoopEffect `yaml:"on_blocked"`
+			OnFailed    []taskLoopEffect `yaml:"on_failed"`
+			OnExhausted []taskLoopEffect `yaml:"on_exhausted"`
+			OnStalled   []taskLoopEffect `yaml:"on_stalled"`
+			OnCanceled  []taskLoopEffect `yaml:"on_canceled"`
+		} `yaml:"contract"`
+	}
+	if err := yaml.Unmarshal(corePayload, &core); err != nil {
+		t.Fatalf("decode batuta-deliver-core: %v", err)
+	}
+	for name, effects := range map[string][]taskLoopEffect{
+		"on_done": core.Contract.OnDone, "on_noop": core.Contract.OnNoop,
+		"on_blocked": core.Contract.OnBlocked, "on_failed": core.Contract.OnFailed,
+		"on_exhausted": core.Contract.OnExhausted, "on_stalled": core.Contract.OnStalled,
+		"on_canceled": core.Contract.OnCanceled,
+	} {
+		if len(effects) != 0 {
+			t.Fatalf("core %s = %#v", name, effects)
+		}
+	}
+}
+
+func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile("loops/batuta-deliver-core/loop.yaml")
+	if err != nil {
+		t.Fatalf("read batuta-deliver-core: %v", err)
+	}
+	type deliveryCoreNode struct {
 		ID     string `yaml:"id"`
 		Class  string `yaml:"class"`
 		Kind   string `yaml:"kind"`
@@ -138,6 +279,7 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 					WorktreeRef string `yaml:"worktree_ref"`
 				} `yaml:"environment"`
 			} `yaml:"config_overrides"`
+			Values map[string]any `yaml:",inline"`
 		} `yaml:"params"`
 		Collection  string `yaml:"collection"`
 		BatchSize   int    `yaml:"batch_size"`
@@ -145,12 +287,15 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 		MaxFanOut   int    `yaml:"max_fan_out"`
 	}
 	var definition struct {
+		Meta struct {
+			Name string `yaml:"name"`
+		} `yaml:"meta"`
 		Contract struct {
 			IterationCap int    `yaml:"iteration_cap"`
 			StopWhen     string `yaml:"stop_when"`
 		} `yaml:"contract"`
 		Graph struct {
-			Nodes []deliveryParentNode `yaml:"nodes"`
+			Nodes []deliveryCoreNode `yaml:"nodes"`
 			Edges []struct {
 				From string `yaml:"from"`
 				To   string `yaml:"to"`
@@ -158,9 +303,12 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 		} `yaml:"graph"`
 	}
 	if err := yaml.Unmarshal(payload, &definition); err != nil {
-		t.Fatalf("decode batuta-deliver: %v", err)
+		t.Fatalf("decode batuta-deliver-core: %v", err)
 	}
-	nodes := map[string]deliveryParentNode{}
+	if definition.Meta.Name != "batuta-deliver-core" {
+		t.Fatalf("core identity = %#v", definition.Meta)
+	}
+	nodes := map[string]deliveryCoreNode{}
 	for _, node := range definition.Graph.Nodes {
 		nodes[node.ID] = node
 	}
@@ -178,13 +326,17 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 		}
 	}
 	for _, required := range []string{
-		"id: terminal_blocked", "terminal_disposition: blocked", "id: terminal_exhausted",
-		"terminal_disposition: exhausted", "id: cleanup_route", "id: cleanup_complete",
-		"{from: wave_route, to: terminal_exhausted}", "{from: settle_route, to: terminal_exhausted}",
-		"{from: cleanup, to: cleanup_route}", "{from: cleanup_route, to: terminal_blocked}",
+		"terminal_blocked", "terminal_exhausted", "cleanup_route", "cleanup_complete",
 	} {
-		if !strings.Contains(string(payload), required) {
-			t.Fatalf("terminal topology missing %q", required)
+		if _, exists := nodes[required]; !exists {
+			t.Fatalf("terminal topology missing node %q", required)
+		}
+	}
+	for nodeID, disposition := range map[string]string{"terminal_blocked": "blocked", "terminal_exhausted": "exhausted"} {
+		node := nodes[nodeID]
+		if node.Kind != "ext__batuta__delivery_graph" || node.Params.Values["operation"] != "terminalize" ||
+			node.Params.Values["terminal_disposition"] != disposition {
+			t.Fatalf("%s = %#v", nodeID, node)
 		}
 	}
 	wave := nodes["task_wave"]
@@ -203,9 +355,9 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 		overrides.Environment.Mode != "worktree" || overrides.Environment.WorktreeRef != "{{ .item.worktree_id }}" {
 		t.Fatalf("batuta-task child overrides = %#v", overrides)
 	}
-	for _, forbidden := range []string{"implement-tasks", "kind: gate", "human_gate"} {
-		if strings.Contains(string(payload), forbidden) {
-			t.Fatalf("parent contains forbidden %q", forbidden)
+	for _, node := range definition.Graph.Nodes {
+		if node.Kind == "gate" || node.ID == "human_gate" || node.ID == "implement-tasks" {
+			t.Fatalf("core contains forbidden node %#v", node)
 		}
 	}
 	for _, pair := range [][2]string{
@@ -215,6 +367,8 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 		{"settle_route", "delivery_budget_context"}, {"delivery_budget_context", "review"},
 		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
 		{"publish", "publication_verify"}, {"publication_verify", "cleanup"},
+		{"wave_route", "terminal_exhausted"}, {"settle_route", "terminal_exhausted"},
+		{"cleanup", "cleanup_route"}, {"cleanup_route", "terminal_blocked"},
 	} {
 		found := false
 		for _, edge := range definition.Graph.Edges {
@@ -224,7 +378,7 @@ func TestDeliveryRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *testing
 			}
 		}
 		if !found {
-			t.Fatalf("missing parent graph edge %s -> %s", pair[0], pair[1])
+			t.Fatalf("missing core graph edge %s -> %s", pair[0], pair[1])
 		}
 	}
 }
