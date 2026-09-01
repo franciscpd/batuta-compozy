@@ -285,9 +285,17 @@ func (s deliveryAttemptService) Reconcile(
 			result.State = "in_progress"
 			return nil
 		}
-		graphOwnsSettlement := graphOwnsParentSettlement(delivery.Graph) || parentReportsGraphTask(detail)
+		request, err := deliveryRequestForAttempt(delivery, attempt)
+		if err != nil {
+			return err
+		}
+		settlementParent, err := s.settlementParentDetail(ctx, scope.WorkspaceID, request, detail)
+		if err != nil {
+			return err
+		}
+		graphOwnsSettlement := graphOwnsParentSettlement(delivery.Graph) || parentReportsGraphTask(settlementParent)
 		if graphOwnsSettlement &&
-			(detail.Run.Status == "done" || detail.Run.Status == "no-op") && !graphAllIntegrated(delivery.Graph) {
+			(settlementParent.Run.Status == "done" || settlementParent.Run.Status == "no-op") && !graphAllIntegrated(delivery.Graph) {
 			return routing.ErrDeliveryConflict
 		}
 		fingerprint, err := s.WorktreeState(ctx, delivery.WorktreeRoot)
@@ -302,7 +310,7 @@ func (s deliveryAttemptService) Reconcile(
 			// transition. Its fan-out batuta-task children are never legacy
 			// settlement evidence; the journal graph is the authority even when
 			// a failed parent did not retain a run_task output marker.
-			graphTokens, reviewTokens, childIDs, err = s.graphParentUsage(ctx, scope.WorkspaceID, delivery, detail)
+			graphTokens, reviewTokens, childIDs, err = s.graphParentUsage(ctx, scope.WorkspaceID, delivery, settlementParent)
 			if err != nil {
 				return err
 			}
@@ -312,7 +320,7 @@ func (s deliveryAttemptService) Reconcile(
 			tokens = graphTokens + reviewTokens
 			failedTaskIDs = graphFallbackTaskIDs(delivery.Graph)
 		} else {
-			childIDs, failedTaskIDs, tokens, publicationMutation, err = s.settlementEvidence(ctx, scope.WorkspaceID, delivery, detail)
+			childIDs, failedTaskIDs, tokens, publicationMutation, err = s.settlementEvidence(ctx, scope.WorkspaceID, delivery, settlementParent)
 			if err != nil {
 				return err
 			}
@@ -320,7 +328,7 @@ func (s deliveryAttemptService) Reconcile(
 		terminalAt := now
 		attempt.State = routing.AttemptTerminal
 		attempt.TerminalAt = &terminalAt
-		attempt.TerminalStatus = detail.Run.Status
+		attempt.TerminalStatus = settlementParent.Run.Status
 		attempt.ChildRunIDs = childIDs
 		attempt.FailedTaskIDs = failedTaskIDs
 		attempt.TokensUsed = tokens
@@ -330,7 +338,7 @@ func (s deliveryAttemptService) Reconcile(
 		attempt.WorktreeFingerprint = &routing.WorktreeFingerprint{
 			HeadSHA: fingerprint.HeadSHA, PorcelainSHA256: fingerprint.PorcelainSHA256, ContentSHA256: fingerprint.ContentSHA256,
 		}
-		switch detail.Run.Status {
+		switch settlementParent.Run.Status {
 		case "done", "no-op":
 			delivery.State = routing.DeliveryStateDone
 		case "failed":

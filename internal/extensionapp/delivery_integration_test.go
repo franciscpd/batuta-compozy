@@ -42,8 +42,9 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 				Path: repository.root, State: "ready", BaseRef: "main",
 			}}, nil
 		},
-		worktreeState: git.WorktreeState,
-		applyMatrix:   manager.Apply,
+		worktreeState:  git.WorktreeState,
+		applyMatrix:    manager.Apply,
+		loadGeneration: store.LoadGeneration,
 	}
 
 	generation, err := engine.Plan(ctx, scope, planInput)
@@ -51,6 +52,12 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 		t.Fatalf("Plan() error = %v", err)
 	}
 	assertMigrationFreeRouting(t, generation)
+	if err := store.ArchiveGeneration(scope.WorkspaceID, generation); err != nil {
+		t.Fatalf("ArchiveGeneration() error = %v", err)
+	}
+	if _, err := (routing.AlignmentManager{Store: store}).Confirm(scope.WorkspaceID, "session_delivery_lab", generation); err != nil {
+		t.Fatalf("Alignment.Confirm() error = %v", err)
+	}
 	applied, err := engine.Apply(ctx, scope, RoutingApplyInput{
 		Operation: RoutingOperationApplyMatrix, RoutingPlan: &planInput,
 		ExpectedGenerationDigest: generation.Digest, WorktreeRef: "worktree_delivery_lab",
@@ -86,9 +93,12 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	repository.write(t, "backend.txt", "backend complete\n")
 	repository.commit(t, "feat: complete backend task")
 	backendHead := repository.head(t)
-	client.statuses[first.DeliveryRunID] = parentRunDetail(scope.WorkspaceID, first.DeliveryRunID, "failed", firstRequest, []deliveryOutput{{
+	firstCoreID := first.DeliveryRunID + "_core"
+	firstLauncher, firstCore := launcherAndCoreRunDetails(scope.WorkspaceID, first.DeliveryRunID, "failed", "failed", firstRequest, []deliveryOutput{{
 		NodeID: "implement", Status: "failed", ChildLoopRunID: "implement_attempt_1",
 	}})
+	client.statuses[first.DeliveryRunID] = firstLauncher
+	client.statuses[firstCoreID] = firstCore
 	client.statuses["implement_attempt_1"] = childRunDetail(
 		scope.WorkspaceID, "implement_attempt_1", "implement-tasks", "failed", 1_200,
 		[]deliveryOutput{{NodeID: "execute_task", ItemIndex: 0, Status: "succeeded"}, {NodeID: "execute_task", ItemIndex: 1, Status: "failed"}},
@@ -99,6 +109,9 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	}
 	if !settled.Recoverable || settled.State != "active" || settled.TokensUsed != 1_200 {
 		t.Fatalf("attempt 1 settlement = %#v", settled)
+	}
+	if settled.DeliveryRunID != first.DeliveryRunID || settled.DeliveryRunID == firstCoreID {
+		t.Fatalf("attempt 1 exposed core identity: start=%#v settlement=%#v", first, settled)
 	}
 
 	second, err := service.Recover(ctx, scope, deliveryID, first.DeliveryRunID)
@@ -125,11 +138,14 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	if finalHead == backendHead {
 		t.Fatal("frontend fallback did not create a distinct commit")
 	}
-	client.statuses[second.DeliveryRunID] = parentRunDetail(scope.WorkspaceID, second.DeliveryRunID, "done", secondRequest, []deliveryOutput{
+	secondCoreID := second.DeliveryRunID + "_core"
+	secondLauncher, secondCore := launcherAndCoreRunDetails(scope.WorkspaceID, second.DeliveryRunID, "done", "done", secondRequest, []deliveryOutput{
 		{NodeID: "implement", Status: "succeeded", ChildLoopRunID: "implement_attempt_2"},
 		{NodeID: "review", Status: "succeeded", ChildLoopRunID: "review_attempt_2"},
 		{NodeID: "publish", Status: "succeeded"},
 	})
+	client.statuses[second.DeliveryRunID] = secondLauncher
+	client.statuses[secondCoreID] = secondCore
 	client.statuses["implement_attempt_2"] = childRunDetail(scope.WorkspaceID, "implement_attempt_2", "implement-tasks", "done", 800, nil)
 	client.statuses["review_attempt_2"] = childRunDetail(scope.WorkspaceID, "review_attempt_2", "review-and-fix", "done", 300, nil)
 	finished, err := service.Reconcile(ctx, scope, deliveryID, second.DeliveryRunID)
@@ -139,6 +155,9 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	if finished.State != "done" || finished.Recoverable || finished.TokensUsed != 2_300 {
 		t.Fatalf("attempt 2 settlement = %#v", finished)
 	}
+	if finished.DeliveryRunID != second.DeliveryRunID || finished.DeliveryRunID == secondCoreID {
+		t.Fatalf("attempt 2 exposed core identity: start=%#v settlement=%#v", second, finished)
+	}
 
 	journal, exists, err := store.Load(scope.WorkspaceID)
 	if err != nil || !exists {
@@ -146,6 +165,11 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	}
 	delivery := journal.Deliveries[deliveryID]
 	assertFinalDeliveryJournal(t, delivery, generation.Digest, first.DeliveryRunID, second.DeliveryRunID)
+	for _, attempt := range delivery.Attempts {
+		if attempt.RunID == firstCoreID || attempt.RunID == secondCoreID {
+			t.Fatalf("journal exposed core identity: %#v", delivery.Attempts)
+		}
+	}
 
 	forge := &integrationWorktreeClient{t: t, repository: repository, git: git}
 	planner := publication.PublicationPlanner{Compozy: forge, Git: git}
@@ -309,15 +333,35 @@ func (c *integrationDeliveryClient) Start(_ context.Context, workspaceID string,
 	}, nil
 }
 
-func parentRunDetail(workspaceID, runID, status string, request deliveryStartRequest, outputs []deliveryOutput) deliveryRunDetail {
-	return deliveryRunDetail{
+func launcherAndCoreRunDetails(
+	workspaceID string,
+	launcherID string,
+	launcherStatus string,
+	coreStatus string,
+	request deliveryStartRequest,
+	outputs []deliveryOutput,
+) (deliveryRunDetail, deliveryRunDetail) {
+	coreID := launcherID + "_core"
+	launcher := deliveryRunDetail{
 		Run: deliveryRun{
-			ID: runID, WorkspaceID: workspaceID, LoopName: "batuta-deliver", Status: status,
+			ID: launcherID, WorkspaceID: workspaceID, LoopName: "batuta-deliver", Status: launcherStatus,
+			CreatedAt: request.AbsoluteDeadline.Add(-4 * time.Hour), StartedAt: request.AbsoluteDeadline.Add(-4 * time.Hour),
+			Inputs: deliveryInputs(request),
+		},
+		Generations: []deliveryGeneration{{Generation: 1, Outputs: []deliveryOutput{{
+			NodeID: "delivery_core", Status: launcherOutputStatus(coreStatus), ChildLoopRunID: coreID,
+		}}}},
+	}
+	core := deliveryRunDetail{
+		Run: deliveryRun{
+			ID: coreID, WorkspaceID: workspaceID, ParentLoopRunID: launcherID,
+			LoopName: "batuta-deliver-core", Status: coreStatus,
 			CreatedAt: request.AbsoluteDeadline.Add(-4 * time.Hour), StartedAt: request.AbsoluteDeadline.Add(-4 * time.Hour),
 			Inputs: deliveryInputs(request),
 		},
 		Generations: []deliveryGeneration{{Generation: 1, Outputs: outputs}},
 	}
+	return launcher, core
 }
 
 func childRunDetail(workspaceID, runID, loopName, status string, tokens int64, outputs []deliveryOutput) deliveryRunDetail {
