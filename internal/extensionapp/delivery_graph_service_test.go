@@ -1884,3 +1884,60 @@ func TestDeliveryGraphOutputMarshalKeepsPrepareWaveTasksExplicit(t *testing.T) {
 		t.Fatalf("settle_wave output = %s, error=%v", encoded, err)
 	}
 }
+
+func TestDeliveryGraphServicePrepareWaveReportsAllIntegratedAfterFinalSettlement(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	candidateSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		_, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue(string(verification)), TokensUsed: 900,
+			Evidence: &routing.TaskCandidateEvidence{
+				Slug: delivery.Slug, RepositoryIdentity: digestValue("repository"), Branch: "batuta/task/demo",
+				TreeSHA: "1234512345123451234512345123451234512345", Verification: verification,
+				OwnedTrackingPaths: []string{}, Tracking: []routing.TaskTrackingFile{},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	integratedSHA := "9876598765987659876598765987659876598765"
+	service := deliveryGraphService{
+		Store: fixture.store, Integrator: &fakeGraphIntegrator{integratedSHA: integratedSHA},
+		Worktrees:       &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready"},
+		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+		Now:             func() time.Time { return fixture.now },
+		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+			return publication.WorktreeState{HeadSHA: integratedSHA, PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest()}, nil
+		},
+	}
+	settled, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+	})
+	if err != nil || settled.Disposition != GraphDispositionAllIntegrated {
+		t.Fatalf("settle_wave = %#v, error=%v", settled, err)
+	}
+	// The core loop continues into one more generation after the final
+	// settlement; prepare_wave must re-report all_integrated there so
+	// wave_route can own the publication path.
+	prepared, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID})
+	if err != nil || prepared.Disposition != GraphDispositionAllIntegrated || len(prepared.Tasks) != 0 || prepared.BaseSHA != integratedSHA {
+		t.Fatalf("prepare_wave after final settlement = %#v, error=%v", prepared, err)
+	}
+	replay, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID})
+	if err != nil || !reflect.DeepEqual(replay, prepared) {
+		t.Fatalf("prepare_wave replay = %#v, error=%v", replay, err)
+	}
+}

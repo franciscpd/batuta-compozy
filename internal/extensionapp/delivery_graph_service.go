@@ -211,6 +211,7 @@ func (s *deliveryGraphService) prepareWave(
 	var remainingTokens int64
 	var remainingWall time.Duration
 	exhausted := false
+	allIntegrated := false
 	err = store.WithLockedJournal(scope.WorkspaceID, func(tx *routing.JournalTx) error {
 		record, exists := tx.Journal.Deliveries[input.DeliveryID]
 		if !exists || record.WorkspaceID != scope.WorkspaceID || record.WorktreeRoot != scope.WorkspaceRoot ||
@@ -262,11 +263,18 @@ func (s *deliveryGraphService) prepareWave(
 				IntegrationHeadSHA: state.HeadSHA, RemainingSlots: remainingSlots,
 				ReachableCommits: reachable,
 			})
-			if err != nil || len(wave.TaskIDs) == 0 {
-				if err != nil {
-					return err
+			if err != nil {
+				return err
+			}
+			if len(wave.TaskIDs) == 0 {
+				// Nothing admissible: either every task is integrated (the
+				// publication generation) or the remaining tasks are blocked.
+				if !graphAllIntegrated(record.Graph) {
+					return routing.ErrDependencyBlocked
 				}
-				return routing.ErrDependencyBlocked
+				allIntegrated = true
+				delivery = record
+				return nil
 			}
 			if err := record.Graph.BeginWaveAttempts(wave.Number, ownedGeneration); err != nil {
 				return err
@@ -291,6 +299,13 @@ func (s *deliveryGraphService) prepareWave(
 			Operation: input.Operation, Disposition: GraphDispositionExhausted,
 			DeliveryID: input.DeliveryID, RemainingTokens: max(0, remainingTokens),
 			RemainingWallSeconds: max(0, int(remainingWall/time.Second)), BlockerCode: "delivery_budget_exhausted",
+		}, nil
+	}
+	if allIntegrated {
+		return DeliveryGraphOutput{
+			Operation: input.Operation, Disposition: GraphDispositionAllIntegrated,
+			DeliveryID: input.DeliveryID, Tasks: []DeliveryGraphTask{}, BaseSHA: graphIntegrationHead(delivery),
+			RemainingTokens: remainingTokens, RemainingWallSeconds: int(remainingWall / time.Second),
 		}, nil
 	}
 
