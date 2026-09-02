@@ -426,7 +426,7 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	if err := yaml.Unmarshal(payload, &definition); err != nil {
 		t.Fatalf("decode batuta-task: %v", err)
 	}
-	if definition.Meta.Name != "batuta-task" || definition.Concurrency != "queue" || definition.Contract.IterationCap != 4 {
+	if definition.Meta.Name != "batuta-task" || definition.Concurrency != "allow" || definition.Contract.IterationCap != 4 {
 		t.Fatalf("task loop identity = %#v", definition)
 	}
 	for _, name := range []string{"delivery_id", "wave", "task_id", "execution", "routing_generation", "runtime", "worktree_ref", "base_sha", "budget_tokens", "budget_wall_seconds"} {

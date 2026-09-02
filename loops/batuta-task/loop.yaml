@@ -8,7 +8,7 @@ meta:
     keywords: [batuta, task, implementation, clarification]
     category: Engineering
 
-concurrency: queue
+concurrency: allow
 
 inputs:
   delivery_id:
