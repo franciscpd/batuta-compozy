@@ -34,6 +34,13 @@ type SetupResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// Healthy reports whether a ready worktree is usable: CompozyOS records
+// setup_state "none" when the workspace configures no worktrees.setup_command
+// and "ok" when that command succeeded. Only "failed" is unhealthy.
+func (r SetupResult) Healthy() bool {
+	return r.State == "none" || r.State == "ok"
+}
+
 type Worktree struct {
 	ID                 string      `json:"id"`
 	Name               string      `json:"name"`

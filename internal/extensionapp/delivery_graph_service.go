@@ -1444,7 +1444,7 @@ func (s *deliveryGraphService) cleanupAttempt(
 		}
 		return routing.ErrDeliveryConflict
 	}
-	if worktree.State != "ready" || worktree.Setup.State != "ok" {
+	if worktree.State != "ready" || !worktree.Setup.Healthy() {
 		operation.State = routing.CleanupRetained
 		operation.BlockerCode = "worktree_not_ready"
 		return s.persistCleanup(store, scope.WorkspaceID, delivery.DeliveryID, operation)
@@ -1507,7 +1507,7 @@ func (s *deliveryGraphService) cleanupAttempt(
 			currentWorktree.Name != identity.Name || currentWorktree.Branch != identity.Branch || currentWorktree.State != "ready" ||
 			currentWorktree.WorkspaceID != scope.WorkspaceID || currentWorktree.RepositoryRoot != scope.WorkspaceRoot ||
 			currentWorktree.BaseSHA != identityAttempt.BaseHeadSHA || currentWorktree.BaseRef != identityAttempt.BaseHeadSHA ||
-			currentWorktree.Setup.State != "ok" || currentState.HeadSHA != expectedHead ||
+			!currentWorktree.Setup.Healthy() || currentState.HeadSHA != expectedHead ||
 			currentState.PorcelainSHA256 != emptyDigest() || currentState.ContentSHA256 != emptyDigest() || !stillReachable {
 			if _, _, transitionErr := current.Graph.CompleteCleanup(
 				operation.OperationID, routing.CleanupRetained, "worktree_evidence_changed",
@@ -1661,7 +1661,7 @@ func (s *deliveryGraphService) reconcileTaskWorktree(
 			(worktree.State != "pending" && worktree.State != "ready") {
 			return worktreeops.ErrInvalidWorktreeIdentity
 		}
-		ready := worktree.State == "ready" && worktree.Setup.State == "ok"
+		ready := worktree.State == "ready" && worktree.Setup.Healthy()
 		if worktree.State == "pending" && worktree.Setup.State != "none" {
 			return worktreeops.ErrInvalidWorktreeIdentity
 		}

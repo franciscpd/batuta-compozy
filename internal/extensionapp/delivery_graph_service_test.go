@@ -20,38 +20,40 @@ import (
 func TestDeliveryGraphServicePreparesReadyWaveAndReconcilesWithoutDuplicateCreate(t *testing.T) {
 	t.Parallel()
 
-	fixture := newDeliveryServiceFixture(t)
-	worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready"}
-	service := deliveryGraphService{
-		Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
-		CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
-		WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
-			return publication.WorktreeState{
-				HeadSHA:         "0123456789abcdef0123456789abcdef01234567",
-				PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
-			}, nil
-		},
-	}
-	input := DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID}
-	first, err := service.Execute(context.Background(), fixture.scope, input)
-	if err != nil || first.Disposition != GraphDispositionWaveReady || first.Wave != 1 || len(first.Tasks) == 0 {
-		t.Fatalf("Execute(first) = %#v, error %v", first, err)
-	}
-	created := worktrees.createCalls
-	second, err := service.Execute(context.Background(), fixture.scope, input)
-	if err != nil || !reflect.DeepEqual(second, first) || worktrees.createCalls != created || worktrees.inspectCalls != len(first.Tasks) {
-		t.Fatalf("Execute(replay) = %#v, error %v; creates=%d inspects=%d", second, err, worktrees.createCalls, worktrees.inspectCalls)
-	}
-	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
-	if err != nil || !exists {
-		t.Fatalf("Load() exists=%v error=%v", exists, err)
-	}
-	graph := journal.Deliveries[fixture.deliveryID].Graph
-	for _, descriptor := range first.Tasks {
-		task, exists := graph.Task(descriptor.TaskID)
-		if !exists || task.State != routing.GraphTaskRunning || len(task.Attempts) != descriptor.Execution ||
-			task.Attempts[descriptor.Execution-1].WorktreeID != descriptor.WorktreeID {
-			t.Fatalf("durable task %s = %#v, exists=%v", descriptor.TaskID, task, exists)
+	for _, noSetupCommand := range []bool{false, true} {
+		fixture := newDeliveryServiceFixture(t)
+		worktrees := &fakeGraphWorktreeClient{scope: fixture.scope, state: "ready", noSetupCommand: noSetupCommand}
+		service := deliveryGraphService{
+			Store: fixture.store, Worktrees: worktrees, Now: func() time.Time { return fixture.now },
+			CommitReachable: func(context.Context, string, string, string) (bool, error) { return true, nil },
+			WorktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+				return publication.WorktreeState{
+					HeadSHA:         "0123456789abcdef0123456789abcdef01234567",
+					PorcelainSHA256: emptyDigest(), ContentSHA256: emptyDigest(),
+				}, nil
+			},
+		}
+		input := DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: fixture.deliveryID}
+		first, err := service.Execute(context.Background(), fixture.scope, input)
+		if err != nil || first.Disposition != GraphDispositionWaveReady || first.Wave != 1 || len(first.Tasks) == 0 {
+			t.Fatalf("Execute(first) = %#v, error %v", first, err)
+		}
+		created := worktrees.createCalls
+		second, err := service.Execute(context.Background(), fixture.scope, input)
+		if err != nil || !reflect.DeepEqual(second, first) || worktrees.createCalls != created || worktrees.inspectCalls != len(first.Tasks) {
+			t.Fatalf("Execute(replay) = %#v, error %v; creates=%d inspects=%d", second, err, worktrees.createCalls, worktrees.inspectCalls)
+		}
+		journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+		if err != nil || !exists {
+			t.Fatalf("Load() exists=%v error=%v", exists, err)
+		}
+		graph := journal.Deliveries[fixture.deliveryID].Graph
+		for _, descriptor := range first.Tasks {
+			task, exists := graph.Task(descriptor.TaskID)
+			if !exists || task.State != routing.GraphTaskRunning || len(task.Attempts) != descriptor.Execution ||
+				task.Attempts[descriptor.Execution-1].WorktreeID != descriptor.WorktreeID {
+				t.Fatalf("durable task %s = %#v, exists=%v", descriptor.TaskID, task, exists)
+			}
 		}
 	}
 }
@@ -1770,7 +1772,20 @@ type fakeGraphWorktreeClient struct {
 	findCalls             int
 	allowRemove           bool
 	createErrAfterPersist error
+	noSetupCommand        bool
 	byID                  map[string]worktreeops.Worktree
+}
+
+// setupState mirrors CompozyOS: a workspace without worktrees.setup_command
+// leaves ready worktrees at "none"; the fake reports "ok" unless noSetup is set.
+func (c *fakeGraphWorktreeClient) setupState() string {
+	if c.state != "ready" {
+		return "none"
+	}
+	if c.noSetupCommand {
+		return "none"
+	}
+	return "ok"
 }
 
 func (c *fakeGraphWorktreeClient) Create(
@@ -1791,7 +1806,7 @@ func (c *fakeGraphWorktreeClient) Create(
 		WorkspaceID: scope.WorkspaceID, RepositoryRoot: scope.WorkspaceRoot,
 		RepositoryIdentity: digestValue("repo-" + scope.WorkspaceID), Branch: request.Branch,
 		BaseRef: request.BaseSHA, BaseSHA: request.BaseSHA, State: c.state,
-		Setup: worktreeops.SetupResult{State: map[string]string{"ready": "ok", "pending": "none"}[c.state]},
+		Setup: worktreeops.SetupResult{State: c.setupState()},
 	}
 	c.byID[id] = worktree
 	if c.createErrAfterPersist != nil {
