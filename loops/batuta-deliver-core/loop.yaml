@@ -116,7 +116,9 @@ graph:
         wave: "{{ .item.wave }}"
         task_id: "{{ .item.task_id }}"
         execution: "{{ .item.execution }}"
-        child_run_id: "{{ .nodes.run_task.output.loop_run_id }}"
+        # No child_run_id: the Loop engine replaces a finished run-loop output
+        # with a bare status marker, so the handler resolves the completed
+        # batuta-task run from these inputs.
     - {id: collect_wave, class: control, kind: collect}
     - id: wave_route
       class: control

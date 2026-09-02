@@ -374,6 +374,13 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 		Tracking: []integration.TrackingFile{},
 	}}
 	service.Candidates = validator
+	runs.recent = []deliveryRun{run}
+	implicit, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number, TaskID: "task_01", Execution: 1,
+	})
+	if err != nil || implicit.Disposition != GraphDispositionCandidateRecorded || validator.calls != 1 {
+		t.Fatalf("record_candidate without child_run_id = %#v, error=%v validator_calls=%d", implicit, err, validator.calls)
+	}
 	candidate, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
 		Operation: GraphOpRecordCandidate, DeliveryID: fixture.deliveryID, Wave: wave.Number,
 		TaskID: "task_01", Execution: 1, ChildRunID: run.ID, BaseSHA: wave.BaseHeadSHA,

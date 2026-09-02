@@ -825,6 +825,20 @@ func (s *deliveryGraphService) recordCandidate(
 		return DeliveryGraphOutput{}, err
 	}
 	input.Execution = attempt.Execution
+	// The parent Loop cannot name the child run: CompozyOS replaces a finished
+	// run-loop output with a bare status marker, so the completed batuta-task
+	// run is resolved from its inputs exactly like record_question does.
+	if input.ChildRunID == "" {
+		if attempt.ChildRunID != "" {
+			input.ChildRunID = attempt.ChildRunID
+		} else {
+			childRunID, err := s.completedTaskRunID(ctx, scope.WorkspaceID, delivery, wave, task, input.Execution)
+			if err != nil {
+				return DeliveryGraphOutput{}, err
+			}
+			input.ChildRunID = childRunID
+		}
+	}
 	if attempt.State == routing.GraphTaskCandidate || attempt.State == routing.GraphTaskIntegrated {
 		if !candidateReplayMatches(input, attempt) {
 			return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
@@ -1997,6 +2011,33 @@ func canonicalTaskContextDigest(taskID string) string {
 	}{TaskID: taskID})
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// completedTaskRunID finds the one terminal batuta-task run that executed
+// this attempt. Zero or several matches leave liveness unknown.
+func (s *deliveryGraphService) completedTaskRunID(
+	ctx context.Context,
+	workspaceID string,
+	delivery routing.DeliveryRecord,
+	wave routing.DeliveryWave,
+	task routing.GraphTask,
+	execution int,
+) (string, error) {
+	runs, err := s.Runs.RecentTasks(ctx, workspaceID, 200)
+	if err != nil {
+		return "", err
+	}
+	matches := make([]deliveryRun, 0, 1)
+	for _, run := range runs {
+		if (run.Status == "done" || run.Status == "no-op") &&
+			graphTaskRunMatches(run, workspaceID, delivery, wave, task, execution) {
+			matches = append(matches, run)
+		}
+	}
+	if len(matches) != 1 {
+		return "", routing.ErrDeliveryLivenessUnknown
+	}
+	return matches[0].ID, nil
 }
 
 func graphTaskRunMatches(

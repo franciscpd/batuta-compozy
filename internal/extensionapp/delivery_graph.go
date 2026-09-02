@@ -219,7 +219,7 @@ func (input DeliveryGraphInput) validate() error {
 		}
 	case GraphOpRecordCandidate:
 		explicit := input.hasCandidateFields()
-		if !task || !validOpaqueRunID(input.ChildRunID) || input.hasQuestionFields() || input.BlockerCode != "" ||
+		if !task || (input.ChildRunID != "" && !validOpaqueRunID(input.ChildRunID)) || input.hasQuestionFields() || input.BlockerCode != "" ||
 			(explicit && (!gitSHAValue(input.BaseSHA) || !gitSHAValue(input.CommitSHA) ||
 				!validTaskVerification(input.Verification, input.VerificationDigest, input.TaskID))) {
 			return errors.New("batuta: invalid task candidate")
@@ -344,10 +344,10 @@ func deliveryGraphInputSchema() map[string]any {
 			"question_operation_id": sha256OutputSchema(),
 			"answer":                map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
 		})),
-		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "child_run_id"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(),
 		})),
-		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "child_run_id", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
+		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "wave", "task_id", "execution", "base_sha", "commit_sha", "verification", "verification_digest"}, withSchema(task(GraphOpRecordCandidate), map[string]any{
 			"child_run_id": opaqueRunIDSchema(), "base_sha": gitSHAInputSchema(), "commit_sha": gitSHAInputSchema(),
 			"verification": taskVerificationSchema(), "verification_digest": sha256OutputSchema(),
 		})),
