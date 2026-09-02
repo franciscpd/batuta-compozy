@@ -327,13 +327,13 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		}
 	}
 	for _, required := range []string{
-		"terminal_blocked", "terminal_exhausted", "cleanup_route", "cleanup_complete",
+		"terminal_blocked", "terminal_exhausted", "terminal_blocked_publication", "cleanup_route", "cleanup_complete",
 	} {
 		if _, exists := nodes[required]; !exists {
 			t.Fatalf("terminal topology missing node %q", required)
 		}
 	}
-	for nodeID, disposition := range map[string]string{"terminal_blocked": "blocked", "terminal_exhausted": "exhausted"} {
+	for nodeID, disposition := range map[string]string{"terminal_blocked": "blocked", "terminal_exhausted": "exhausted", "terminal_blocked_publication": "blocked"} {
 		node := nodes[nodeID]
 		if node.Kind != "ext__batuta__delivery_graph" || node.Params.Values["operation"] != "terminalize" ||
 			node.Params.Values["terminal_disposition"] != disposition {
@@ -371,6 +371,7 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		{"settle_route", "generation_continue_settle"},
 		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
 		{"publish", "publication_verify"}, {"publication_verify", "cleanup"},
+		{"publication_route", "publication_blocked_stop"}, {"publication_blocked_stop", "terminal_blocked_publication"},
 		{"wave_route", "terminal_exhausted"}, {"settle_route", "terminal_exhausted_settle"},
 		{"settle_route", "terminal_blocked_settle"},
 		{"cleanup", "cleanup_route"}, {"cleanup_route", "terminal_blocked_cleanup"},

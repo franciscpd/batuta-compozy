@@ -212,3 +212,31 @@ func genuinePublishedResult() PublishOutput {
 		Summary:      "published",
 	}
 }
+
+func TestVerifierIndependentlyVerifiesDeterministicallyBlockedPublication(t *testing.T) {
+	t.Parallel()
+
+	inspection := validInspection()
+	setTracking(&inspection, 0, 0)
+	exit := existingPRPlan("https://github.com/acme/repo/pull/42")
+	exit.Actions, exit.Forge, exit.ForgeStatus = nil, nil, nil
+	client := &publisherWorktreeClient{inspection: inspection, exitPlans: []ExitPlan{exit, exit}}
+	git := &fakeGitEvidence{snapshot: validSnapshot(), upstream: testHeadSHA, baseAhead: 1}
+	verifier := Verifier{Planner: PublicationPlanner{Compozy: client, Git: git}, Git: git}
+
+	output, err := verifier.Verify(context.Background(), trustedScope(), VerifyInput{
+		WorktreeRef: "wt_delivery", ExpectedHeadSHA: testHeadSHA,
+		PublisherResult: PublishOutput{Status: PublishStatusBlocked, HeadSHA: testHeadSHA, OperationIDs: []string{}, Summary: "blocked"},
+	})
+	if err != nil || !output.Verified || output.Status != PublishStatusBlocked || output.HeadSHA != testHeadSHA ||
+		!strings.Contains(output.Summary, "remote_missing") {
+		t.Fatalf("Verify(blocked) = (%#v, %v), want verified blocked result naming the blocker", output, err)
+	}
+	forged, err := verifier.Verify(context.Background(), trustedScope(), VerifyInput{
+		WorktreeRef: "wt_delivery", ExpectedHeadSHA: testHeadSHA,
+		PublisherResult: PublishOutput{Status: PublishStatusBlocked, HeadSHA: testHeadSHA, OperationIDs: []string{"op-push"}, Summary: "blocked"},
+	})
+	if err == nil || forged.Verified {
+		t.Fatalf("Verify(blocked with mutation claims) = (%#v, %v), want rejection", forged, err)
+	}
+}

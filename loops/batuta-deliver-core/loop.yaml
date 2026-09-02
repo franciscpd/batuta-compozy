@@ -243,6 +243,17 @@ graph:
         delivery_id: "{{ .inputs.delivery_id }}"
         worktree_ref: "{{ .inputs.worktree_ref }}"
         terminal_disposition: blocked
+    - id: terminal_blocked_publication
+      class: action
+      kind: ext__batuta__delivery_graph
+      # A deterministic publication blocker (verified by publication_blocked_stop)
+      # still has to close the delivery in the journal; terminal_blocked is
+      # exclusive to wave_route, so the publication path owns its own terminal.
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        terminal_disposition: blocked
     - id: terminal_exhausted
       class: action
       kind: ext__batuta__delivery_graph
@@ -299,6 +310,7 @@ graph:
     - {from: publication_route, to: publish}
     - {from: publication_route, to: publication_verify_nothing}
     - {from: publication_route, to: publication_blocked_stop}
+    - {from: publication_blocked_stop, to: terminal_blocked_publication}
     - {from: publish, to: publication_verify}
     - {from: publication_verify, to: cleanup}
     - {from: publication_verify_nothing, to: cleanup}

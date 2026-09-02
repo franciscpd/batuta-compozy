@@ -3,6 +3,7 @@ package publication
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 type VerifyInput struct {
@@ -41,7 +42,13 @@ func (v Verifier) Verify(
 
 	plan, err := v.Planner.Plan(ctx, scope, PlanInput{WorktreeRef: input.WorktreeRef})
 	if err != nil {
-		return verificationRejected(input.PublisherResult.Status, "fresh publication plan is unavailable")
+		// A deterministic blocker is fresh evidence too: it is what a blocked
+		// publisher result has to be verified against.
+		var blocked *BlockedPlanError
+		if !errors.As(err, &blocked) {
+			return verificationRejected(input.PublisherResult.Status, "fresh publication plan is unavailable")
+		}
+		plan = blocked.Plan
 	}
 	if !plan.Clean || plan.HeadSHA != input.ExpectedHeadSHA {
 		return verificationRejected(input.PublisherResult.Status, "local publication evidence changed")
@@ -53,7 +60,7 @@ func (v Verifier) Verify(
 	case PublishStatusNothing:
 		return verifyNothing(input, plan)
 	case PublishStatusBlocked:
-		return verificationRejected(input.PublisherResult.Status, "blocked publication cannot be verified")
+		return verifyBlocked(input, plan)
 	default:
 		return verificationRejected(input.PublisherResult.Status, "publisher status is unsupported")
 	}
@@ -96,6 +103,21 @@ func verifyNothing(input VerifyInput, plan PlanOutput) (VerifyOutput, error) {
 		Status:   PublishStatusNothing,
 		HeadSHA:  plan.HeadSHA,
 		Summary:  boundedSummary("nothing-to-publish result independently verified"),
+	}, nil
+}
+
+func verifyBlocked(input VerifyInput, plan PlanOutput) (VerifyOutput, error) {
+	if len(input.PublisherResult.OperationIDs) != 0 || input.PublisherResult.PRURL != "" {
+		return verificationRejected(PublishStatusBlocked, "blocked publication contains mutation claims")
+	}
+	if plan.Disposition != DispositionBlocked || len(plan.Blockers) == 0 {
+		return verificationRejected(PublishStatusBlocked, "fresh plan is not blocked")
+	}
+	return VerifyOutput{
+		Verified: true,
+		Status:   PublishStatusBlocked,
+		HeadSHA:  plan.HeadSHA,
+		Summary:  boundedSummary("blocked publication independently verified: " + strings.Join(plan.Blockers, ",")),
 	}, nil
 }
 
