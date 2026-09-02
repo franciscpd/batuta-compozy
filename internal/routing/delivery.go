@@ -279,6 +279,13 @@ func (d *DeliveryRecord) AppendAttempt(proposed DeliveryAttempt) (DeliveryAttemp
 	return cloneAttempt(proposed), false, nil
 }
 
+// validTokenCeiling accepts the ceiling a delivery was created under. Older
+// journals carry smaller ceilings; a record may never claim more than the
+// current one.
+func validTokenCeiling(ceiling int64) bool {
+	return ceiling >= 1 && ceiling <= DeliveryTokenCeiling
+}
+
 func validateDelivery(record DeliveryRecord, generations map[string]RoutingGeneration) error {
 	if !canonicalSHA256.MatchString(record.DeliveryID) || !boundedArgument(record.WorkspaceID) ||
 		!boundedArgument(record.WorktreeID) || !filepath.IsAbs(record.WorktreeRoot) || filepath.Clean(record.WorktreeRoot) != record.WorktreeRoot ||
@@ -286,7 +293,7 @@ func validateDelivery(record DeliveryRecord, generations map[string]RoutingGener
 		!canonicalSHA256.MatchString(record.RoutingGenerationDigest) || !boundedArgument(record.OriginSessionID) ||
 		record.CreatedAt.IsZero() || record.AbsoluteDeadline.IsZero() || record.CreatedAt.Location() != time.UTC ||
 		record.AbsoluteDeadline.Location() != time.UTC || !record.AbsoluteDeadline.Equal(record.CreatedAt.Add(4*time.Hour)) ||
-		record.AttemptCeiling != deliveryAttemptCeiling || record.TokenCeiling != DeliveryTokenCeiling ||
+		record.AttemptCeiling != deliveryAttemptCeiling || !validTokenCeiling(record.TokenCeiling) ||
 		!record.State.valid() || len(record.Attempts) > record.AttemptCeiling {
 		return ErrOwnershipUnproven
 	}

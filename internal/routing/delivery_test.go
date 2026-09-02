@@ -767,3 +767,27 @@ func mustJSONText(t *testing.T, value any) string {
 	}
 	return string(payload)
 }
+
+func TestValidateDeliveryAcceptsRecordsCreatedUnderAnEarlierCeiling(t *testing.T) {
+	t.Parallel()
+
+	generations := map[string]RoutingGeneration{}
+	generation := validGenerationFixture(t)
+	generations[generation.Digest] = generation
+	for _, tc := range []struct {
+		name    string
+		ceiling int64
+		wantErr error
+	}{
+		{name: "current ceiling", ceiling: DeliveryTokenCeiling},
+		{name: "earlier beta ceiling", ceiling: 1_000_000},
+		{name: "above current ceiling", ceiling: DeliveryTokenCeiling + 1, wantErr: ErrOwnershipUnproven},
+		{name: "zero ceiling", ceiling: 0, wantErr: ErrOwnershipUnproven},
+	} {
+		record := validDeliveryFixture(t)
+		record.TokenCeiling = tc.ceiling
+		if err := validateDelivery(record, generations); !errors.Is(err, tc.wantErr) {
+			t.Fatalf("%s: validateDelivery() error = %v, want %v", tc.name, err, tc.wantErr)
+		}
+	}
+}

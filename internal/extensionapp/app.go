@@ -277,9 +277,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  deliveryGraphInputSchema(),
 			OutputSchema: deliveryGraphOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[DeliveryGraphInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[DeliveryGraphInput]) (compozysdk.ToolResult, error) {
 			return app.deliveryGraph(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register delivery graph: %w", err)
 	}
@@ -294,9 +294,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  deliveryBudgetContextInputSchema(),
 			OutputSchema: deliveryBudgetContextOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[DeliveryBudgetContextInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[DeliveryBudgetContextInput]) (compozysdk.ToolResult, error) {
 			return app.deliveryBudgetContext(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register delivery budget context: %w", err)
 	}
@@ -311,9 +311,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  inventoryInputSchema(),
 			OutputSchema: inventoryOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[struct{}]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[struct{}]) (compozysdk.ToolResult, error) {
 			return app.inventory(ctx, req.TrustedWorkspace)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register executor inventory: %w", err)
 	}
@@ -328,9 +328,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  routingPlanInputSchema(),
 			OutputSchema: routingGenerationOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[RoutingPlanInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[RoutingPlanInput]) (compozysdk.ToolResult, error) {
 			return app.routingPlan(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register routing plan: %w", err)
 	}
@@ -345,9 +345,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  routingContextInputSchema(),
 			OutputSchema: routingContextOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[RoutingContextInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[RoutingContextInput]) (compozysdk.ToolResult, error) {
 			return app.routingContext(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register routing context: %w", err)
 	}
@@ -361,9 +361,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  routingApplyInputSchema(),
 			OutputSchema: routingApplyOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[RoutingApplyInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[RoutingApplyInput]) (compozysdk.ToolResult, error) {
 			return app.routingApply(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register routing apply: %w", err)
 	}
@@ -378,9 +378,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  planInputSchema(),
 			OutputSchema: planOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[publication.PlanInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[publication.PlanInput]) (compozysdk.ToolResult, error) {
 			return app.plan(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register publication plan: %w", err)
 	}
@@ -394,9 +394,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  publishInputSchema(),
 			OutputSchema: publishOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[publication.PublishInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[publication.PublishInput]) (compozysdk.ToolResult, error) {
 			return app.publish(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register publisher: %w", err)
 	}
@@ -411,9 +411,9 @@ func newWithServices(services serviceSet) (*compozysdk.Extension, error) {
 			InputSchema:  verifyInputSchema(),
 			OutputSchema: verifyOutputSchema(),
 		},
-		func(ctx context.Context, req compozysdk.ToolRequest[publication.VerifyInput]) (compozysdk.ToolResult, error) {
+		guardToolErrors(func(ctx context.Context, req compozysdk.ToolRequest[publication.VerifyInput]) (compozysdk.ToolResult, error) {
 			return app.verify(ctx, req.TrustedWorkspace, req.Input)
-		},
+		}),
 	); err != nil {
 		return nil, fmt.Errorf("batuta: register publication verifier: %w", err)
 	}

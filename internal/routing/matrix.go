@@ -165,7 +165,7 @@ func deliveryMatchesMatrixInput(delivery DeliveryRecord, input MatrixApplyInput,
 		reflect.DeepEqual(delivery.TaskSnapshot, input.TaskSnapshot) &&
 		reflect.DeepEqual(delivery.InitialWorktreeFingerprint, input.InitialWorktreeFingerprint) &&
 		deliveryGraphMatchesIdentity(delivery.Graph, graph) &&
-		delivery.AttemptCeiling == deliveryAttemptCeiling && delivery.TokenCeiling == DeliveryTokenCeiling
+		delivery.AttemptCeiling == deliveryAttemptCeiling && validTokenCeiling(delivery.TokenCeiling)
 }
 
 func deliveryGraphMatchesIdentity(actual, initial *DeliveryGraph) bool {

@@ -272,7 +272,7 @@ func validateDeliveryStartRequest(request deliveryStartRequest) error {
 	if !routingDigestPattern.MatchString(request.DeliveryID) || request.Attempt < 1 || request.Attempt > 4 ||
 		!validCanonicalSlug(request.Slug) || !validOpaqueRunID(request.OriginSessionID) ||
 		!validOpaqueRunID(request.WorktreeRef) || !routingDigestPattern.MatchString(request.RoutingGeneration) ||
-		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling != routing.DeliveryTokenCeiling ||
+		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling < 1 || request.TokenCeiling > routing.DeliveryTokenCeiling ||
 		(request.Attempt == 1 && request.RecoveryOperationID != "") || (request.Attempt > 1 && !routingDigestPattern.MatchString(request.RecoveryOperationID)) ||
 		request.IterationCap < 1 || request.IterationCap > 64 ||
 		request.BudgetTokens < 1 || request.BudgetTokens > request.TokenCeiling || request.BudgetWallSec < 1 || request.BudgetWallSec > 14400 {
