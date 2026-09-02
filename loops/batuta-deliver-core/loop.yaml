@@ -37,7 +37,9 @@ contract:
   # Declared intent only. The guarded start_delivery operation injects the
   # effective per-run token and wall budgets through config_overrides.
   budget: {tokens: 0, wall_clock_sec: 14400, on_exceeded: halt}
-  stop_when: "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'"
+  # stop_when may only reference nodes that execute in every generation:
+  # referencing a pruned node ends the run early (predicate eval-error exits).
+  stop_when: "nodes.prepare_wave.status == 'succeeded' && nodes.prepare_wave.output.disposition == 'all_integrated'"
   terminal_states: [done, no-op, blocked, failed, canceled, exhausted, stalled]
 
 start:
@@ -133,12 +135,15 @@ graph:
     - id: settle_route
       class: control
       kind: route
+      # Every route target below is exclusive to settle_route: the Loop engine
+      # deadlocks a target that has more than one route parent. all_integrated
+      # continues into the next generation, where prepare_wave re-reports it
+      # and wave_route owns the publication path.
       routes:
-        - {when: "nodes.settle_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
-        - {when: "nodes.settle_wave.output.disposition == 'wave_integrated'", to: generation_continue}
+        - {when: "nodes.settle_wave.output.disposition == 'all_integrated' || nodes.settle_wave.output.disposition == 'wave_integrated'", to: generation_continue_settle}
         - {when: "nodes.settle_wave.output.disposition == 'reexecute_conflict'", to: generation_continue_conflict}
-        - {when: "nodes.settle_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
-      default: terminal_blocked
+        - {when: "nodes.settle_wave.output.disposition == 'exhausted'", to: terminal_exhausted_settle}
+      default: terminal_blocked_settle
     - id: generation_continue
       class: action
       kind: transform
@@ -147,6 +152,26 @@ graph:
       class: action
       kind: transform
       params: {map: {status: {value: pending_next_generation}}}
+    - id: generation_continue_settle
+      class: action
+      kind: transform
+      params: {map: {status: {value: pending_next_generation}}}
+    - id: terminal_blocked_settle
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        terminal_disposition: blocked
+    - id: terminal_exhausted_settle
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        terminal_disposition: exhausted
     - id: delivery_budget_context
       class: action
       kind: ext__batuta__delivery_budget_context
@@ -225,11 +250,19 @@ graph:
       kind: route
       routes:
         - {when: "nodes.cleanup.output.disposition == 'cleaned'", to: cleanup_complete}
-      default: terminal_blocked
+      default: terminal_blocked_cleanup
     - id: cleanup_complete
       class: action
       kind: transform
       params: {map: {status: {value: cleaned}}}
+    - id: terminal_blocked_cleanup
+      class: action
+      kind: ext__batuta__delivery_graph
+      params:
+        operation: terminalize
+        delivery_id: "{{ .inputs.delivery_id }}"
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        terminal_disposition: blocked
 
   edges:
     - {from: slug_input, to: load_check}
@@ -246,11 +279,10 @@ graph:
     - {from: record_candidate, to: collect_wave}
     - {from: collect_wave, to: settle_wave}
     - {from: settle_wave, to: settle_route}
-    - {from: settle_route, to: delivery_budget_context}
-    - {from: settle_route, to: generation_continue}
+    - {from: settle_route, to: generation_continue_settle}
     - {from: settle_route, to: generation_continue_conflict}
-    - {from: settle_route, to: terminal_blocked}
-    - {from: settle_route, to: terminal_exhausted}
+    - {from: settle_route, to: terminal_blocked_settle}
+    - {from: settle_route, to: terminal_exhausted_settle}
     - {from: delivery_budget_context, to: review}
     - {from: review, to: publication_plan}
     - {from: publication_plan, to: publication_route}
@@ -262,4 +294,4 @@ graph:
     - {from: publication_verify_nothing, to: cleanup}
     - {from: cleanup, to: cleanup_route}
     - {from: cleanup_route, to: cleanup_complete}
-    - {from: cleanup_route, to: terminal_blocked}
+    - {from: cleanup_route, to: terminal_blocked_cleanup}

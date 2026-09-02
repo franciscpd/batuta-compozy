@@ -60,7 +60,9 @@ contract:
     tokens: 0
     wall_clock_sec: 0
     on_exceeded: halt
-  stop_when: "nodes.implementation.status == 'succeeded' && nodes.implementation.output.status == 'completed'"
+  # implement_task runs in every generation; referencing the pruned
+  # implementation node would end question generations early.
+  stop_when: "nodes.implement_task.status == 'succeeded' && nodes.implement_task.output.status == 'completed'"
   terminal_states: [done, blocked, failed, exhausted, stalled, canceled]
   on_blocked:
     - &record_terminal_failure

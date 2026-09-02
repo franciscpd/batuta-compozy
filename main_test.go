@@ -313,7 +313,7 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		nodes[node.ID] = node
 	}
 	if definition.Contract.IterationCap != 64 ||
-		definition.Contract.StopWhen != "nodes.cleanup.status == 'succeeded' && nodes.cleanup.output.disposition == 'cleaned'" {
+		definition.Contract.StopWhen != "nodes.prepare_wave.status == 'succeeded' && nodes.prepare_wave.output.disposition == 'all_integrated'" {
 		t.Fatalf("parent generation contract = %#v", definition.Contract)
 	}
 	for _, nodeID := range []string{
@@ -364,11 +364,13 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		{"load_check", "routing_context"}, {"routing_context", "prepare_wave"}, {"prepare_wave", "wave_route"},
 		{"wave_route", "task_wave"}, {"task_wave", "run_task"}, {"run_task", "record_candidate"},
 		{"record_candidate", "collect_wave"}, {"collect_wave", "settle_wave"}, {"settle_wave", "settle_route"},
-		{"settle_route", "delivery_budget_context"}, {"delivery_budget_context", "review"},
+		{"wave_route", "delivery_budget_context"}, {"delivery_budget_context", "review"},
+		{"settle_route", "generation_continue_settle"},
 		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
 		{"publish", "publication_verify"}, {"publication_verify", "cleanup"},
-		{"wave_route", "terminal_exhausted"}, {"settle_route", "terminal_exhausted"},
-		{"cleanup", "cleanup_route"}, {"cleanup_route", "terminal_blocked"},
+		{"wave_route", "terminal_exhausted"}, {"settle_route", "terminal_exhausted_settle"},
+		{"settle_route", "terminal_blocked_settle"},
+		{"cleanup", "cleanup_route"}, {"cleanup_route", "terminal_blocked_cleanup"},
 	} {
 		found := false
 		for _, edge := range definition.Graph.Edges {
@@ -521,7 +523,7 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	}) {
 		t.Fatalf("ask contract = %#v", ask)
 	}
-	if definition.Contract.StopWhen != "nodes.implementation.status == 'succeeded' && nodes.implementation.output.status == 'completed'" {
+	if definition.Contract.StopWhen != "nodes.implement_task.status == 'succeeded' && nodes.implement_task.output.status == 'completed'" {
 		t.Fatalf("stop_when = %q", definition.Contract.StopWhen)
 	}
 	for name, effects := range map[string][]taskLoopEffect{
@@ -612,4 +614,57 @@ func TestBatutaTaskPromptRendersJournaledAnswers(t *testing.T) {
 type taskLoopEffect struct {
 	Tool string         `yaml:"tool"`
 	With map[string]any `yaml:"with"`
+}
+
+// TestLoopRouteTargetsHaveSingleRouteParent guards the Loop-engine contract
+// discovered on 2026-09-02: a route target with more than one route parent
+// deadlocks its generation and the run fails without diagnostics.
+func TestLoopRouteTargetsHaveSingleRouteParent(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"batuta-deliver", "batuta-deliver-core", "batuta-task"} {
+		payload, err := os.ReadFile(filepath.Join("loops", name, "loop.yaml"))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		var definition struct {
+			Graph struct {
+				Nodes []struct {
+					ID     string `yaml:"id"`
+					Kind   string `yaml:"kind"`
+					Routes []struct {
+						To string `yaml:"to"`
+					} `yaml:"routes"`
+					Default string `yaml:"default"`
+				} `yaml:"nodes"`
+			} `yaml:"graph"`
+		}
+		if err := yaml.Unmarshal(payload, &definition); err != nil {
+			t.Fatalf("decode %s: %v", name, err)
+		}
+		parents := map[string]map[string]struct{}{}
+		for _, node := range definition.Graph.Nodes {
+			if node.Kind != "route" {
+				continue
+			}
+			targets := make([]string, 0, len(node.Routes)+1)
+			for _, route := range node.Routes {
+				targets = append(targets, route.To)
+			}
+			if node.Default != "" {
+				targets = append(targets, node.Default)
+			}
+			for _, target := range targets {
+				if parents[target] == nil {
+					parents[target] = map[string]struct{}{}
+				}
+				parents[target][node.ID] = struct{}{}
+			}
+		}
+		for target, routeParents := range parents {
+			if len(routeParents) > 1 {
+				t.Fatalf("%s: route target %q has multiple route parents %v", name, target, routeParents)
+			}
+		}
+	}
 }
