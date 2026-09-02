@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/franciscpd/batuta-compozy/internal/publication"
@@ -350,6 +351,9 @@ func (s deliveryAttemptService) Reconcile(
 				// terminalize proved and persisted this graph disposition before
 				// intentionally failing the parent action. Do not reinterpret that
 				// failure as a recoverable or generic parent failure.
+				if attempt.BlockerCode == "" && delivery.Graph != nil && len(delivery.Graph.PublicationBlockers) > 0 {
+					attempt.BlockerCode = "publication_blocked:" + strings.Join(delivery.Graph.PublicationBlockers, ",")
+				}
 			} else if graphOwnsSettlement && len(failedTaskIDs) > 0 {
 				delivery.State = routing.DeliveryStateActive
 			} else if graphOwnsSettlement && graphHasExhaustedTasks(delivery.Graph) {

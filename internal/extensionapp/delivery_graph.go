@@ -63,6 +63,7 @@ type DeliveryGraphInput struct {
 	Answer              string           `json:"answer,omitempty"`
 	BlockerCode         string           `json:"blocker_code,omitempty"`
 	TerminalDisposition GraphDisposition `json:"terminal_disposition,omitempty"`
+	PublicationBlockers []string         `json:"publication_blockers,omitempty"`
 }
 
 type DeliveryGraphOutput struct {
@@ -238,6 +239,17 @@ func (input DeliveryGraphInput) validate() error {
 			input.hasTaskFields() || input.hasResultFields() || input.hasQuestionFields() {
 			return errors.New("batuta: terminalize requires a blocked or exhausted terminal disposition")
 		}
+		if len(input.PublicationBlockers) > 0 && input.TerminalDisposition != GraphDispositionBlocked {
+			return errors.New("batuta: publication blockers only prove a blocked terminal disposition")
+		}
+		if len(input.PublicationBlockers) > routing.MaxPublicationBlockers {
+			return errors.New("batuta: too many publication blockers")
+		}
+		for _, blocker := range input.PublicationBlockers {
+			if blocker == "" || len(blocker) > 64 || blocker != strings.TrimSpace(blocker) {
+				return errors.New("batuta: invalid publication blocker")
+			}
+		}
 	default:
 		return errors.New("batuta: unsupported delivery graph operation")
 	}
@@ -360,6 +372,10 @@ func deliveryGraphInputSchema() map[string]any {
 		objectSchema([]string{"operation", "delivery_id", "worktree_ref"}, base(GraphOpCleanup)),
 		objectSchema([]string{"operation", "delivery_id", "worktree_ref", "terminal_disposition"}, withSchema(base(GraphOpTerminalize), map[string]any{
 			"terminal_disposition": map[string]any{"enum": []string{string(GraphDispositionBlocked), string(GraphDispositionExhausted)}},
+			"publication_blockers": map[string]any{
+				"type": "array", "minItems": 1, "maxItems": routing.MaxPublicationBlockers,
+				"items": map[string]any{"type": "string", "minLength": 1, "maxLength": 64},
+			},
 		})),
 	}}
 }

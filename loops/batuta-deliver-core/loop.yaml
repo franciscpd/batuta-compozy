@@ -249,11 +249,13 @@ graph:
       # A deterministic publication blocker (verified by publication_blocked_stop)
       # still has to close the delivery in the journal; terminal_blocked is
       # exclusive to wave_route, so the publication path owns its own terminal.
+      # The plan's blockers are the proof the journal records for it.
       params:
         operation: terminalize
         delivery_id: "{{ .inputs.delivery_id }}"
         worktree_ref: "{{ .inputs.worktree_ref }}"
         terminal_disposition: blocked
+        publication_blockers: "{{ .nodes.publication_plan.output.blockers }}"
     - id: terminal_exhausted
       class: action
       kind: ext__batuta__delivery_graph

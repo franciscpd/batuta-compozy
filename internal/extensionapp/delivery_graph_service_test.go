@@ -1941,3 +1941,72 @@ func TestDeliveryGraphServicePrepareWaveReportsAllIntegratedAfterFinalSettlement
 		t.Fatalf("prepare_wave replay = %#v, error=%v", replay, err)
 	}
 }
+
+func TestDeliveryGraphServiceTerminalizesBlockedPublicationWithRecordedBlockers(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	taskRoot := t.TempDir()
+	writeRoutingTask(t, taskRoot)
+	wave := prepareGraphTaskForTest(t, fixture, taskRoot)
+	verification := []byte(`{"checks":["go test ./..."],"status":"passed","task_id":"task_01"}`)
+	candidateSHA := "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	if err := fixture.store.WithLockedJournal(fixture.scope.WorkspaceID, func(tx *routing.JournalTx) error {
+		delivery := tx.Journal.Deliveries[fixture.deliveryID]
+		_, err := delivery.Graph.RecordCandidate("task_01", 1, routing.TaskCandidate{
+			ChildRunID: "run_task_01", BaseHeadSHA: wave.BaseHeadSHA, CommitSHA: candidateSHA,
+			VerificationDigest: digestValue(string(verification)), TokensUsed: 900,
+			Evidence: &routing.TaskCandidateEvidence{
+				Slug: delivery.Slug, RepositoryIdentity: digestValue("repository"), Branch: "batuta/task/demo",
+				TreeSHA: "1234512345123451234512345123451234512345", Verification: verification,
+				OwnedTrackingPaths: []string{}, Tracking: []routing.TaskTrackingFile{},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		tx.Journal.Deliveries[fixture.deliveryID] = delivery
+		return tx.Persist()
+	}); err != nil {
+		t.Fatalf("persist candidate: %v", err)
+	}
+	integratedSHA := "9876598765987659876598765987659876598765"
+	service := deliveryGraphService{
+		Store: fixture.store, Integrator: &fakeGraphIntegrator{integratedSHA: integratedSHA},
+		Now: func() time.Time { return fixture.now },
+	}
+	if settled, err := service.Execute(context.Background(), fixture.scope, DeliveryGraphInput{
+		Operation: GraphOpSettleWave, DeliveryID: fixture.deliveryID, Wave: wave.Number,
+	}); err != nil || settled.Disposition != GraphDispositionAllIntegrated {
+		t.Fatalf("settle_wave = %#v, error=%v", settled, err)
+	}
+	// Every task integrated and nothing else blocked: without publication
+	// evidence a blocked terminal disposition is unproven.
+	unproven := DeliveryGraphInput{Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionBlocked}
+	if _, err := service.Execute(context.Background(), fixture.scope, unproven); !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("Execute(terminalize without blockers) error = %v, want delivery conflict", err)
+	}
+	input := DeliveryGraphInput{
+		Operation: GraphOpTerminalize, DeliveryID: fixture.deliveryID, TerminalDisposition: GraphDispositionBlocked,
+		PublicationBlockers: []string{"remote_missing"},
+	}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize blocked publication) error = %v, want stable terminalizer error", err)
+	}
+	journal, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	if err != nil || delivery.State != routing.DeliveryStateBlocked || !reflect.DeepEqual(delivery.Graph.PublicationBlockers, []string{"remote_missing"}) {
+		t.Fatalf("terminalized delivery = %#v, error=%v", delivery, err)
+	}
+	before := journal
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, errDeliveryGraphTerminalized) {
+		t.Fatalf("Execute(terminalize replay) error = %v", err)
+	}
+	after, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("terminalize replay mutated journal")
+	}
+	input.PublicationBlockers = []string{"forge_unavailable"}
+	if _, err := service.Execute(context.Background(), fixture.scope, input); !errors.Is(err, routing.ErrDeliveryConflict) {
+		t.Fatalf("Execute(terminalize with different blockers) error = %v, want delivery conflict", err)
+	}
+}

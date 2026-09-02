@@ -41,12 +41,40 @@ const (
 	GraphTaskBlocked      GraphTaskState = "blocked"
 )
 
+// MaxPublicationBlockers bounds the blockers a publication plan can record.
+const MaxPublicationBlockers = 8
+
 type DeliveryGraph struct {
 	Tasks        []GraphTask            `json:"tasks"`
 	Waves        []DeliveryWave         `json:"waves"`
 	Integrations []IntegrationOperation `json:"integrations"`
 	Pauses       []HumanPause           `json:"pauses"`
 	Cleanups     []CleanupOperation     `json:"cleanups,omitempty"`
+	// PublicationBlockers records the deterministic external blockers the
+	// publication plan reported once every task was integrated. They are the
+	// proof behind a blocked terminal disposition that no task caused.
+	PublicationBlockers []string `json:"publication_blockers,omitempty"`
+}
+
+// RecordPublicationBlockers stores the publication blockers once. A replay
+// with the same blockers is a no-op; different blockers are a conflict.
+func (g *DeliveryGraph) RecordPublicationBlockers(blockers []string) (bool, error) {
+	if g == nil || len(blockers) == 0 || len(blockers) > MaxPublicationBlockers {
+		return false, ErrInvalidDeliveryGraph
+	}
+	for _, blocker := range blockers {
+		if !boundedArgument(blocker) || strings.ContainsAny(blocker, " \t\n") {
+			return false, ErrInvalidDeliveryGraph
+		}
+	}
+	if len(g.PublicationBlockers) > 0 {
+		if slices.Equal(g.PublicationBlockers, blockers) {
+			return false, nil
+		}
+		return false, ErrDeliveryConflict
+	}
+	g.PublicationBlockers = append([]string{}, blockers...)
+	return true, nil
 }
 
 type GraphTask struct {
@@ -1612,6 +1640,9 @@ func validateDeliveryGraphTransition(before, after *DeliveryGraph) error {
 	if err := appendOnlyCleanupTransition(before.Cleanups, after.Cleanups); err != nil {
 		return err
 	}
+	if len(before.PublicationBlockers) > 0 && !slices.Equal(before.PublicationBlockers, after.PublicationBlockers) {
+		return ErrDeliveryConflict
+	}
 	for index := range before.Tasks {
 		if err := validateGraphTaskTransition(before.Tasks[index], after.Tasks[index]); err != nil {
 			return err
@@ -2189,6 +2220,9 @@ func cloneDeliveryGraph(graph *DeliveryGraph) *DeliveryGraph {
 		Integrations: make([]IntegrationOperation, len(graph.Integrations)),
 		Pauses:       make([]HumanPause, len(graph.Pauses)),
 		Cleanups:     append([]CleanupOperation(nil), graph.Cleanups...),
+	}
+	if len(graph.PublicationBlockers) > 0 {
+		cloned.PublicationBlockers = append([]string{}, graph.PublicationBlockers...)
 	}
 	for index, task := range graph.Tasks {
 		cloned.Tasks[index] = task

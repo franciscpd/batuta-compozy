@@ -130,6 +130,14 @@ func (s *deliveryGraphService) terminalize(scope publication.TrustedScope, input
 		if !exists || delivery.WorkspaceID != scope.WorkspaceID || delivery.WorktreeRoot != scope.WorkspaceRoot || delivery.Graph == nil {
 			return routing.ErrDeliveryConflict
 		}
+		recordedBlockers := false
+		if len(input.PublicationBlockers) > 0 {
+			recorded, err := delivery.Graph.RecordPublicationBlockers(input.PublicationBlockers)
+			if err != nil {
+				return err
+			}
+			recordedBlockers = recorded
+		}
 		proven, proofErr := terminalDispositionProven(delivery, input.TerminalDisposition, now)
 		if proofErr != nil || !proven {
 			return routing.ErrDeliveryConflict
@@ -139,7 +147,11 @@ func (s *deliveryGraphService) terminalize(scope publication.TrustedScope, input
 			wantState = routing.DeliveryStateExhausted
 		}
 		if delivery.State == wantState {
-			return nil
+			if !recordedBlockers {
+				return nil
+			}
+			tx.Journal.Deliveries[input.DeliveryID] = delivery
+			return tx.Persist()
 		}
 		if delivery.State != routing.DeliveryStateActive {
 			return routing.ErrDeliveryConflict
@@ -177,6 +189,9 @@ func terminalDispositionProven(delivery routing.DeliveryRecord, disposition Grap
 		if cleanup.State != routing.CleanupRemoved {
 			blocked = true
 		}
+	}
+	if len(delivery.Graph.PublicationBlockers) > 0 {
+		blocked = true
 	}
 	switch disposition {
 	case GraphDispositionExhausted:
