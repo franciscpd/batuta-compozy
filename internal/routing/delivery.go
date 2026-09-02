@@ -18,7 +18,7 @@ const (
 	// of one delivery. CompozyOS sums the context each provider turn reports
 	// (Claude ACP reports context size only), so a single medium task spends
 	// several million tokens under this accounting.
-	DeliveryTokenCeiling = int64(100_000_000)
+	DeliveryTokenCeiling = int64(500_000_000)
 )
 
 var (

@@ -135,7 +135,7 @@ inputs:
 - `delivery_id`: opaque non-empty string, at most 128 bytes;
 - `attempt`: integer from `1` through `4`;
 - `absolute_deadline`: UTC RFC3339 timestamp;
-- `token_ceiling`: integer fixed to `100_000_000` for this beta (CompozyOS sums the
+- `token_ceiling`: integer fixed to `500_000_000` for this beta (CompozyOS sums the
   context each provider turn reports, so one medium task spends several million);
 - `recovery_operation_id`: lowercase `sha256:<64 hex>` string, empty only on
   the initial attempt.
@@ -229,7 +229,7 @@ Budget belongs to `delivery_id` and never resets with a new Compozy run.
 
 - Maximum attempts: `4`, including the initial attempt.
 - Absolute wall-clock deadline: `4h` after the initial delivery creation.
-- Cumulative token ceiling: `100_000_000` tokens across unique implementation
+- Cumulative token ceiling: `500_000_000` tokens across unique implementation
   and review child runs recorded by the delivery.
 - A task may consume each declared fallback candidate at most once.
 
