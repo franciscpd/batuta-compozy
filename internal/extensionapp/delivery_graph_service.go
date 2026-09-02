@@ -2127,6 +2127,17 @@ func deriveCompletedTaskCandidate(detail deliveryRunDetail, taskID string) (comp
 		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 			continue
 		}
+		// The agent never sees the bytes CompozyOS durably records for its
+		// structured output (the ACP transport and the implementation transform
+		// both re-encode it), so a digest it computes itself is not reproducible.
+		// Batuta canonicalizes the recorded verification and derives the digest
+		// from those bytes; any digest the child reported is ignored.
+		canonical, ok := canonicalVerification(completed.Verification)
+		if !ok {
+			continue
+		}
+		completed.Verification = canonical
+		completed.VerificationDigest = digestValueOf(canonical)
 		if completed.Status != "completed" || completed.TaskID != taskID || completed.Execution < 1 ||
 			!gitSHAValue(completed.CommitSHA) || !validTaskVerification(completed.Verification, completed.VerificationDigest, taskID) {
 			continue
@@ -2152,6 +2163,34 @@ func candidateReplayMatches(input DeliveryGraphInput, attempt routing.GraphTaskA
 	return input.BaseSHA == attempt.BaseHeadSHA && input.CommitSHA == attempt.CandidateCommitSHA &&
 		input.VerificationDigest == attempt.VerificationDigest && attempt.CandidateEvidence != nil &&
 		bytes.Equal(input.Verification, attempt.CandidateEvidence.Verification)
+}
+
+// canonicalVerification re-encodes a verification object in Go's canonical
+// JSON form (sorted keys, no insignificant whitespace), which is the exact
+// form the integration layer requires.
+func canonicalVerification(payload json.RawMessage) (json.RawMessage, bool) {
+	if len(payload) == 0 || len(payload) > 64<<10 || !json.Valid(payload) {
+		return nil, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var object map[string]any
+	if err := decoder.Decode(&object); err != nil || len(object) == 0 {
+		return nil, false
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, false
+	}
+	canonical, err := json.Marshal(object)
+	if err != nil {
+		return nil, false
+	}
+	return canonical, true
+}
+
+func digestValueOf(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func hasCompletedTaskOutput(detail deliveryRunDetail, input DeliveryGraphInput) bool {

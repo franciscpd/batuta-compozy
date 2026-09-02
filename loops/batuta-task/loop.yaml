@@ -170,9 +170,6 @@ graph:
                     type: string
                     minLength: 1
                     maxLength: 512
-            verification_digest:
-              type: string
-              pattern: "^sha256:[a-f0-9]{64}$"
             question:
               type: string
               minLength: 1
@@ -186,7 +183,7 @@ graph:
                 minLength: 1
                 maxLength: 512
           oneOf:
-            - required: [status, commit_sha, verification, verification_digest]
+            - required: [status, commit_sha, verification]
               properties:
                 status:
                   enum: [completed]
@@ -202,7 +199,6 @@ graph:
                 anyOf:
                   - required: [commit_sha]
                   - required: [verification]
-                  - required: [verification_digest]
 
     - id: implementation_outcome
       class: control
@@ -286,15 +282,13 @@ graph:
             from: nodes.implement_task.output.commit_sha
           verification:
             from: nodes.implement_task.output.verification
-          verification_digest:
-            from: nodes.implement_task.output.verification_digest
+      # No verification_digest: Batuta derives it from the recorded bytes.
       produces:
         status: string
         task_id: string
         execution: number
         commit_sha: string
         verification: object
-        verification_digest: string
 
     - id: terminal_contract_failure
       class: action

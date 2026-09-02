@@ -365,7 +365,9 @@ func TestDeliveryGraphServiceRecordsOneAuthoritativeQuestionAndAnswer(t *testing
 	runs.statuses[run.ID] = deliveryRunDetail{
 		Run: run, Generations: []deliveryGeneration{{Generation: 3, Outputs: []deliveryOutput{{
 			NodeID: "implementation", Status: "succeeded",
-			OutputRef: completedTaskOutputRef(t, "task_01", 2, commitSHA, verification, verificationDigest),
+			// The recorded verification is not canonical and the child digest is
+			// bogus: Batuta must canonicalize and derive the digest itself.
+			OutputRef: completedTaskOutputRef(t, "task_01", 2, commitSHA, json.RawMessage(`{"task_id": "task_01", "status": "passed", "checks": ["go test ./..."]}`), digestValue("bogus")),
 		}}}},
 	}
 	validator := &fakeGraphCandidateValidator{evidence: integration.CandidateEvidence{

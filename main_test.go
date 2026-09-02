@@ -476,7 +476,7 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	if !ok {
 		t.Fatalf("implementer output root properties = %#v", output["properties"])
 	}
-	for _, name := range []string{"status", "commit_sha", "verification", "verification_digest", "question", "choices"} {
+	for _, name := range []string{"status", "commit_sha", "verification", "question", "choices"} {
 		if _, exists := rootProperties[name]; !exists {
 			t.Fatalf("implementer output root property %q is unavailable to downstream templates: %#v", name, rootProperties)
 		}
@@ -489,10 +489,9 @@ func TestBatutaTaskLoopKeepsInteractiveTaskIdentityDaemonOwned(t *testing.T) {
 	}
 	completed := variants[0].(map[string]any)
 	needsInput := variants[1].(map[string]any)
-	if !reflect.DeepEqual(completed["required"], []any{"status", "commit_sha", "verification", "verification_digest"}) ||
+	if !reflect.DeepEqual(completed["required"], []any{"status", "commit_sha", "verification"}) ||
 		completed["properties"].(map[string]any)["status"].(map[string]any)["enum"].([]any)[0] != "completed" ||
 		rootProperties["commit_sha"].(map[string]any)["pattern"] != "^[a-f0-9]{40}([a-f0-9]{24})?$" ||
-		rootProperties["verification_digest"].(map[string]any)["pattern"] != "^sha256:[a-f0-9]{64}$" ||
 		!reflect.DeepEqual(needsInput["required"], []any{"status", "question", "choices"}) ||
 		needsInput["properties"].(map[string]any)["status"].(map[string]any)["enum"].([]any)[0] != "needs_input" {
 		t.Fatalf("implementer closed variants = %#v", variants)
