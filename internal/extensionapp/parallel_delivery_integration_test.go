@@ -942,6 +942,12 @@ func newFourFallbackDeliveryServiceFixture(t *testing.T) deliveryServiceFixture 
 	taskSet, _ := loader.Load("demo")
 	taskSnapshot, _ := taskSet.DeliverySnapshot()
 	store, _ := routing.NewOwnershipStore(t.TempDir())
+	if err := store.ArchiveGeneration(scope.WorkspaceID, generation); err != nil {
+		t.Fatalf("ArchiveGeneration() error = %v", err)
+	}
+	if _, err := (routing.AlignmentManager{Store: store}).Confirm(scope.WorkspaceID, "session_demo", generation); err != nil {
+		t.Fatalf("Alignment.Confirm() error = %v", err)
+	}
 	fingerprint := routing.WorktreeFingerprint{HeadSHA: "0123456789abcdef0123456789abcdef01234567", PorcelainSHA256: digestValue("porcelain"), ContentSHA256: digestValue("content")}
 	matrix, err := (routing.MatrixManager{Store: store}).Apply(context.Background(), routing.MatrixApplyInput{
 		WorkspaceID: scope.WorkspaceID, WorkspaceRoot: root, WorktreeID: "wt_demo", WorktreeRoot: root,
@@ -1473,7 +1479,8 @@ func newParallelDeliveryHarnessFor(t *testing.T, repository *parallelDeliveryRep
 		inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
 			return parallelDeliveryInventory(t), nil
 		},
-		applyMatrix: manager.Apply,
+		applyMatrix:    manager.Apply,
+		loadGeneration: store.LoadGeneration,
 		inspectWorktree: func(_ context.Context, got publication.TrustedScope, ref string) (publication.WorktreeInspection, error) {
 			return publication.WorktreeInspection{Worktree: publication.Worktree{
 				ID: ref, WorkspaceID: got.WorkspaceID, Branch: "main", Path: repository.root, State: "ready", BaseRef: "main",
@@ -1487,6 +1494,12 @@ func newParallelDeliveryHarnessFor(t *testing.T, repository *parallelDeliveryRep
 	}
 	if cell, found := routingCellForTask(generation, "task_02"); !found || cell.Selected.ProviderID != "cursor" || cell.Selected.ModelID != integrationCursorModel {
 		t.Fatalf("frontend route = %#v, found=%v; want Cursor/Grok", cell, found)
+	}
+	if err := store.ArchiveGeneration(scope.WorkspaceID, generation); err != nil {
+		t.Fatalf("ArchiveGeneration: %v", err)
+	}
+	if _, err := (routing.AlignmentManager{Store: store}).Confirm(scope.WorkspaceID, "session_parallel_delivery", generation); err != nil {
+		t.Fatalf("Alignment.Confirm: %v", err)
 	}
 	applied, err := engine.Apply(ctx, scope, RoutingApplyInput{
 		Operation: RoutingOperationApplyMatrix, RoutingPlan: &plan, ExpectedGenerationDigest: generation.Digest,
@@ -1847,4 +1860,56 @@ func (c *parallelPublicationForge) OpenPR(context.Context, publication.TrustedSc
 	c.openPRCalls++
 	c.prURL = "https://github.com/example/parallel-delivery/pull/8"
 	return publication.Operation{OperationID: "op_parallel_pr"}, nil
+}
+
+func TestParallelDeliveryHarnessAcceptsCompletedTrackingInLaterWaveTaskContext(t *testing.T) {
+	ctx := context.Background()
+	harness := newParallelDeliveryHarness(t)
+	prepared, err := harness.graph.Execute(ctx, harness.scope, DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: harness.deliveryID})
+	if err != nil {
+		t.Fatalf("prepare_wave: %v", err)
+	}
+	harness.startPreparedChildren(t, prepared)
+	continuedFrontend := harness.answerFrontend(t, ctx, prepared)
+	backend := preparedTask(t, prepared, "task_01")
+	// The implementer marks its own task complete in the tracking file. That
+	// evidence is projected into the integration commit, so every later
+	// worktree starts from a task set whose completed entries differ from the
+	// snapshot taken when the matrix was applied.
+	trackingRelative := filepath.Join(".compozy", "tasks", "parallel-demo", "task_01.md")
+	trackingPath := filepath.Join(backend.WorktreeRoot, trackingRelative)
+	authored, err := os.ReadFile(trackingPath)
+	if err != nil {
+		t.Fatalf("read task tracking: %v", err)
+	}
+	completed := strings.Replace(string(authored), "status: pending", "status: completed", 1) + "\n- [x] Implemented.\n"
+	if err := os.WriteFile(trackingPath, []byte(completed), 0o600); err != nil {
+		t.Fatalf("write completed task tracking: %v", err)
+	}
+	harness.repository.writeAndCommit(t, continuedFrontend.WorktreeRoot, "project/shared.txt", "shared=frontend\n", "fix(frontend): set shared fixture value")
+	if err := harness.recordRealCandidate(ctx, "task_01", 1, "run_parallel_backend"); err != nil {
+		t.Fatalf("record backend candidate: %v", err)
+	}
+	if err := harness.recordRealCandidate(ctx, "task_02", 1, "run_parallel_frontend"); err != nil {
+		t.Fatalf("record frontend candidate: %v", err)
+	}
+	settled, err := harness.graph.Execute(ctx, harness.scope, DeliveryGraphInput{Operation: GraphOpSettleWave, DeliveryID: harness.deliveryID, Wave: 1})
+	if err != nil || settled.Disposition != GraphDispositionReexecuteConflict || settled.TaskID != "task_02" {
+		t.Fatalf("settle_wave = %#v, error=%v", settled, err)
+	}
+	retry, err := harness.graph.Execute(ctx, harness.scope, DeliveryGraphInput{Operation: GraphOpPrepareWave, DeliveryID: harness.deliveryID})
+	if err != nil {
+		t.Fatalf("prepare retry wave: %v", err)
+	}
+	frontend := preparedTask(t, retry, "task_02")
+	integrated, err := os.ReadFile(filepath.Join(frontend.WorktreeRoot, trackingRelative))
+	if err != nil || !strings.Contains(string(integrated), "status: completed") {
+		t.Fatalf("retry worktree does not carry the integrated completed tracking: error=%v content=%q", err, integrated)
+	}
+	taskContext, err := harness.graph.Execute(ctx, harness.scope, DeliveryGraphInput{
+		Operation: GraphOpTaskContext, DeliveryID: harness.deliveryID, Wave: frontend.Wave, TaskID: "task_02", Execution: frontend.Execution,
+	})
+	if err != nil || taskContext.Disposition != GraphDispositionTaskReady || taskContext.WorktreeRoot != frontend.WorktreeRoot {
+		t.Fatalf("task_context after integrated completion = %#v, error=%v", taskContext, err)
+	}
 }

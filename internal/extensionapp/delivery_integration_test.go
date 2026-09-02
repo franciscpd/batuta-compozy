@@ -93,6 +93,13 @@ func TestMigrationFreeDeliveryUsesFreshRunFallbackAndVerifiesPublicationIntegrat
 	repository.write(t, "backend.txt", "backend complete\n")
 	repository.commit(t, "feat: complete backend task")
 	backendHead := repository.head(t)
+	contextService := &deliveryContextService{Store: store, Client: client, Now: func() time.Time { return now }}
+	routingAfterProgress, err := contextService.Routing(ctx, scope, RoutingContextInput{
+		DeliveryID: deliveryID, Attempt: first.Attempt, Slug: planInput.Slug, RoutingGeneration: generation.Digest,
+	})
+	if err != nil || len(routingAfterProgress.RuntimeRules) != 2 {
+		t.Fatalf("Routing(after task_01 completed) = %#v, error=%v", routingAfterProgress, err)
+	}
 	firstCoreID := first.DeliveryRunID + "_core"
 	firstLauncher, firstCore := launcherAndCoreRunDetails(scope.WorkspaceID, first.DeliveryRunID, "failed", "failed", firstRequest, []deliveryOutput{{
 		NodeID: "implement", Status: "failed", ChildLoopRunID: "implement_attempt_1",

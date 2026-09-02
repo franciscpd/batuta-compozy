@@ -10,6 +10,7 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -353,17 +354,18 @@ func (s *deliveryGraphService) taskContext(
 		return DeliveryGraphOutput{}, err
 	}
 	set, err := loader.Load(delivery.Slug)
-	if err != nil || set.Digest != delivery.TaskSetDigest {
+	if err != nil {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
-	matched := false
-	for _, artifact := range set.Tasks {
-		if artifact.ID == input.TaskID && artifact.Domain == task.Domain && artifact.Complexity == task.Complexity {
-			matched = true
-			break
-		}
+	// The task worktree starts from the integrated head, whose completed task
+	// files differ from the applied snapshot; reconciliation keeps the authored
+	// set and requires this task to still be incomplete.
+	currentSnapshot, err := set.DeliverySnapshot()
+	if err != nil {
+		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
-	if !matched {
+	progress, err := delivery.TaskSnapshot.Reconcile(currentSnapshot)
+	if err != nil || !slices.Contains(progress.IncompleteTaskIDs, input.TaskID) {
 		return DeliveryGraphOutput{}, routing.ErrDeliveryConflict
 	}
 	remainingTokens, remainingWall, err := graphRemainingBudget(delivery, s.now())

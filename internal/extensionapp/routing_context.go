@@ -122,8 +122,10 @@ func (s *deliveryContextService) Routing(
 	if err != nil {
 		return RoutingContextOutput{}, err
 	}
+	// Integrated waves rewrite completed task files, so the authored task set is
+	// compared through the snapshot reconciliation rather than by exact digest.
 	currentSnapshot, err := taskSet.DeliverySnapshot()
-	if err != nil || taskSet.Digest != delivery.TaskSetDigest {
+	if err != nil {
 		return RoutingContextOutput{}, routing.ErrDeliveryConflict
 	}
 	progress, err := delivery.TaskSnapshot.Reconcile(currentSnapshot)
