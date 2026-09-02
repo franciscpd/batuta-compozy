@@ -1847,3 +1847,16 @@ func (c *fakeGraphWorktreeClient) Remove(
 	c.byID[worktreeID] = worktree
 	return worktree, nil
 }
+
+func TestDeliveryGraphOutputMarshalKeepsPrepareWaveTasksExplicit(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := json.Marshal(DeliveryGraphOutput{Operation: GraphOpPrepareWave, Disposition: GraphDispositionAllIntegrated})
+	if err != nil || !bytes.Contains(encoded, []byte(`"tasks":[]`)) {
+		t.Fatalf("prepare_wave output = %s, error=%v", encoded, err)
+	}
+	encoded, err = json.Marshal(DeliveryGraphOutput{Operation: GraphOpSettleWave, Disposition: GraphDispositionAllIntegrated})
+	if err != nil || bytes.Contains(encoded, []byte(`"tasks"`)) {
+		t.Fatalf("settle_wave output = %s, error=%v", encoded, err)
+	}
+}

@@ -282,6 +282,7 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 			Values map[string]any `yaml:",inline"`
 		} `yaml:"params"`
 		Collection  string `yaml:"collection"`
+		Filter      string `yaml:"filter"`
 		BatchSize   int    `yaml:"batch_size"`
 		MaxParallel int    `yaml:"max_parallel"`
 		MaxFanOut   int    `yaml:"max_fan_out"`
@@ -341,7 +342,8 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 	}
 	wave := nodes["task_wave"]
 	if wave.Class != "control" || wave.Kind != "fan-out" ||
-		wave.Collection != "{{ .nodes.prepare_wave.output.tasks }}" || wave.BatchSize != 1 ||
+		wave.Collection != "{{ .nodes.prepare_wave.output.tasks }}" ||
+		wave.Filter != "nodes.prepare_wave.output.disposition == 'wave_ready'" || wave.BatchSize != 1 ||
 		wave.MaxParallel != 4 || wave.MaxFanOut != 4 {
 		t.Fatalf("task wave = %#v", wave)
 	}
@@ -361,9 +363,10 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		}
 	}
 	for _, pair := range [][2]string{
-		{"load_check", "routing_context"}, {"routing_context", "prepare_wave"}, {"prepare_wave", "wave_route"},
-		{"wave_route", "task_wave"}, {"task_wave", "run_task"}, {"run_task", "record_candidate"},
-		{"record_candidate", "collect_wave"}, {"collect_wave", "settle_wave"}, {"settle_wave", "settle_route"},
+		{"load_check", "routing_context"}, {"routing_context", "prepare_wave"}, {"prepare_wave", "task_wave"},
+		{"task_wave", "run_task"}, {"run_task", "record_candidate"},
+		{"record_candidate", "collect_wave"}, {"collect_wave", "wave_route"}, {"wave_route", "settle_wave"},
+		{"settle_wave", "settle_route"},
 		{"wave_route", "delivery_budget_context"}, {"delivery_budget_context", "review"},
 		{"settle_route", "generation_continue_settle"},
 		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
@@ -619,7 +622,11 @@ type taskLoopEffect struct {
 // TestLoopRouteTargetsHaveSingleRouteParent guards the Loop-engine contract
 // discovered on 2026-09-02: a route target with more than one route parent
 // deadlocks its generation and the run fails without diagnostics.
-func TestLoopRouteTargetsHaveSingleRouteParent(t *testing.T) {
+// The Loop engine prunes the branches a route did not take, but that pruning
+// deadlocks on a target with more than one route parent and never crosses a
+// fan-out/collect pair. Every route target must therefore be a plain node with
+// exactly one route parent.
+func TestLoopRouteTargetsArePrunable(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range []string{"batuta-deliver", "batuta-deliver-core", "batuta-task"} {
@@ -642,6 +649,10 @@ func TestLoopRouteTargetsHaveSingleRouteParent(t *testing.T) {
 		if err := yaml.Unmarshal(payload, &definition); err != nil {
 			t.Fatalf("decode %s: %v", name, err)
 		}
+		kinds := map[string]string{}
+		for _, node := range definition.Graph.Nodes {
+			kinds[node.ID] = node.Kind
+		}
 		parents := map[string]map[string]struct{}{}
 		for _, node := range definition.Graph.Nodes {
 			if node.Kind != "route" {
@@ -655,6 +666,9 @@ func TestLoopRouteTargetsHaveSingleRouteParent(t *testing.T) {
 				targets = append(targets, node.Default)
 			}
 			for _, target := range targets {
+				if kind := kinds[target]; kind == "fan-out" || kind == "collect" {
+					t.Fatalf("%s: route %q targets %s node %q", name, node.ID, kind, target)
+				}
 				if parents[target] == nil {
 					parents[target] = map[string]struct{}{}
 				}

@@ -70,19 +70,13 @@ graph:
       class: action
       kind: ext__batuta__delivery_graph
       params: {operation: prepare_wave, delivery_id: "{{ .inputs.delivery_id }}", worktree_ref: "{{ .inputs.worktree_ref }}"}
-    - id: wave_route
-      class: control
-      kind: route
-      routes:
-        - {when: "nodes.prepare_wave.output.disposition == 'wave_ready'", to: task_wave}
-        - {when: "nodes.prepare_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
-        - {when: "nodes.prepare_wave.output.disposition == 'preparing'", to: generation_continue}
-        - {when: "nodes.prepare_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
-      default: terminal_blocked
     - id: task_wave
       class: control
       kind: fan-out
+      # Never make this fan-out a route target (see wave_route). prepare_wave
+      # always emits a tasks array; the filter empties it unless a wave is ready.
       collection: "{{ .nodes.prepare_wave.output.tasks }}"
+      filter: "nodes.prepare_wave.output.disposition == 'wave_ready'"
       batch_size: 1
       max_parallel: 4
       max_fan_out: 4
@@ -124,6 +118,20 @@ graph:
         execution: "{{ .item.execution }}"
         child_run_id: "{{ .nodes.run_task.output.loop_run_id }}"
     - {id: collect_wave, class: control, kind: collect}
+    - id: wave_route
+      class: control
+      kind: route
+      # Sits after collect_wave on purpose: the Loop engine cannot prune a
+      # fan-out/collect pair that hangs off a route it did not take (the collect
+      # stays pending and the generation dies with no_ready_nodes). The wave
+      # fan-out therefore always runs (filtered to nothing unless wave_ready)
+      # and the routing decision happens once the collect has settled.
+      routes:
+        - {when: "nodes.prepare_wave.output.disposition == 'wave_ready'", to: settle_wave}
+        - {when: "nodes.prepare_wave.output.disposition == 'all_integrated'", to: delivery_budget_context}
+        - {when: "nodes.prepare_wave.output.disposition == 'preparing'", to: generation_continue}
+        - {when: "nodes.prepare_wave.output.disposition == 'exhausted'", to: terminal_exhausted}
+      default: terminal_blocked
     - id: settle_wave
       class: action
       kind: ext__batuta__delivery_graph
@@ -268,8 +276,7 @@ graph:
     - {from: slug_input, to: load_check}
     - {from: load_check, to: routing_context}
     - {from: routing_context, to: prepare_wave}
-    - {from: prepare_wave, to: wave_route}
-    - {from: wave_route, to: task_wave}
+    - {from: prepare_wave, to: task_wave}
     - {from: wave_route, to: delivery_budget_context}
     - {from: wave_route, to: generation_continue}
     - {from: wave_route, to: terminal_blocked}
@@ -277,7 +284,8 @@ graph:
     - {from: task_wave, to: run_task}
     - {from: run_task, to: record_candidate}
     - {from: record_candidate, to: collect_wave}
-    - {from: collect_wave, to: settle_wave}
+    - {from: collect_wave, to: wave_route}
+    - {from: wave_route, to: settle_wave}
     - {from: settle_wave, to: settle_route}
     - {from: settle_route, to: generation_continue_settle}
     - {from: settle_route, to: generation_continue_conflict}

@@ -89,23 +89,34 @@ type DeliveryGraphOutput struct {
 	Replayed                bool                   `json:"replayed,omitempty"`
 }
 
-// MarshalJSON preserves the explicit empty answer history required by the
-// task-context Loop template without serializing a null answers field for the
-// other closed output variants.
+// MarshalJSON preserves the explicit empty arrays that the Loop templates
+// require (task-context answers, prepare_wave tasks) without serializing null
+// fields for the other closed output variants. A fan-out collection that
+// resolves to nil fails the whole generation, so prepare_wave must always
+// expose an array even when no wave is ready.
 func (output DeliveryGraphOutput) MarshalJSON() ([]byte, error) {
 	type wireOutput DeliveryGraphOutput
 	encoded, err := json.Marshal(wireOutput(output))
-	if err != nil || output.Operation != GraphOpTaskContext {
-		return encoded, err
+	if err != nil {
+		return nil, err
+	}
+	field, required := explicitEmptyArrayFields[output.Operation]
+	if !required {
+		return encoded, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &fields); err != nil {
 		return nil, err
 	}
-	if _, exists := fields["answers"]; !exists {
-		fields["answers"] = json.RawMessage("[]")
+	if _, exists := fields[field]; !exists {
+		fields[field] = json.RawMessage("[]")
 	}
 	return json.Marshal(fields)
+}
+
+var explicitEmptyArrayFields = map[GraphOperation]string{
+	GraphOpTaskContext: "answers",
+	GraphOpPrepareWave: "tasks",
 }
 
 type DeliveryGraphTask struct {
