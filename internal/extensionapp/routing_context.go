@@ -128,8 +128,9 @@ func (s *deliveryContextService) Routing(
 	if err != nil {
 		return RoutingContextOutput{}, routing.ErrDeliveryConflict
 	}
-	progress, err := delivery.TaskSnapshot.Reconcile(currentSnapshot)
-	if err != nil || len(progress.IncompleteTaskIDs) == 0 {
+	// The publication generation runs with every task integrated, so an empty
+	// incomplete set is legitimate here; only authored drift is a conflict.
+	if _, err := delivery.TaskSnapshot.Reconcile(currentSnapshot); err != nil {
 		return RoutingContextOutput{}, routing.ErrDeliveryConflict
 	}
 	remainingTokens, remainingWall, err := deliveryRemainingBudget(delivery, s.now())

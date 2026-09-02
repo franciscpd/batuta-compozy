@@ -302,3 +302,30 @@ func makeLegacyDeliveryFixture(t *testing.T, fixture deliveryServiceFixture) {
 		t.Fatalf("Save(legacy fixture) error=%v", err)
 	}
 }
+
+func TestRoutingContextServesRulesAfterEveryTaskIsIntegrated(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	journal, _, _ := fixture.store.Load(fixture.scope.WorkspaceID)
+	delivery := journal.Deliveries[fixture.deliveryID]
+	// The publication generation runs after the last wave integrated: the
+	// task files are all completed and routing_context must still serve the
+	// attempt's rules so prepare_wave can report all_integrated.
+	taskPath := filepath.Join(fixture.scope.WorkspaceRoot, ".compozy", "tasks", "demo", "task_01.md")
+	if err := os.WriteFile(taskPath, []byte("---\nstatus: completed\ntitle: Frontend demo\ntype: frontend\ncomplexity: low\n---\n\n# Demo\n\n- [x] done\n"), 0o600); err != nil {
+		t.Fatalf("write completed task: %v", err)
+	}
+	service := &deliveryContextService{Store: fixture.store, Client: fixture.client, Now: func() time.Time { return fixture.now }}
+
+	output, err := service.Routing(context.Background(), fixture.scope, RoutingContextInput{
+		DeliveryID: fixture.deliveryID, Attempt: started.Attempt, Slug: delivery.Slug,
+		RoutingGeneration: delivery.RoutingGenerationDigest,
+	})
+	if err != nil || len(output.RuntimeRules) == 0 {
+		t.Fatalf("Routing(all integrated) = %#v, error=%v", output, err)
+	}
+}
