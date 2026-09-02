@@ -218,7 +218,7 @@ func TestDeliveryGraphServiceReturnsExactTaskContextWithoutMutation(t *testing.T
 		output.TaskFile != ".compozy/tasks/demo/task_01.md" || output.Runtime == nil || *output.Runtime != task.Attempts[0].Runtime ||
 		output.WorktreeID != "wt_task_01" || output.WorktreeRoot != taskRoot ||
 		output.BaseSHA != wave.BaseHeadSHA || output.RemainingTaskExecutions != 3 ||
-		output.RemainingTokens != 1_000_000 || output.RemainingWallSeconds != int(wantWall/time.Second) ||
+		output.RemainingTokens != routing.DeliveryTokenCeiling || output.RemainingWallSeconds != int(wantWall/time.Second) ||
 		output.Answers == nil || len(output.Answers) != 0 {
 		t.Fatalf("task context = %#v", output)
 	}

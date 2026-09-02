@@ -102,7 +102,7 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 			TaskSnapshot:            input.TaskSnapshot,
 			RoutingGenerationDigest: input.Generation.Digest, OriginSessionID: input.OriginSessionID,
 			CreatedAt: createdAt, AbsoluteDeadline: createdAt.Add(4 * time.Hour),
-			AttemptCeiling: deliveryAttemptCeiling, TokenCeiling: deliveryTokenCeiling,
+			AttemptCeiling: deliveryAttemptCeiling, TokenCeiling: DeliveryTokenCeiling,
 			InitialWorktreeFingerprint: input.InitialWorktreeFingerprint,
 			State:                      DeliveryStateActive, Attempts: []DeliveryAttempt{}, Graph: cloneDeliveryGraph(graph),
 		}
@@ -165,7 +165,7 @@ func deliveryMatchesMatrixInput(delivery DeliveryRecord, input MatrixApplyInput,
 		reflect.DeepEqual(delivery.TaskSnapshot, input.TaskSnapshot) &&
 		reflect.DeepEqual(delivery.InitialWorktreeFingerprint, input.InitialWorktreeFingerprint) &&
 		deliveryGraphMatchesIdentity(delivery.Graph, graph) &&
-		delivery.AttemptCeiling == deliveryAttemptCeiling && delivery.TokenCeiling == deliveryTokenCeiling
+		delivery.AttemptCeiling == deliveryAttemptCeiling && delivery.TokenCeiling == DeliveryTokenCeiling
 }
 
 func deliveryGraphMatchesIdentity(actual, initial *DeliveryGraph) bool {

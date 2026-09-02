@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
 const (
@@ -114,6 +115,9 @@ type deliveryRunClient interface {
 	Start(context.Context, string, deliveryStartRequest) (deliveryRun, error)
 }
 
+// deliveryAgentName is the conducting agent that owns every delivery origin session.
+const deliveryAgentName = "batuta"
+
 type deliveryLoopCLIClient struct {
 	Executable string
 	Runner     publication.CommandRunner
@@ -199,7 +203,13 @@ func (c deliveryLoopCLIClient) Start(ctx context.Context, workspaceID string, re
 		"--input", "budget_wall_seconds=" + strconv.Itoa(request.BudgetWallSec),
 		"--config-file", path, "-o", "json",
 	}
-	result, err := c.run(ctx, args)
+	// The delivery must start as the conducting agent session: CompozyOS derives
+	// every child session's provenance parent from the run's starting actor, and
+	// a run started by the bare CLI user leaves the workers unparented.
+	result, err := c.runWithEnvironment(ctx, args, []string{
+		"COMPOZY_SESSION_ID=" + request.OriginSessionID,
+		"COMPOZY_AGENT=" + deliveryAgentName,
+	})
 	if err != nil {
 		return deliveryRun{}, err
 	}
@@ -232,12 +242,23 @@ func (c deliveryLoopCLIClient) run(ctx context.Context, args []string) (publicat
 	return c.runWithStdoutLimit(ctx, args, deliveryStdoutLimit)
 }
 
+func (c deliveryLoopCLIClient) runWithEnvironment(ctx context.Context, args, environment []string) (publication.CommandResult, error) {
+	return c.execute(ctx, publication.Command{
+		Executable: c.Executable, Args: args, Environment: environment,
+		StdoutLimit: deliveryStdoutLimit, StderrLimit: deliveryStderrLimit,
+	})
+}
+
 func (c deliveryLoopCLIClient) runWithStdoutLimit(ctx context.Context, args []string, stdoutLimit int64) (publication.CommandResult, error) {
-	commandCtx, cancel := context.WithTimeout(ctx, deliveryCommandTimeout)
-	defer cancel()
-	result, err := c.Runner.Run(commandCtx, publication.Command{
+	return c.execute(ctx, publication.Command{
 		Executable: c.Executable, Args: args, StdoutLimit: stdoutLimit, StderrLimit: deliveryStderrLimit,
 	})
+}
+
+func (c deliveryLoopCLIClient) execute(ctx context.Context, command publication.Command) (publication.CommandResult, error) {
+	commandCtx, cancel := context.WithTimeout(ctx, deliveryCommandTimeout)
+	defer cancel()
+	result, err := c.Runner.Run(commandCtx, command)
 	if err != nil {
 		if ctxErr := commandCtx.Err(); ctxErr != nil {
 			return publication.CommandResult{}, ctxErr
@@ -251,7 +272,7 @@ func validateDeliveryStartRequest(request deliveryStartRequest) error {
 	if !routingDigestPattern.MatchString(request.DeliveryID) || request.Attempt < 1 || request.Attempt > 4 ||
 		!validCanonicalSlug(request.Slug) || !validOpaqueRunID(request.OriginSessionID) ||
 		!validOpaqueRunID(request.WorktreeRef) || !routingDigestPattern.MatchString(request.RoutingGeneration) ||
-		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling != 1_000_000 ||
+		request.AbsoluteDeadline.IsZero() || request.AbsoluteDeadline.Location() != time.UTC || request.TokenCeiling != routing.DeliveryTokenCeiling ||
 		(request.Attempt == 1 && request.RecoveryOperationID != "") || (request.Attempt > 1 && !routingDigestPattern.MatchString(request.RecoveryOperationID)) ||
 		request.IterationCap < 1 || request.IterationCap > 64 ||
 		request.BudgetTokens < 1 || request.BudgetTokens > request.TokenCeiling || request.BudgetWallSec < 1 || request.BudgetWallSec > 14400 {

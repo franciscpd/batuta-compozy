@@ -906,7 +906,7 @@ func TestDeliveryAttemptServiceTokenCeilingStopsBeforeAnotherSubmission(t *testi
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	settleFixtureAttemptFailure(t, &fixture, first, "run_implement", 1_000_000)
+	settleFixtureAttemptFailure(t, &fixture, first, "run_implement", routing.DeliveryTokenCeiling)
 	if _, err := fixture.service.Recover(context.Background(), fixture.scope, fixture.deliveryID, first.DeliveryRunID); !errors.Is(err, routing.ErrNoEligibleCandidate) {
 		t.Fatalf("Recover(token ceiling) error = %v", err)
 	}

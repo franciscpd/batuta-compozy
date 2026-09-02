@@ -14,7 +14,11 @@ import (
 
 const (
 	deliveryAttemptCeiling = 4
-	deliveryTokenCeiling   = int64(1_000_000)
+	// DeliveryTokenCeiling bounds the tokens CompozyOS reports for every child run
+	// of one delivery. CompozyOS sums the context each provider turn reports
+	// (Claude ACP reports context size only), so a single medium task spends
+	// several million tokens under this accounting.
+	DeliveryTokenCeiling = int64(100_000_000)
 )
 
 var (
@@ -282,7 +286,7 @@ func validateDelivery(record DeliveryRecord, generations map[string]RoutingGener
 		!canonicalSHA256.MatchString(record.RoutingGenerationDigest) || !boundedArgument(record.OriginSessionID) ||
 		record.CreatedAt.IsZero() || record.AbsoluteDeadline.IsZero() || record.CreatedAt.Location() != time.UTC ||
 		record.AbsoluteDeadline.Location() != time.UTC || !record.AbsoluteDeadline.Equal(record.CreatedAt.Add(4*time.Hour)) ||
-		record.AttemptCeiling != deliveryAttemptCeiling || record.TokenCeiling != deliveryTokenCeiling ||
+		record.AttemptCeiling != deliveryAttemptCeiling || record.TokenCeiling != DeliveryTokenCeiling ||
 		!record.State.valid() || len(record.Attempts) > record.AttemptCeiling {
 		return ErrOwnershipUnproven
 	}

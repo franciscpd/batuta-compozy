@@ -23,7 +23,7 @@ func TestMatrixApplyArchivesGenerationAndDeliveryWithoutStoredConfig(t *testing.
 	}
 	finished := time.Now().UTC()
 	if !canonicalSHA256.MatchString(result.DeliveryID) || result.GenerationDigest != input.Generation.Digest ||
-		result.AttemptCeiling != 4 || result.TokenCeiling != 1_000_000 || result.RuleCount != len(input.Generation.Rules) {
+		result.AttemptCeiling != 4 || result.TokenCeiling != DeliveryTokenCeiling || result.RuleCount != len(input.Generation.Rules) {
 		t.Fatalf("Apply() result = %#v", result)
 	}
 	if result.CreatedAt.Before(started) || result.CreatedAt.After(finished) || !result.AbsoluteDeadline.Equal(result.CreatedAt.Add(4*time.Hour)) {

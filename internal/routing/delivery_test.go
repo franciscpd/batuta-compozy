@@ -641,7 +641,7 @@ func validDeliveryFixture(t *testing.T) DeliveryRecord {
 		WorktreeRoot: "/workspace/project", Slug: "frontend-demo", TaskSetDigest: generation.TaskSetDigest,
 		TaskSnapshot:            taskSnapshot,
 		RoutingGenerationDigest: generation.Digest, OriginSessionID: "session-1", CreatedAt: created,
-		AbsoluteDeadline: created.Add(4 * time.Hour), AttemptCeiling: 4, TokenCeiling: 1_000_000,
+		AbsoluteDeadline: created.Add(4 * time.Hour), AttemptCeiling: 4, TokenCeiling: DeliveryTokenCeiling,
 		InitialWorktreeFingerprint: WorktreeFingerprint{
 			HeadSHA: strings.Repeat("a", 40), PorcelainSHA256: digestFixture("porcelain"), ContentSHA256: digestFixture("content"),
 		},

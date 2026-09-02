@@ -140,7 +140,7 @@ func TestDeliveryBudgetContextCountsOneOwnedImplementationChildOnce(t *testing.T
 	if err != nil {
 		t.Fatalf("Budget(replay) error = %v", err)
 	}
-	if first.RemainingTokens != 998750 || second.RemainingTokens != first.RemainingTokens || fixture.client.statusCalls != 4 {
+	if first.RemainingTokens != routing.DeliveryTokenCeiling-1250 || second.RemainingTokens != first.RemainingTokens || fixture.client.statusCalls != 4 {
 		t.Fatalf("budget = first:%#v second:%#v status_calls=%d", first, second, fixture.client.statusCalls)
 	}
 	after, _, err := fixture.store.Load(fixture.scope.WorkspaceID)
@@ -202,7 +202,7 @@ func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 	child := deliveryRun{
 		ID: "run_implement", WorkspaceID: fixture.scope.WorkspaceID, ParentLoopRunID: started.DeliveryRunID,
 		LoopName: "implement-tasks", Status: "done", CreatedAt: fixture.now, StartedAt: fixture.now,
-		TokensUsed: 1_000_000, TokensUsedPresent: true, Inputs: map[string]any{"slug": "demo"},
+		TokensUsed: routing.DeliveryTokenCeiling, TokensUsedPresent: true, Inputs: map[string]any{"slug": "demo"},
 	}
 	fixture.client.statuses = map[string]deliveryRunDetail{
 		started.DeliveryRunID: deliveryParentWithImplementation(fixture, started, "run_implement"),
@@ -220,7 +220,7 @@ func TestDeliveryBudgetContextDoesNotAccountAnExhaustedChild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Budget(after rejected child) error = %v", err)
 	}
-	if output.RemainingTokens != 999999 {
+	if output.RemainingTokens != routing.DeliveryTokenCeiling-1 {
 		t.Fatalf("Budget(after rejected child) = %#v", output)
 	}
 }
@@ -252,7 +252,7 @@ func TestDeliveryBudgetContextUsesDurableGraphUsageWithoutPollingChildren(t *tes
 	output, err := service.Budget(context.Background(), fixture.scope, DeliveryBudgetContextInput{
 		DeliveryID: fixture.deliveryID, Attempt: 1,
 	})
-	if err != nil || output.RemainingTokens != 999_500 || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
+	if err != nil || output.RemainingTokens != routing.DeliveryTokenCeiling-500 || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
 		t.Fatalf("Budget(graph) = %#v, error=%v status_calls=%d", output, err, client.statusCalls)
 	}
 }
@@ -267,7 +267,7 @@ func TestDeliveryBudgetContextUsesGraphBeforeFirstWave(t *testing.T) {
 	output, err := service.Budget(context.Background(), fixture.scope, DeliveryBudgetContextInput{
 		DeliveryID: fixture.deliveryID, Attempt: 1,
 	})
-	if err != nil || output.RemainingTokens != 1_000_000 || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
+	if err != nil || output.RemainingTokens != routing.DeliveryTokenCeiling || output.RemainingWallSeconds <= 0 || client.statusCalls != 0 {
 		t.Fatalf("Budget(graph before wave) = %#v, error=%v status_calls=%d", output, err, client.statusCalls)
 	}
 }

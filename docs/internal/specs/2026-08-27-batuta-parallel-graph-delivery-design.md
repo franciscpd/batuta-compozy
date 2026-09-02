@@ -334,7 +334,7 @@ The parallel design adds throughput, not unbounded work:
   continuation, runtime fallback, and conflict reexecution;
 - maximum fresh parent delivery runs: `4`, preserving migration-free parent
   recovery;
-- cumulative delivery token ceiling: `1_000_000`;
+- cumulative delivery token ceiling: `100_000_000`;
 - cumulative active-work wall budget: `4h`;
 - each pinned fallback candidate may be consumed at most once per task.
 

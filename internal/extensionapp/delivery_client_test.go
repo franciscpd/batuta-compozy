@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
 func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
@@ -22,7 +24,7 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 	request := deliveryStartRequest{
 		DeliveryID: digestValue("delivery-client"), Attempt: 2, Slug: "demo", OriginSessionID: "session_demo",
 		WorktreeRef: "wt_demo", RoutingGeneration: digestValue("routing-client"), AbsoluteDeadline: now.Add(2 * time.Hour),
-		TokenCeiling: 1_000_000, RecoveryOperationID: digestValue("operation-client"),
+		TokenCeiling: routing.DeliveryTokenCeiling, RecoveryOperationID: digestValue("operation-client"),
 		IterationCap: 3, BudgetTokens: 750_000, BudgetWallSec: 7200,
 	}
 	run := deliveryRun{
@@ -70,7 +72,7 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 		"--input", "worktree_ref=wt_demo",
 		"--input", "routing_generation=" + request.RoutingGeneration,
 		"--input", "absolute_deadline=" + request.AbsoluteDeadline.Format(time.RFC3339),
-		"--input", "token_ceiling=1000000",
+		"--input", "token_ceiling=" + strconv.FormatInt(routing.DeliveryTokenCeiling, 10),
 		"--input", "recovery_operation_id=" + request.RecoveryOperationID,
 		"--input", "delivery_envelope_version=1",
 		"--input", "iteration_cap=3",
@@ -84,6 +86,15 @@ func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {
 	}
 	if start.Args[len(start.Args)-2] != "-o" {
 		t.Fatalf("start suffix = %#v, want -o json", start.Args[len(start.Args)-2:])
+	}
+	wantEnvironment := []string{"COMPOZY_SESSION_ID=session_demo", "COMPOZY_AGENT=batuta"}
+	if !reflect.DeepEqual(start.Environment, wantEnvironment) {
+		t.Fatalf("start environment = %#v, want %#v", start.Environment, wantEnvironment)
+	}
+	for _, read := range runner.commands[:2] {
+		if len(read.Environment) != 0 {
+			t.Fatalf("read command carries environment %#v", read.Environment)
+		}
 	}
 	if runner.configMode.Perm() != 0o600 {
 		t.Fatalf("config mode = %o, want 600", runner.configMode.Perm())
@@ -309,8 +320,8 @@ func validDeliveryStartRequest() deliveryStartRequest {
 	return deliveryStartRequest{
 		DeliveryID: digestValue("delivery-valid"), Attempt: 1, Slug: "demo", OriginSessionID: "session_demo",
 		WorktreeRef: "wt_demo", RoutingGeneration: digestValue("routing-valid"), AbsoluteDeadline: now.Add(time.Hour),
-		TokenCeiling: 1_000_000, IterationCap: 4,
-		BudgetTokens: 1_000_000, BudgetWallSec: 3600,
+		TokenCeiling: routing.DeliveryTokenCeiling, IterationCap: 4,
+		BudgetTokens: routing.DeliveryTokenCeiling, BudgetWallSec: 3600,
 	}
 }
 

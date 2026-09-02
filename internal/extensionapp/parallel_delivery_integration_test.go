@@ -673,7 +673,7 @@ func TestDeliveryAttemptServiceSeparatelyExhaustsTokenAndActiveWallBudgets(t *te
 		if err != nil {
 			t.Fatalf("Start: %v", err)
 		}
-		settleFixtureAttemptFailure(t, &fixture, started, "run_token_exhausted", 1_000_000)
+		settleFixtureAttemptFailure(t, &fixture, started, "run_token_exhausted", routing.DeliveryTokenCeiling)
 		before := deliveryFixtureSnapshot(t, fixture)
 		if _, err := fixture.service.Recover(context.Background(), fixture.scope, fixture.deliveryID, started.DeliveryRunID); !errors.Is(err, routing.ErrNoEligibleCandidate) {
 			t.Fatalf("Recover(token ceiling): %v", err)
