@@ -304,7 +304,7 @@ func validateDelivery(record DeliveryRecord, generations map[string]RoutingGener
 	if !exists || generation.Digest != record.RoutingGenerationDigest || generation.TaskSetDigest != record.TaskSetDigest {
 		return ErrOwnershipUnproven
 	}
-	if err := validateDeliveryTaskSnapshot(record.TaskSnapshot, record.TaskSetDigest, generation); err != nil {
+	if err := validateDeliveryTaskSnapshot(record.TaskSnapshot, generation); err != nil {
 		return err
 	}
 	if record.Graph != nil {
@@ -331,8 +331,12 @@ func validateDelivery(record DeliveryRecord, generations map[string]RoutingGener
 	return nil
 }
 
-func validateDeliveryTaskSnapshot(snapshot DeliveryTaskSnapshot, digest string, generation RoutingGeneration) error {
-	if snapshot.Digest != digest || !canonicalHexHash.MatchString(snapshot.Digest) || len(snapshot.Tasks) == 0 ||
+// validateDeliveryTaskSnapshot proves the snapshot is internally consistent and
+// names exactly the generation's tasks. Its digest is not the task-set digest:
+// a delivery may start from a reused worktree whose completed task files
+// already differ from the authored set the generation was planned from.
+func validateDeliveryTaskSnapshot(snapshot DeliveryTaskSnapshot, generation RoutingGeneration) error {
+	if !canonicalHexHash.MatchString(snapshot.Digest) || len(snapshot.Tasks) == 0 ||
 		len(snapshot.ItemTaskIDs) != len(snapshot.Tasks) || len(snapshot.Tasks) != len(generation.Tasks) {
 		return ErrOwnershipUnproven
 	}

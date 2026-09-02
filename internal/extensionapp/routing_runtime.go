@@ -222,6 +222,22 @@ func (e *routingEngine) Apply(
 		if err != nil {
 			return RoutingApplyOutput{}, err
 		}
+		// The generation was planned from the authored task set at the workspace
+		// root; that set must be unchanged. The delivery worktree may be a reused
+		// one that already carries integrated tasks, so its snapshot is accepted
+		// as a reconciled progression of the authored set, never as a new set.
+		authoredLoader, err := routing.NewArtifactLoader(scope.WorkspaceRoot)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		authored, err := authoredLoader.Load(input.RoutingPlan.Slug)
+		if err != nil {
+			return RoutingApplyOutput{}, err
+		}
+		authoredSnapshot, err := authored.DeliverySnapshot()
+		if err != nil || authored.Digest != archived.TaskSetDigest {
+			return RoutingApplyOutput{}, errors.New("batuta: task set changed before apply")
+		}
 		loader, err := routing.NewArtifactLoader(inspection.Worktree.Path)
 		if err != nil {
 			return RoutingApplyOutput{}, err
@@ -231,14 +247,17 @@ func (e *routingEngine) Apply(
 			return RoutingApplyOutput{}, err
 		}
 		taskSnapshot, err := taskSet.DeliverySnapshot()
-		if err != nil || taskSet.Digest != archived.TaskSetDigest {
-			return RoutingApplyOutput{}, errors.New("batuta: task set changed before apply")
+		if err != nil {
+			return RoutingApplyOutput{}, errors.New("batuta: worktree task set is invalid")
+		}
+		if _, err := authoredSnapshot.Reconcile(taskSnapshot); err != nil {
+			return RoutingApplyOutput{}, errors.New("batuta: worktree task set diverged from the planned task set")
 		}
 		result, err := e.applyMatrix(ctx, routing.MatrixApplyInput{
 			WorkspaceID: scope.WorkspaceID, WorkspaceRoot: scope.WorkspaceRoot,
 			WorktreeID: inspection.Worktree.ID, WorktreeRoot: inspection.Worktree.Path,
 			Slug: input.RoutingPlan.Slug, OriginSessionID: input.OriginSessionID,
-			TaskSetDigest: taskSet.Digest, TaskSnapshot: taskSnapshot,
+			TaskSetDigest: archived.TaskSetDigest, TaskSnapshot: taskSnapshot,
 			InitialWorktreeFingerprint: routing.WorktreeFingerprint{
 				HeadSHA: state.HeadSHA, PorcelainSHA256: state.PorcelainSHA256, ContentSHA256: state.ContentSHA256,
 			},

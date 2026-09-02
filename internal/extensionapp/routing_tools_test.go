@@ -996,3 +996,80 @@ func contains(value, target string) bool {
 	}
 	return false
 }
+
+func TestRoutingApplyMatrixReconcilesReusedWorktreeProgress(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		worktree string
+		wantErr  bool
+	}{
+		{name: "completed task", worktree: "---\nstatus: completed\ntitle: Frontend demo\ntype: frontend\ncomplexity: low\n---\n\n# Demo\n\n- [x] done\n"},
+		{name: "authored drift", worktree: "---\nstatus: pending\ntitle: Frontend demo\ntype: backend\ncomplexity: low\n---\n\n# Demo\n", wantErr: true},
+		{name: "pending body drift", worktree: "---\nstatus: pending\ntitle: Frontend demo\ntype: frontend\ncomplexity: low\n---\n\n# Demo edited\n", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeRoutingTask(t, root)
+			worktree := t.TempDir()
+			writeRoutingTask(t, worktree)
+			if err := os.WriteFile(filepath.Join(worktree, ".compozy", "tasks", "demo", "task_01.md"), []byte(test.worktree), 0o600); err != nil {
+				t.Fatalf("write worktree task: %v", err)
+			}
+			var captured routing.MatrixApplyInput
+			var planned routing.RoutingGeneration
+			engine := routingEngine{
+				inventory: func(context.Context, publication.TrustedScope) (inventory.InventorySnapshot, error) {
+					return routingInventory(t, nil), nil
+				},
+				inspectWorktree: func(_ context.Context, scope publication.TrustedScope, ref string) (publication.WorktreeInspection, error) {
+					return publication.WorktreeInspection{Worktree: publication.Worktree{ID: ref, WorkspaceID: scope.WorkspaceID, Path: worktree}}, nil
+				},
+				worktreeState: func(context.Context, string) (publication.WorktreeState, error) {
+					return publication.WorktreeState{
+						HeadSHA:         "0123456789abcdef0123456789abcdef01234567",
+						PorcelainSHA256: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+						ContentSHA256:   "sha256:89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
+					}, nil
+				},
+				applyMatrix: func(_ context.Context, input routing.MatrixApplyInput) (routing.MatrixApplyResult, error) {
+					captured = input
+					return routing.MatrixApplyResult{DeliveryID: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, nil
+				},
+				loadGeneration: func(_ string, digest string) (routing.RoutingGeneration, error) {
+					if digest != planned.Digest {
+						return routing.RoutingGeneration{}, routing.ErrGenerationUnknown
+					}
+					return planned, nil
+				},
+			}
+			scope := publication.TrustedScope{WorkspaceID: "ws_demo", WorkspaceRoot: root}
+			planInput := routingPlanFixture()
+			var err error
+			planned, err = engine.Plan(context.Background(), scope, planInput)
+			if err != nil {
+				t.Fatalf("Plan() error = %v", err)
+			}
+			_, err = engine.Apply(context.Background(), scope, RoutingApplyInput{
+				Operation: RoutingOperationApplyMatrix, RoutingPlan: &planInput,
+				ExpectedGenerationDigest: planned.Digest, WorktreeRef: "wt_demo", OriginSessionID: "session_demo",
+			})
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("Apply() accepted a diverged worktree task set: %#v", captured)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			if captured.TaskSetDigest != planned.TaskSetDigest || captured.WorktreeRoot != worktree ||
+				len(captured.TaskSnapshot.Tasks) != 1 || captured.TaskSnapshot.Tasks[0].Status != "completed" ||
+				captured.TaskSnapshot.Digest == planned.TaskSetDigest {
+				t.Fatalf("captured matrix input = %#v", captured)
+			}
+		})
+	}
+}

@@ -177,3 +177,47 @@ func confirmMatrixInput(t *testing.T, store *OwnershipStore, input MatrixApplyIn
 		t.Fatalf("Confirm(matrix input) error = %v", err)
 	}
 }
+
+func TestMatrixApplyAcceptsWorktreeSnapshotWithIntegratedProgress(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewOwnershipStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewOwnershipStore() error = %v", err)
+	}
+	input := validMatrixApplyInput(t)
+	generation := alignmentGenerationFixture(t, fallbackGenerationFixture(t))
+	generation.Cells[0].TaskIDs = []string{"task_1", "task_2"}
+	generation, err = finalizeGeneration(generation)
+	if err != nil {
+		t.Fatalf("finalizeGeneration() error = %v", err)
+	}
+	input.Generation = generation
+	input.TaskSetDigest = generation.TaskSetDigest
+	// A reused delivery worktree already carries task_1 integrated; its task
+	// file differs from the authored one, so the snapshot digest differs from
+	// the planned task-set digest while the authored set is unchanged.
+	progressed, err := (TaskSet{Slug: "frontend-demo", Tasks: []TaskArtifact{
+		{ID: "task_1", Status: "completed", Domain: DomainFrontend, Complexity: ComplexityHigh, Digest: hexDigestFixture("task-file-completed")},
+		{ID: "task_2", Status: "pending", Domain: DomainFrontend, Complexity: ComplexityHigh, Digest: hexDigestFixture("task-file-2")},
+	}}).DeliverySnapshot()
+	if err != nil {
+		t.Fatalf("DeliverySnapshot() error = %v", err)
+	}
+	input.TaskSnapshot = progressed
+	confirmMatrixInput(t, store, input)
+
+	result, err := (MatrixManager{Store: store}).Apply(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Apply(progressed worktree) error = %v", err)
+	}
+	journal, exists, err := store.Load(input.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load() exists=%v error=%v", exists, err)
+	}
+	delivery := journal.Deliveries[result.DeliveryID]
+	if delivery.TaskSetDigest != input.Generation.TaskSetDigest || delivery.TaskSnapshot.Tasks[0].Status != "completed" ||
+		len(delivery.TaskSnapshot.IncompleteTaskIDs) != 1 || delivery.TaskSnapshot.IncompleteTaskIDs[0] != "task_2" {
+		t.Fatalf("delivery = %#v", delivery)
+	}
+}

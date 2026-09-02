@@ -52,7 +52,7 @@ func (m MatrixManager) Apply(ctx context.Context, input MatrixApplyInput) (Matri
 	if err := validateWorktreeFingerprint(input.InitialWorktreeFingerprint); err != nil {
 		return MatrixApplyResult{}, err
 	}
-	if err := validateDeliveryTaskSnapshot(input.TaskSnapshot, input.TaskSetDigest, input.Generation); err != nil {
+	if err := validateDeliveryTaskSnapshot(input.TaskSnapshot, input.Generation); err != nil {
 		return MatrixApplyResult{}, err
 	}
 	recomputed, err := finalizeGeneration(input.Generation)

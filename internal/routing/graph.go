@@ -253,7 +253,7 @@ func NewDeliveryGraph(
 		!canonicalGitSHA.MatchString(integrationHeadSHA) ||
 		validateStandaloneTaskSnapshot(snapshot) != nil ||
 		generationErr != nil || recomputedGeneration.Digest != generation.Digest ||
-		generation.TaskSetDigest != snapshot.Digest || len(generation.Tasks) != len(snapshot.Tasks) {
+		len(generation.Tasks) != len(snapshot.Tasks) {
 		return nil, ErrInvalidDeliveryGraph
 	}
 	generationTasks := make(map[string]GenerationTask, len(generation.Tasks))
