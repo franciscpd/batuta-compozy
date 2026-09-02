@@ -147,8 +147,10 @@ func (s deliveryAttemptService) start(
 		if err != nil {
 			return err
 		}
+		// Every task may already be integrated when the delivery worktree was
+		// reused; the attempt then routes nothing and only owes publication.
 		progress, err := delivery.TaskSnapshot.Reconcile(currentSnapshot)
-		if err != nil || len(progress.IncompleteTaskIDs) == 0 {
+		if err != nil {
 			return routing.ErrDeliveryConflict
 		}
 
@@ -176,9 +178,11 @@ func (s deliveryAttemptService) start(
 			planned = delivery.Attempts[len(delivery.Attempts)-1]
 			attemptNumber = planned.Attempt
 		} else {
-			if _, _, err := delivery.AppendAttempt(planned); err != nil {
+			stored, _, err := delivery.AppendAttempt(planned)
+			if err != nil {
 				return err
 			}
+			planned = stored
 			tx.Journal.Deliveries[deliveryID] = delivery
 			if err := tx.Persist(); err != nil {
 				return err

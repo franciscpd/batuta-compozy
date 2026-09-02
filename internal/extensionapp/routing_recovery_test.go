@@ -1251,3 +1251,28 @@ func deliveryStartWaitsOnJournalMutex() bool {
 	}
 	return false
 }
+
+func TestDeliveryAttemptServiceStartsPublicationOnlyAttemptWhenEveryTaskIsIntegrated(t *testing.T) {
+	t.Parallel()
+	fixture := newDeliveryServiceFixture(t)
+	// A reused delivery worktree can already carry every task integrated; the
+	// delivery still owes review and publication, so it must start with an
+	// attempt that routes no task.
+	taskPath := filepath.Join(fixture.scope.WorkspaceRoot, ".compozy", "tasks", "demo", "task_01.md")
+	if err := os.WriteFile(taskPath, []byte("---\nstatus: completed\ntitle: Frontend demo\ntype: frontend\ncomplexity: low\n---\n\n# Demo\n\n- [x] done\n"), 0o600); err != nil {
+		t.Fatalf("write completed task: %v", err)
+	}
+	started, err := fixture.service.Start(context.Background(), fixture.scope, fixture.deliveryID)
+	if err != nil {
+		t.Fatalf("Start(all integrated) error = %v", err)
+	}
+	journal, exists, err := fixture.store.Load(fixture.scope.WorkspaceID)
+	if err != nil || !exists {
+		t.Fatalf("Load() exists=%v error=%v", exists, err)
+	}
+	delivery := journal.Deliveries[fixture.deliveryID]
+	if started.DeliveryRunID != "run_attempt_1" || fixture.client.startCalls != 1 || len(delivery.Attempts) != 1 ||
+		delivery.Attempts[0].State != routing.AttemptSubmitted || len(delivery.Attempts[0].RuntimeRules) != 0 {
+		t.Fatalf("start = %#v, attempts = %#v, client=%#v", started, delivery.Attempts, fixture.client)
+	}
+}

@@ -138,7 +138,7 @@ func (s *deliveryContextService) Routing(
 		return RoutingContextOutput{}, err
 	}
 	return RoutingContextOutput{
-		RuntimeRules:         append([]routing.RuntimeRule(nil), attempt.RuntimeRules...),
+		RuntimeRules:         append([]routing.RuntimeRule{}, attempt.RuntimeRules...),
 		RemainingTokens:      remainingTokens,
 		RemainingWallSeconds: remainingWall,
 	}, nil

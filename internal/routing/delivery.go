@@ -84,7 +84,7 @@ func DeriveAttemptIdentity(
 ) (string, string, error) {
 	if !canonicalSHA256.MatchString(record.DeliveryID) || !boundedArgument(record.WorkspaceID) ||
 		attempt < 1 || attempt > record.AttemptCeiling || !canonicalSHA256.MatchString(record.RoutingGenerationDigest) ||
-		len(incompleteTaskIDs) == 0 || len(rules) == 0 || remainingTokens < 1 || remainingWallSeconds < 1 {
+		(len(incompleteTaskIDs) == 0) != (len(rules) == 0) || remainingTokens < 1 || remainingWallSeconds < 1 {
 		return "", "", ErrDeliveryConflict
 	}
 	operationPayload, err := json.Marshal(struct {
@@ -147,7 +147,11 @@ func SuccessorRuntimeRules(
 	failedTaskIDs []string,
 ) ([]RuntimeRule, error) {
 	if len(incompleteTaskIDs) == 0 {
-		return nil, ErrDeliveryConflict
+		// Nothing left to route: the attempt only owes review and publication.
+		if len(failedTaskIDs) != 0 {
+			return nil, ErrDeliveryConflict
+		}
+		return []RuntimeRule{}, nil
 	}
 	incomplete := make(map[string]struct{}, len(incompleteTaskIDs))
 	for _, taskID := range incompleteTaskIDs {
@@ -373,7 +377,7 @@ func validateAttempt(attempt DeliveryAttempt, expectedNumber int) error {
 	if attempt.Attempt != expectedNumber || attempt.Attempt < 1 || attempt.Attempt > deliveryAttemptCeiling ||
 		!canonicalSHA256.MatchString(attempt.OperationID) || !canonicalSHA256.MatchString(attempt.RequestDigest) ||
 		!attempt.State.valid() || attempt.PlannedAt.IsZero() || attempt.PlannedAt.Location() != time.UTC ||
-		attempt.TokensUsed < 0 || attempt.GraphTokensUsed < 0 || attempt.ReviewTokensUsed < 0 || len(attempt.RuntimeRules) == 0 {
+		attempt.TokensUsed < 0 || attempt.GraphTokensUsed < 0 || attempt.ReviewTokensUsed < 0 {
 		return ErrDeliveryConflict
 	}
 	seenTasks := make(map[string]struct{}, len(attempt.RuntimeRules))
