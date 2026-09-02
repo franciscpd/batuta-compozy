@@ -57,7 +57,7 @@ func TestGitClientCandidateValidatesOneCommitAndTaskLocalTracking(t *testing.T) 
 		{"diff-tree", "--no-commit-id", "--name-only", "-r", "-z", commit},
 		{"diff", "--name-only", "-z", "HEAD"},
 		{"ls-files", "--others", "--exclude-standard", "-z"},
-		{"ls-files", "--others", "--ignored", "--exclude-standard", "-z"},
+		{"ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".compozy/"},
 	}
 	if len(runner.commands) != len(wantArgs) {
 		t.Fatalf("command count = %d, want %d: %#v", len(runner.commands), len(wantArgs), runner.commands)
@@ -750,4 +750,34 @@ func (r *failAfterMutationRunner) Run(ctx context.Context, command publication.C
 		return result, errors.New("simulated lost mutation response")
 	}
 	return result, err
+}
+
+func TestGitClientCandidateSkipsIgnoredArtifactsOutsideTracking(t *testing.T) {
+	t.Parallel()
+
+	fixture := newIntegrationGitFixture(t)
+	writeIntegrationFile(t, filepath.Join(fixture.root, ".gitignore"), "node_modules/\ndist/\n")
+	fixture.run(t, fixture.root, "add", ".gitignore")
+	fixture.run(t, fixture.root, "commit", "-m", "ignore build artifacts")
+	fixture.base = strings.TrimSpace(fixture.run(t, fixture.root, "rev-parse", "HEAD"))
+	root, branch, commit := fixture.candidate(t, "task_01", "product.txt", "product\n")
+	writeIntegrationFile(t, filepath.Join(root, "node_modules", "dep", "index.js"), "module.exports = 1\n")
+	writeIntegrationFile(t, filepath.Join(root, "dist", "bundle.js"), "bundle\n")
+	writeIntegrationFile(t, filepath.Join(root, ".compozy", "tasks", "demo", "task_01.md"), "status: completed\n")
+	verification := []byte(`{"status":"passed","task_id":"task_01"}`)
+
+	evidence, err := (GitClient{Executable: fixture.git, Runner: publication.ExecRunner{}}).Candidate(context.Background(), CandidateRequest{
+		TaskID: "task_01", Slug: "demo", WorktreeRoot: root, RepositoryRoot: fixture.root,
+		ExpectedBranch: branch, BaseSHA: fixture.base,
+		Verification: verification, VerificationDigest: integrationDigest(verification),
+		AllowedTrackingPaths: []string{".compozy/tasks/demo/task_01.md"},
+	})
+	if err != nil {
+		t.Fatalf("Candidate() error = %v", err)
+	}
+	if evidence.CommitSHA != commit || !reflect.DeepEqual(evidence.Tracking, []TrackingFile{{
+		Path: ".compozy/tasks/demo/task_01.md", Digest: integrationDigest([]byte("status: completed\n")),
+	}}) {
+		t.Fatalf("Candidate() = %#v", evidence)
+	}
 }

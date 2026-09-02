@@ -352,7 +352,9 @@ func (c GitClient) trackingEvidence(
 	sources := []pathSource{
 		{args: []string{"diff", "--name-only", "-z", "HEAD"}},
 		{args: []string{"ls-files", "--others", "--exclude-standard", "-z"}},
-		{args: []string{"ls-files", "--others", "--ignored", "--exclude-standard", "-z"}, ignored: true},
+		// Ignored files are only tracking evidence under .compozy/; build artifacts
+		// such as node_modules/ or dist/ are expected in a verified worktree.
+		{args: []string{"ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".compozy/"}, ignored: true},
 	}
 	byPath := map[string]TrackingFile{}
 	totalBytes := initialBytes
