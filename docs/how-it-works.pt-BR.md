@@ -133,9 +133,10 @@ não pode iniciar outra geração, revisão ou publicação.
 
 ## Compatibilidade
 
-O Batuta depende diretamente do SDK Go oficial do Compozy `v0.3.0-beta.21` e
-usa o commit de fonte `382976d4b43274630a4b67445812fd4a0216dbcc` somente como
-baseline testada de build/lint. O binário desse commit reporta beta.20 e falhou
-na qualificação de Start em runtime; portanto o runtime mínimo continua sendo
-um binário lançado beta.21 ou posterior. Confira a versão pública do daemon
-instalado e a validação da extensão antes do uso em produção.
+O Batuta depende diretamente do SDK Go oficial do Compozy `v0.3.0-beta.21`. O
+CI compila o CompozyOS a partir do commit de fonte
+`34208e9990622ee62e9a5cf114386273ae6abfa0`, a release `v0.3.0-beta.22`, e roda a
+suíte de contrato contra esse daemon. O runtime mínimo é um binário lançado
+beta.21 ou posterior; o guard de versão rejeita builds mais antigas. Confira a
+versão pública do daemon instalado e a validação da extensão antes do uso em
+produção.

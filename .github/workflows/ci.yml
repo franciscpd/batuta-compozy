@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: compozy/compozy
-          ref: 382976d4b43274630a4b67445812fd4a0216dbcc
+          ref: 34208e9990622ee62e9a5cf114386273ae6abfa0
           path: ${{ github.workspace }}/compozy-source
           fetch-depth: 0
           fetch-tags: true
@@ -55,7 +55,7 @@ jobs:
         working-directory: ${{ github.workspace }}/compozy-source
         run: |
           set -euo pipefail
-          expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"
+          expected_source_commit="34208e9990622ee62e9a5cf114386273ae6abfa0"
           actual_source_commit=$(git rev-parse HEAD)
           [[ $actual_source_commit == "$expected_source_commit" ]]
 

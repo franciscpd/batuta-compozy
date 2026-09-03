@@ -127,9 +127,9 @@ review, or publication.
 
 ## Compatibility
 
-Batuta depends directly on the official Compozy Go SDK `v0.3.0-beta.21` and
-uses source commit `382976d4b43274630a4b67445812fd4a0216dbcc` only as its tested
-build/lint baseline. That commit's binary reports beta.20 and failed runtime
-Start qualification, so the minimum runtime remains a released beta.21-or-
-later binary. Check the installed daemon's public version and extension
-validation before production use.
+Batuta depends directly on the official Compozy Go SDK `v0.3.0-beta.21`. CI
+builds CompozyOS from source commit `34208e9990622ee62e9a5cf114386273ae6abfa0`,
+the `v0.3.0-beta.22` release, and runs the contract suite against that daemon.
+The minimum runtime is a released beta.21-or-later binary; the version guard
+rejects older builds. Check the installed daemon's public version and
+extension validation before production use.

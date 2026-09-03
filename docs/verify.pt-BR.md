@@ -4,9 +4,9 @@
 
 A release remota publicada continua sendo `v0.1.0-beta.3`; `v0.1.0-beta.6` é o
 próximo candidato e ainda não é uma tag nem uma release. Sua baseline de
-compatibilidade é o SDK Go oficial do Compozy `v0.3.0-beta.21`; o commit de
-fonte `382976d4b43274630a4b67445812fd4a0216dbcc` é somente a baseline de
-build/lint.
+compatibilidade é o SDK Go oficial do Compozy `v0.3.0-beta.21`; o CI compila e
+testa contra o commit de fonte `34208e9990622ee62e9a5cf114386273ae6abfa0`, a
+release `v0.3.0-beta.22`.
 
 O piso público de runtime continua sendo `v0.3.0-beta.21`. Uma build de fonte
 que se identifica como beta.20 permanece abaixo desse piso, mesmo quando sua

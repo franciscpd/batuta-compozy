@@ -32,11 +32,11 @@ The only published remote releases are `v0.1.0-beta.2` and
 branch prepares `v0.1.0-beta.6` as the next candidate. Batuta uses the upstream
 `v0.3.0-beta.21` Go SDK directly, with no `replace` or fork dependency.
 
-Build and lint contracts are tested against Compozy source commit
-`382976d4b43274630a4b67445812fd4a0216dbcc`. Its binary still identifies as
-beta.20 and did not complete runtime Start qualification, so it is not a
-compatible runtime claim. Runtime installation remains blocked until an actual
-beta.21-or-later Compozy binary covers this graph/ask surface.
+CI builds CompozyOS from source commit
+`34208e9990622ee62e9a5cf114386273ae6abfa0`, the `v0.3.0-beta.22` release, and runs
+the full contract suite, including the delivery smoke, against that daemon.
+The runtime floor is `v0.3.0-beta.21`; the version guard rejects anything
+older, including post-tag builds that still identify as beta.20.
 
 Prerequisites:
 

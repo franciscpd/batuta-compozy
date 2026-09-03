@@ -11,8 +11,9 @@ exercised by a deterministic fixture.
   validate`, `status`, and `inventory` only.
 - Supply an authenticated provider/model catalog and a small Git repository with
   an `origin` only when demonstrating real publication.
-- The tested development baseline is SDK `v0.3.0-beta.21` at Compozy source
-  commit `382976d4b43274630a4b67445812fd4a0216dbcc`.
+- The tested development baseline is SDK `v0.3.0-beta.21` with CompozyOS
+  built from source commit `34208e9990622ee62e9a5cf114386273ae6abfa0`
+  (`v0.3.0-beta.22`).
 
 ## Route through the Compozy UI
 

@@ -2,8 +2,9 @@
 
 The published remote release remains `v0.1.0-beta.3`; `v0.1.0-beta.6` is the
 next candidate and is not a tag or release yet. Its compatibility baseline is
-the official Compozy Go SDK `v0.3.0-beta.21`; source commit
-`382976d4b43274630a4b67445812fd4a0216dbcc` is only the build/lint baseline.
+the official Compozy Go SDK `v0.3.0-beta.21`; CI builds and tests against
+source commit `34208e9990622ee62e9a5cf114386273ae6abfa0`, the `v0.3.0-beta.22`
+release.
 
 The public runtime floor remains `v0.3.0-beta.21`. A source build that identifies
 itself as beta.20 remains below that floor even when its source includes some

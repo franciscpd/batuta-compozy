@@ -33,11 +33,11 @@ As únicas releases remotas publicadas são `v0.1.0-beta.2` e
 prepara `v0.1.0-beta.6` como a próxima candidata. O SDK Go upstream
 `v0.3.0-beta.21` é usado diretamente, sem `replace` nem dependência de fork.
 
-Os contratos de build e lint são testados contra o commit do fonte Compozy
-`382976d4b43274630a4b67445812fd4a0216dbcc`. Seu binário ainda se identifica
-como beta.20 e não concluiu a qualificação de Start, portanto isso não é uma
-afirmação de runtime compatível. A instalação runtime permanece bloqueada até
-um binário Compozy beta.21 ou posterior cobrir a superfície de grafo/ask.
+O CI compila o CompozyOS a partir do commit de fonte
+`34208e9990622ee62e9a5cf114386273ae6abfa0`, a release `v0.3.0-beta.22`, e roda a
+suíte de contrato completa, incluindo o smoke de entrega, contra esse daemon.
+O piso de runtime é `v0.3.0-beta.21`; o guard de versão rejeita qualquer build
+mais antiga, inclusive builds pós-tag que ainda se identificam como beta.20.
 
 Pré-requisitos:
 
@@ -110,8 +110,9 @@ Os contratos completos estão em
 
 - Forge provider, remote ou credencial ausente vira blocker; o Batuta nunca
   trata uma compare URL como PR publicado.
-- O pin de fonte compatível é uma baseline de desenvolvimento, não a afirmação
-  de que toda build pública do Compozy já lançou a superfície de ação do grafo.
+- O pin de fonte do CI é a release `v0.3.0-beta.22` do Compozy; o piso de
+  runtime é `v0.3.0-beta.21` e builds que se identificam como beta.20 são
+  rejeitadas pelo guard de versão.
 
 ## Saiba mais
 

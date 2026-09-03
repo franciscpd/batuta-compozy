@@ -36,7 +36,7 @@ for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
   require "$document" 'franciscpd/batuta-compozy'
   require "$document" 'v0.1.0-beta.6'
-  require "$document" '382976d4b43274630a4b67445812fd4a0216dbcc'
+  require "$document" '34208e9990622ee62e9a5cf114386273ae6abfa0'
   require "$document" "$install_command"
   require "$document" 'compozy extension enable batuta'
   require "$document" "$update_command"
@@ -46,6 +46,7 @@ for document in "${documents[@]}"; do
     'gh release download' \
     'batuta-compozy_0.1.0-beta.6.tar.gz' \
     'a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c' \
+    '382976d4b43274630a4b67445812fd4a0216dbcc' \
     'check-compozy-version.sh' \
     'batuta-republish.lock'; do
     if grep -qF -- "$obsolete" "$document"; then
@@ -53,7 +54,7 @@ for document in "${documents[@]}"; do
       exit 1
     fi
   done
-  if grep -oE '[0-9a-f]{40}' "$document" | grep -qvFx '382976d4b43274630a4b67445812fd4a0216dbcc'; then
+  if grep -oE '[0-9a-f]{40}' "$document" | grep -qvFx '34208e9990622ee62e9a5cf114386273ae6abfa0'; then
     printf 'unexpected 40-hex commit hash in %s\n' "$document" >&2
     exit 1
   fi

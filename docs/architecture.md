@@ -107,11 +107,10 @@ verification, and cleanup operations are journaled and replay-safe.
 
 For CompozyOS concepts, use the [official documentation](https://www.compozy.com/docs/)
 and [official repository](https://github.com/compozy/compozy). The direct Go
-dependency is upstream `v0.3.0-beta.21`; commit
-`382976d4b43274630a4b67445812fd4a0216dbcc` is a build/lint source baseline,
-not a qualified runtime baseline.
+dependency is upstream `v0.3.0-beta.21`; CI builds and runtime-tests against
+commit `34208e9990622ee62e9a5cf114386273ae6abfa0`, the `v0.3.0-beta.22` release.
 
-That pin's beta.20 binary timed out during workspace resolution before Start
-could persist a run. Runtime use therefore requires an actual beta.21-or-later
-binary. Stored Compozy Loop configuration is never mutated: routing and graph
-state live in Batuta's immutable journal.
+Runtime use requires a released beta.21-or-later binary; the version guard
+rejects post-tag builds that still identify as beta.20. Stored Compozy Loop
+configuration is never mutated: routing and graph state live in Batuta's
+immutable journal.

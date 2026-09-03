@@ -46,7 +46,7 @@ for text in \
   'task worktrees' \
   'canonical conflict reexecution' \
   'one final review' \
-  '382976d4b43274630a4b67445812fd4a0216dbcc' \
+  '34208e9990622ee62e9a5cf114386273ae6abfa0' \
   'no human publication gate' \
   'merge remains manual'; do
   require_text README.md "$text"
@@ -68,7 +68,7 @@ for text in \
   'worktrees de task' \
   'reexecução canônica de conflito' \
   'uma revisão final' \
-  '382976d4b43274630a4b67445812fd4a0216dbcc' \
+  '34208e9990622ee62e9a5cf114386273ae6abfa0' \
   'merge continua manual'; do
   require_text README.pt-BR.md "$text"
 done
@@ -218,7 +218,7 @@ require_text docs/verify.md 'loops/batuta-task/loop.yaml'
 require_text docs/verify.md 'loops/batuta-deliver-core/loop.yaml'
 require_text docs/verify.pt-BR.md 'loops/batuta-deliver-core/loop.yaml'
 require_text docs/verify.md 'staged Go sources'
-require_text docs/verify.md '382976d4b43274630a4b67445812fd4a0216dbcc'
+require_text docs/verify.md '34208e9990622ee62e9a5cf114386273ae6abfa0'
 
 for text in \
   'bash -n scripts/*.sh tests/contract/*.sh' \

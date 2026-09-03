@@ -105,12 +105,10 @@ seguras para replay.
 
 Para conceitos do CompozyOS, consulte a [documentação oficial](https://www.compozy.com/docs/)
 e o [repositório oficial](https://github.com/compozy/compozy). A dependência Go
-direta é o upstream `v0.3.0-beta.21`; o commit
-`382976d4b43274630a4b67445812fd4a0216dbcc` é uma baseline de fonte para build e
-lint, não uma baseline de runtime qualificada.
+direta é o upstream `v0.3.0-beta.21`; o CI compila e testa em runtime contra o
+commit `34208e9990622ee62e9a5cf114386273ae6abfa0`, a release `v0.3.0-beta.22`.
 
-O binário beta.20 desse pin atingiu timeout durante a resolução do workspace
-antes que Start pudesse persistir uma execução. O uso em runtime, portanto,
-exige um binário beta.21 ou posterior. A configuração armazenada de Loop do
-Compozy nunca é alterada: o roteamento e o estado do grafo vivem no journal
-imutável do Batuta.
+O uso em runtime exige um binário lançado beta.21 ou posterior; o guard de
+versão rejeita builds pós-tag que ainda se identificam como beta.20. A
+configuração armazenada de Loop do Compozy nunca é alterada: o roteamento e o
+estado do grafo vivem no journal imutável do Batuta.

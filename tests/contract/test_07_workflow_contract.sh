@@ -9,7 +9,7 @@ RELEASE_NOTES=docs/releases/0.1.0-beta.6.md
 CHECKOUT_SHA=3d3c42e5aac5ba805825da76410c181273ba90b1
 SETUP_GO_SHA=924ae3a1cded613372ab5595356fb5720e22ba16
 UPLOAD_SHA=043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-COMPOZY_COMMIT=382976d4b43274630a4b67445812fd4a0216dbcc
+COMPOZY_COMMIT=34208e9990622ee62e9a5cf114386273ae6abfa0
 
 require() {
   local value=$1
@@ -160,7 +160,7 @@ fi
 source_identity_block=$(workflow_step_block "$WORKFLOW" 'Verify pinned CompozyOS source')
 require_step_sequence 'pinned source identity' "$source_identity_block" \
   '          set -euo pipefail' \
-  '          expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"' \
+  '          expected_source_commit="34208e9990622ee62e9a5cf114386273ae6abfa0"' \
   '          actual_source_commit=$(git rev-parse HEAD)' \
   '          [[ $actual_source_commit == "$expected_source_commit" ]]'
 
@@ -233,7 +233,7 @@ require_release "uses: actions/setup-go@$SETUP_GO_SHA"
 require_release 'go-version: 1.26.4'
 require_release 'repository: compozy/compozy'
 require_release "ref: $COMPOZY_COMMIT"
-require_release 'expected_source_commit="382976d4b43274630a4b67445812fd4a0216dbcc"'
+require_release 'expected_source_commit="34208e9990622ee62e9a5cf114386273ae6abfa0"'
 require_release 'git fetch origin main'
 require_release 'git merge-base --is-ancestor "$expected_source_commit" origin/main'
 require_release 'make build-go'
