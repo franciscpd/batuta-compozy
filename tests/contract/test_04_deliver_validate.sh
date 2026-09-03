@@ -74,7 +74,15 @@ validate_loop loops/batuta-deliver-core/loop.yaml
 
 mkdir -p "$(dirname "$SMOKE_ROOT")"
 cp -R tests/fixtures/parallel-delivery/.compozy/tasks/parallel-demo "$SMOKE_ROOT"
+# Mirror the guarded start_delivery dispatch: the daemon merges the
+# `loops.defaults.delivery` layer after the definition contract, so the
+# launcher's `iteration_cap: 1` only holds when the per-run config carries it
+# together with `reattempt_strategy: halt`. Without it a failed core child is
+# reattempted as generation 2, which the single-child contract below rejects.
+SMOKE_CONFIG=$(mktemp)
+printf '{"iteration_cap":1,"budget_tokens":1000,"budget_wall_sec":30,"budget_on_exceeded":"halt","reattempt_strategy":"halt"}\n' > "$SMOKE_CONFIG"
 if ! run=$(timeout 30s compozy loop run --workspace "$WS" --name batuta-deliver \
+  --config-file "$SMOKE_CONFIG" \
   --input delivery_envelope_version=1 \
   --input delivery_id=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   --input attempt=1 --input slug="$SMOKE_SLUG" --input origin_session_id=sess-public-smoke \
@@ -91,6 +99,7 @@ if ! run=$(timeout 30s compozy loop run --workspace "$WS" --name batuta-deliver 
   fi
   exit 1
 fi
+rm -f -- "$SMOKE_CONFIG"
 SMOKE_RUN_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["id"])' <<<"$run")
 
 core_started=false
@@ -230,17 +239,20 @@ pairs = set(re.findall(r"-\s*\{?from:\s*([^,\s}]+),?\s*to:\s*([^,\s}]+)", edges)
 required = {
     ("load_check", "routing_context"),
     ("routing_context", "prepare_wave"),
-    ("prepare_wave", "wave_route"),
-    ("wave_route", "task_wave"),
+    ("prepare_wave", "task_wave"),
     ("task_wave", "run_task"),
     ("run_task", "record_candidate"),
     ("record_candidate", "collect_wave"),
-    ("collect_wave", "settle_wave"),
+    ("collect_wave", "wave_route"),
+    ("wave_route", "settle_wave"),
+    ("settle_wave", "settle_route"),
     ("delivery_budget_context", "review"),
     ("review", "publication_plan"),
     ("publication_plan", "publication_route"),
     ("publication_route", "publish"),
     ("publication_route", "publication_verify_nothing"),
+    ("publication_route", "publication_verify_local"),
+    ("publication_verify_local", "cleanup"),
     ("publication_route", "publication_blocked_stop"),
     ("publish", "publication_verify"),
     ("publication_verify", "cleanup"),

@@ -3,6 +3,7 @@ package publication
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -17,7 +18,13 @@ type VerifyOutput struct {
 	Status   PublishStatus `json:"status"`
 	HeadSHA  string        `json:"head_sha"`
 	PRURL    string        `json:"pr_url,omitempty"`
-	Summary  string        `json:"summary"`
+	// Branch, CommitsAheadOfBase, and MergeHint carry the local-only evidence:
+	// where the commits sit and the exact operator command that integrates
+	// them. Batuta never runs that command itself.
+	Branch             string `json:"branch,omitempty"`
+	CommitsAheadOfBase int    `json:"commits_ahead_of_base,omitempty"`
+	MergeHint          string `json:"merge_hint,omitempty"`
+	Summary            string `json:"summary"`
 }
 
 type Verifier struct {
@@ -59,6 +66,8 @@ func (v Verifier) Verify(
 		return v.verifyPublished(ctx, input, plan)
 	case PublishStatusNothing:
 		return verifyNothing(input, plan)
+	case PublishStatusLocalOnly:
+		return verifyLocalOnly(input, plan)
 	case PublishStatusBlocked:
 		return verifyBlocked(input, plan)
 	default:
@@ -103,6 +112,27 @@ func verifyNothing(input VerifyInput, plan PlanOutput) (VerifyOutput, error) {
 		Status:   PublishStatusNothing,
 		HeadSHA:  plan.HeadSHA,
 		Summary:  boundedSummary("nothing-to-publish result independently verified"),
+	}, nil
+}
+
+func verifyLocalOnly(input VerifyInput, plan PlanOutput) (VerifyOutput, error) {
+	if len(input.PublisherResult.OperationIDs) != 0 || input.PublisherResult.PRURL != "" {
+		return verificationRejected(PublishStatusLocalOnly, "local-only publication contains mutation claims")
+	}
+	if plan.Disposition != DispositionLocalOnly {
+		return verificationRejected(PublishStatusLocalOnly, "fresh plan is not local-only")
+	}
+	return VerifyOutput{
+		Verified:           true,
+		Status:             PublishStatusLocalOnly,
+		HeadSHA:            plan.HeadSHA,
+		Branch:             plan.Branch,
+		CommitsAheadOfBase: plan.CommitsAheadOfBase,
+		MergeHint:          "git merge --ff-only " + plan.Branch,
+		Summary: boundedSummary(fmt.Sprintf(
+			"local-only result independently verified: %d commit(s) on %s, no remote to publish to; merge is manual",
+			plan.CommitsAheadOfBase, plan.Branch,
+		)),
 	}, nil
 }
 

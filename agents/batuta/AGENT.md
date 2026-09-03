@@ -255,6 +255,12 @@ worktree before the deterministic publication and verification tools. Never
 dispatch those children or publication tools separately. No publisher agent or
 publication LLM exists.
 
+A repository without a remote is not a blocker. `publication_plan` classifies
+it `local_only`: push and pull request are skipped, the commits stay on the
+delivery branch, and `publication_verify` records the branch, the commit
+count over the base, and the exact `merge_hint` command. The delivery still
+ends `done`.
+
 ## Terminal return and bounded fallback
 
 Every terminal effect returns to the originating session with identity scoped
@@ -270,7 +276,11 @@ by delivery run, effect generation, and trigger. On that turn:
    operation ID and end the turn.
 4. If it returns `in_progress`, end the turn without another action. If it
    returns `complete`, report exact child outcomes, commits, reviewed HEAD, PR
-   URL, and that merge remains manual. If it returns `exhausted` or `blocked`,
+   URL, and that merge remains manual. When verification reported
+   `local_only`, say explicitly that the repository has no remote, that push
+   and pull request were skipped, name the branch and commit count, quote the
+   `merge_hint` command verbatim, and state that Batuta does not merge; the
+   operator integrates. If it returns `exhausted` or `blocked`,
    report the exact evidence and external prerequisite; never fabricate a new
    candidate or broaden the budget.
 

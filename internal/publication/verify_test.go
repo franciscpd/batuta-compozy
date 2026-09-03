@@ -187,6 +187,62 @@ func TestVerifierRejectsNothingToPublishWithOperationClaims(t *testing.T) {
 	}
 }
 
+func TestVerifierAcceptsGenuineLocalOnlyResultWithMergeHint(t *testing.T) {
+	t.Parallel()
+
+	verifier := localOnlyVerifier(2)
+	result := PublishOutput{Status: PublishStatusLocalOnly, HeadSHA: testHeadSHA, OperationIDs: []string{}, Summary: "local"}
+	output, err := verifier.Verify(context.Background(), trustedScope(), VerifyInput{
+		WorktreeRef: "wt_delivery", ExpectedHeadSHA: testHeadSHA, PublisherResult: result,
+	})
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+	if !output.Verified || output.Status != PublishStatusLocalOnly || output.PRURL != "" || output.HeadSHA != testHeadSHA {
+		t.Fatalf("Verify() = %#v", output)
+	}
+	if output.Branch != "feature/delivery" || output.CommitsAheadOfBase != 2 ||
+		output.MergeHint != "git merge --ff-only feature/delivery" {
+		t.Fatalf("Verify() local evidence = %#v", output)
+	}
+}
+
+func TestVerifierRejectsLocalOnlyResultThatClaimsOrHidesRemoteWork(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		verifier Verifier
+		mutate   func(*PublishOutput)
+	}{
+		{name: "operation claims", verifier: localOnlyVerifier(1), mutate: func(o *PublishOutput) { o.OperationIDs = []string{"op-fabricated"} }},
+		{name: "PR claim", verifier: localOnlyVerifier(1), mutate: func(o *PublishOutput) { o.PRURL = "https://github.com/acme/repo/pull/42" }},
+		{name: "remote exists", verifier: publishedVerifier("https://github.com/acme/repo/pull/42", testHeadSHA), mutate: func(*PublishOutput) {}},
+		{name: "nothing to publish", verifier: localOnlyVerifier(0), mutate: func(*PublishOutput) {}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := PublishOutput{Status: PublishStatusLocalOnly, HeadSHA: testHeadSHA, OperationIDs: []string{}}
+			tt.mutate(&result)
+			output, err := tt.verifier.Verify(context.Background(), trustedScope(), VerifyInput{
+				WorktreeRef: "wt_delivery", ExpectedHeadSHA: testHeadSHA, PublisherResult: result,
+			})
+			if err == nil || output.Verified {
+				t.Fatalf("Verify() = (%#v, %v), want rejection", output, err)
+			}
+		})
+	}
+}
+
+func localOnlyVerifier(commitsAhead int) Verifier {
+	inspection := validInspection()
+	inspection.Status.AheadOfBase = ptr(commitsAhead)
+	client := &publisherWorktreeClient{inspection: inspection, exitPlans: []ExitPlan{localOnlyExitPlan()}}
+	git := &fakeGitEvidence{snapshot: validSnapshot(), baseAhead: commitsAhead}
+	return Verifier{Planner: PublicationPlanner{Compozy: client, Git: git}, Git: git}
+}
+
 func TestVerifierRejectsMalformedExpectedHead(t *testing.T) {
 	t.Parallel()
 
@@ -229,7 +285,7 @@ func TestVerifierIndependentlyVerifiesDeterministicallyBlockedPublication(t *tes
 		PublisherResult: PublishOutput{Status: PublishStatusBlocked, HeadSHA: testHeadSHA, OperationIDs: []string{}, Summary: "blocked"},
 	})
 	if err != nil || !output.Verified || output.Status != PublishStatusBlocked || output.HeadSHA != testHeadSHA ||
-		!strings.Contains(output.Summary, "remote_missing") {
+		!strings.Contains(output.Summary, "publication_state_ambiguous") {
 		t.Fatalf("Verify(blocked) = (%#v, %v), want verified blocked result naming the blocker", output, err)
 	}
 	forged, err := verifier.Verify(context.Background(), trustedScope(), VerifyInput{

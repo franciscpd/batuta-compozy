@@ -209,6 +209,7 @@ graph:
       routes:
         - {when: "nodes.publication_plan.output.disposition == 'publishable'", to: publish}
         - {when: "nodes.publication_plan.output.disposition == 'nothing_to_publish'", to: publication_verify_nothing}
+        - {when: "nodes.publication_plan.output.disposition == 'local_only'", to: publication_verify_local}
       default: publication_blocked_stop
     - id: publish
       class: action
@@ -228,6 +229,16 @@ graph:
         worktree_ref: "{{ .inputs.worktree_ref }}"
         expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
         publisher_result: {status: nothing_to_publish, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "fresh publication plan found no commits to publish", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
+    - id: publication_verify_local
+      class: action
+      kind: ext__batuta__publication_verify
+      # The repository has no remote: nothing to push, no pull request to open.
+      # The commits stay on the delivery branch and the verifier records the
+      # exact manual merge command; Batuta never integrates them itself.
+      params:
+        worktree_ref: "{{ .inputs.worktree_ref }}"
+        expected_head_sha: "{{ .nodes.publication_plan.output.head_sha }}"
+        publisher_result: {status: local_only, head_sha: "{{ .nodes.publication_plan.output.head_sha }}", op_ids: [], summary: "repository has no remote; commits stay on the delivery branch for manual merge", last_exit_plan: "{{ .nodes.publication_plan.output.exit_plan }}"}
     - id: publication_blocked_stop
       class: action
       kind: ext__batuta__publication_verify
@@ -311,11 +322,13 @@ graph:
     - {from: publication_plan, to: publication_route}
     - {from: publication_route, to: publish}
     - {from: publication_route, to: publication_verify_nothing}
+    - {from: publication_route, to: publication_verify_local}
     - {from: publication_route, to: publication_blocked_stop}
     - {from: publication_blocked_stop, to: terminal_blocked_publication}
     - {from: publish, to: publication_verify}
     - {from: publication_verify, to: cleanup}
     - {from: publication_verify_nothing, to: cleanup}
+    - {from: publication_verify_local, to: cleanup}
     - {from: cleanup, to: cleanup_route}
     - {from: cleanup_route, to: cleanup_complete}
     - {from: cleanup_route, to: terminal_blocked_cleanup}

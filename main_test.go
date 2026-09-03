@@ -320,7 +320,8 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 	for _, nodeID := range []string{
 		"load_check", "routing_context", "prepare_wave", "wave_route", "task_wave", "run_task",
 		"record_candidate", "collect_wave", "settle_wave", "settle_route", "delivery_budget_context",
-		"review", "publication_plan", "publication_route", "publish", "publication_verify", "cleanup",
+		"review", "publication_plan", "publication_route", "publish", "publication_verify",
+		"publication_verify_nothing", "publication_verify_local", "cleanup",
 	} {
 		if _, exists := nodes[nodeID]; !exists {
 			t.Fatalf("missing parent node %q", nodeID)
@@ -371,6 +372,8 @@ func TestDeliveryCoreRunsDependencySafeTaskWavesWithBoundedChildOverrides(t *tes
 		{"settle_route", "generation_continue_settle"},
 		{"review", "publication_plan"}, {"publication_plan", "publication_route"}, {"publication_route", "publish"},
 		{"publish", "publication_verify"}, {"publication_verify", "cleanup"},
+		{"publication_route", "publication_verify_nothing"}, {"publication_verify_nothing", "cleanup"},
+		{"publication_route", "publication_verify_local"}, {"publication_verify_local", "cleanup"},
 		{"publication_route", "publication_blocked_stop"}, {"publication_blocked_stop", "terminal_blocked_publication"},
 		{"wave_route", "terminal_exhausted"}, {"settle_route", "terminal_exhausted_settle"},
 		{"settle_route", "terminal_blocked_settle"},

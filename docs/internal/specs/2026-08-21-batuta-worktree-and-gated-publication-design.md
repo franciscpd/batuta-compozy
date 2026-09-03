@@ -3,7 +3,10 @@
 Design approved in conversation on 2026-08-21; revised the same day after
 external review. This change closes the two largest gaps in the delivery
 flow: work landing as loose commits on the operator's current branch, and
-the flow ending at local commits with no path to a remote. Both close with
+the flow ending at local commits with no path to a remote. (Revised
+2026-09-03: a repository that has no remote at all is a legitimate
+`local_only` outcome, not a blocker; see the scoped-LLM publication design.)
+Both close with
 CompozyOS primitives the daemon already owns — managed worktrees, Loop
 environments, human gates, node effects, and worktree exit actions.
 

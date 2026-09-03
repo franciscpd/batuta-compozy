@@ -190,7 +190,13 @@ the exit plan, and verifies one of:
 
 - the exact expected SHA is the published remote/PR head and the reported PR
   URL is observable;
-- there was genuinely nothing to publish and no push `op_id` was claimed.
+- there was genuinely nothing to publish and no push `op_id` was claimed;
+- the repository has no remote (`local_only`, revised 2026-09-03): the branch
+  carries commits over the base, no push `op_id` or PR URL was claimed, and
+  the verifier reports the branch, the commit count, and the exact
+  `merge_hint` (`git merge --ff-only <branch>`). A missing remote is no longer
+  the `remote_missing` blocker; an upstream tracked without any remote
+  evidence in the exit plan is `publication_state_ambiguous`.
 
 Mismatch, unverifiable output, dirty state, or an ambiguous operation fails
 the node and prevents the parent Loop from ending `done`.

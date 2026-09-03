@@ -18,7 +18,11 @@ type Disposition string
 const (
 	DispositionPublishable Disposition = "publishable"
 	DispositionNothing     Disposition = "nothing_to_publish"
-	DispositionBlocked     Disposition = "blocked"
+	// DispositionLocalOnly: the branch carries commits but the repository has
+	// no remote, so there is nothing to push and no pull request to open. The
+	// commits stay on the delivery branch; integration is the operator's.
+	DispositionLocalOnly Disposition = "local_only"
+	DispositionBlocked   Disposition = "blocked"
 )
 
 type PlanOutput struct {
@@ -29,8 +33,11 @@ type PlanOutput struct {
 	WorktreePath string      `json:"worktree_path"`
 	HeadSHA      string      `json:"head_sha"`
 	Clean        bool        `json:"clean"`
-	ExitPlan     ExitPlan    `json:"exit_plan"`
-	Blockers     []string    `json:"blockers,omitempty"`
+	// CommitsAheadOfBase is the branch's commit count over the base branch,
+	// measured fresh from Git; zero means nothing to publish.
+	CommitsAheadOfBase int      `json:"commits_ahead_of_base"`
+	ExitPlan           ExitPlan `json:"exit_plan"`
+	Blockers           []string `json:"blockers,omitempty"`
 }
 
 // PublicationPlanner classifies a trusted worktree for publication. It does
@@ -132,8 +139,9 @@ func (p PublicationPlanner) Plan(
 	if strings.TrimSpace(exitPlan.GlobalPauseCause) != "" {
 		return blockedPlan(plan, "exit_plan_paused")
 	}
-	if !hasRemoteEvidence(exitPlan) {
-		return blockedPlan(plan, "remote_missing")
+	remote := hasRemoteEvidence(exitPlan)
+	if *status.HasUpstream && !remote {
+		return blockedPlan(plan, "publication_state_ambiguous")
 	}
 	if *status.HasUpstream {
 		if status.Ahead == nil || status.Behind == nil {
@@ -147,7 +155,7 @@ func (p PublicationPlanner) Plan(
 		}
 		upstreamHead, upstreamErr := p.Git.UpstreamHead(ctx, inspection.Worktree.Path)
 		if upstreamErr != nil || !gitSHA.MatchString(upstreamHead) {
-			return blockedPlan(plan, "remote_missing")
+			return blockedPlan(plan, "git_unreadable")
 		}
 	}
 	baseBranch, ok := consistentBaseBranch(inspection.Worktree.BaseRef, exitPlan.Base)
@@ -157,6 +165,9 @@ func (p PublicationPlanner) Plan(
 	if baseBranch == "" && exitPlan.Forge != nil {
 		baseBranch = strings.TrimSpace(exitPlan.Forge.DefaultBranch)
 	}
+	if baseBranch == "" {
+		return blockedPlan(plan, "publication_state_ambiguous")
+	}
 	plan.BaseBranch = baseBranch
 	baseAhead, err := p.Git.CommitsAheadOfBase(ctx, inspection.Worktree.Path, plan.BaseBranch)
 	if err != nil {
@@ -165,8 +176,13 @@ func (p PublicationPlanner) Plan(
 	if status.AheadOfBase != nil && *status.AheadOfBase != baseAhead {
 		return blockedPlan(plan, "publication_state_ambiguous")
 	}
+	plan.CommitsAheadOfBase = baseAhead
 	if baseAhead == 0 {
 		plan.Disposition = DispositionNothing
+		return plan, nil
+	}
+	if !remote {
+		plan.Disposition = DispositionLocalOnly
 		return plan, nil
 	}
 	if exitPlan.Forge == nil || strings.TrimSpace(exitPlan.Forge.Provider) == "" ||

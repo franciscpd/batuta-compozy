@@ -514,22 +514,23 @@ func verifyInputSchema() map[string]any {
 }
 
 func planOutputSchema() map[string]any {
-	return objectSchema([]string{"disposition", "worktree_id", "branch", "base_branch", "worktree_path", "head_sha", "clean", "exit_plan"}, map[string]any{
-		"disposition":   map[string]any{"enum": []string{"publishable", "nothing_to_publish", "blocked"}},
-		"worktree_id":   map[string]any{"type": "string"},
-		"branch":        map[string]any{"type": "string"},
-		"base_branch":   map[string]any{"type": "string"},
-		"worktree_path": map[string]any{"type": "string"},
-		"head_sha":      map[string]any{"type": "string"},
-		"clean":         map[string]any{"type": "boolean"},
-		"exit_plan":     map[string]any{"type": "object"},
-		"blockers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	return objectSchema([]string{"disposition", "worktree_id", "branch", "base_branch", "worktree_path", "head_sha", "clean", "commits_ahead_of_base", "exit_plan"}, map[string]any{
+		"disposition":           map[string]any{"enum": []string{"publishable", "nothing_to_publish", "local_only", "blocked"}},
+		"worktree_id":           map[string]any{"type": "string"},
+		"branch":                map[string]any{"type": "string"},
+		"base_branch":           map[string]any{"type": "string"},
+		"worktree_path":         map[string]any{"type": "string"},
+		"head_sha":              map[string]any{"type": "string"},
+		"clean":                 map[string]any{"type": "boolean"},
+		"commits_ahead_of_base": map[string]any{"type": "integer", "minimum": 0},
+		"exit_plan":             map[string]any{"type": "object"},
+		"blockers":              map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	})
 }
 
 func publishOutputSchema() map[string]any {
 	return objectSchema([]string{"status", "head_sha", "op_ids", "summary", "last_exit_plan"}, map[string]any{
-		"status":         map[string]any{"enum": []string{"published", "nothing_to_publish", "blocked"}},
+		"status":         map[string]any{"enum": []string{"published", "nothing_to_publish", "local_only", "blocked"}},
 		"head_sha":       map[string]any{"type": "string"},
 		"op_ids":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		"pr_url":         map[string]any{"type": "string"},
@@ -540,11 +541,14 @@ func publishOutputSchema() map[string]any {
 
 func verifyOutputSchema() map[string]any {
 	return objectSchema([]string{"verified", "status", "head_sha", "summary"}, map[string]any{
-		"verified": map[string]any{"type": "boolean"},
-		"status":   map[string]any{"enum": []string{"published", "nothing_to_publish", "blocked"}},
-		"head_sha": map[string]any{"type": "string"},
-		"pr_url":   map[string]any{"type": "string"},
-		"summary":  map[string]any{"type": "string"},
+		"verified":              map[string]any{"type": "boolean"},
+		"status":                map[string]any{"enum": []string{"published", "nothing_to_publish", "local_only", "blocked"}},
+		"head_sha":              map[string]any{"type": "string"},
+		"pr_url":                map[string]any{"type": "string"},
+		"branch":                map[string]any{"type": "string"},
+		"commits_ahead_of_base": map[string]any{"type": "integer", "minimum": 0},
+		"merge_hint":            map[string]any{"type": "string"},
+		"summary":               map[string]any{"type": "string"},
 	})
 }
 

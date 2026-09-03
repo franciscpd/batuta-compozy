@@ -23,6 +23,7 @@ type PublishStatus string
 const (
 	PublishStatusPublished PublishStatus = "published"
 	PublishStatusNothing   PublishStatus = "nothing_to_publish"
+	PublishStatusLocalOnly PublishStatus = "local_only"
 	PublishStatusBlocked   PublishStatus = "blocked"
 )
 

@@ -99,7 +99,10 @@ After all graph tasks are integrated, one final review runs through `review-and-
 integration worktree. `publication_plan` freezes the reviewed HEAD;
 `ext__batuta__publish_worktree` pushes exactly that HEAD and opens or reuses one
 PR; `publication_verify` checks the remote result. Healthy publication has no
-human gate; merge remains manual.
+human gate; merge remains manual. A repository with no remote is not an
+error: the plan reports `local_only`, push and PR are skipped, the commits
+stay on the delivery branch, and the terminal report quotes the manual merge
+command. Batuta never merges.
 
 The launcher terminal effect queues a message for `origin_session_id`. Batuta
 reads the exact launcher run with `compozy__loop_status`, calls

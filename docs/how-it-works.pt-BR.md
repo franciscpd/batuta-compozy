@@ -105,7 +105,10 @@ Depois que todas as tasks do grafo estão integradas, uma revisão final executa
 por `review-and-fix` no worktree de integração. `publication_plan` congela o
 HEAD revisado; `ext__batuta__publish_worktree` envia exatamente esse HEAD e abre
 ou reutiliza um PR; `publication_verify` verifica o resultado remoto. A
-publicação saudável não tem gate humano; o merge continua manual.
+publicação saudável não tem gate humano; o merge continua manual. Repositório
+sem remote não é erro: o plano reporta `local_only`, push e PR são pulados, os
+commits ficam na branch da entrega e o relatório terminal cita o comando de
+merge manual. O Batuta nunca faz merge.
 
 O efeito terminal do launcher coloca uma mensagem na fila de `origin_session_id`.
 O Batuta lê o run launcher exato com `compozy__loop_status`, chama

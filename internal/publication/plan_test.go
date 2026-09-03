@@ -128,8 +128,19 @@ func TestPlannerBlocksDivergedBehindMissingRemoteAndMissingForge(t *testing.T) {
 	}{
 		{name: "diverged", inspection: func(i *WorktreeInspection) { setTracking(i, 1, 1) }, blocker: "branch_diverged"},
 		{name: "behind", inspection: func(i *WorktreeInspection) { setTracking(i, 0, 1) }, blocker: "branch_behind"},
-		{name: "remote missing", plan: func(p *ExitPlan) { p.Actions = nil; p.Forge = nil; p.ForgeStatus = nil }, blocker: "remote_missing"},
-		{name: "upstream unreadable", inspection: func(i *WorktreeInspection) { setTracking(i, 0, 0) }, upstreamErr: errors.New("no upstream"), blocker: "remote_missing"},
+		{name: "upstream unreadable", inspection: func(i *WorktreeInspection) { setTracking(i, 0, 0) }, upstreamErr: errors.New("no upstream"), blocker: "git_unreadable"},
+		{
+			name:       "upstream tracked without remote evidence",
+			inspection: func(i *WorktreeInspection) { setTracking(i, 0, 0) },
+			plan:       func(p *ExitPlan) { p.Actions = nil; p.Forge = nil; p.ForgeStatus = nil },
+			blocker:    "publication_state_ambiguous",
+		},
+		{
+			name:       "base branch unknown without remote evidence",
+			inspection: func(i *WorktreeInspection) { i.Worktree.BaseRef = "" },
+			plan:       func(p *ExitPlan) { p.Actions = nil; p.Forge = nil; p.ForgeStatus = nil; p.Base = "" },
+			blocker:    "publication_state_ambiguous",
+		},
 		{name: "forge missing", plan: func(p *ExitPlan) { p.Forge = nil }, blocker: "forge_unavailable"},
 		{name: "forge provider missing", plan: func(p *ExitPlan) { p.Forge.Provider = "" }, blocker: "forge_unavailable"},
 		{name: "forge default branch missing", plan: func(p *ExitPlan) { p.Forge.DefaultBranch = "" }, blocker: "forge_unavailable"},
@@ -192,6 +203,45 @@ func TestPlannerReturnsNothingToPublishForCleanBaseIdenticalBranch(t *testing.T)
 	}
 	if got.WorktreePath != validInspection().Worktree.Path || got.BaseBranch != "main" {
 		t.Fatalf("Plan() identity = %#v", got)
+	}
+}
+
+func TestPlannerReturnsLocalOnlyWhenTheRepositoryHasNoRemote(t *testing.T) {
+	t.Parallel()
+
+	inspection := validInspection()
+	inspection.Status.AheadOfBase = ptr(3)
+	planner := PublicationPlanner{
+		Compozy: &fakeWorktreeClient{inspection: inspection, plan: localOnlyExitPlan()},
+		Git:     &fakeGitEvidence{snapshot: validSnapshot(), baseAhead: 3},
+	}
+	got, err := planner.Plan(context.Background(), trustedScope(), PlanInput{WorktreeRef: "wt_delivery"})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if got.Disposition != DispositionLocalOnly || got.HeadSHA != testHeadSHA || !got.Clean || len(got.Blockers) != 0 {
+		t.Fatalf("Plan() = %#v", got)
+	}
+	if got.Branch != "feature/delivery" || got.BaseBranch != "main" || got.CommitsAheadOfBase != 3 {
+		t.Fatalf("Plan() identity = %#v", got)
+	}
+}
+
+func TestPlannerReturnsNothingToPublishWithoutRemoteWhenBranchMatchesBase(t *testing.T) {
+	t.Parallel()
+
+	inspection := validInspection()
+	inspection.Status.AheadOfBase = ptr(0)
+	planner := PublicationPlanner{
+		Compozy: &fakeWorktreeClient{inspection: inspection, plan: localOnlyExitPlan()},
+		Git:     &fakeGitEvidence{snapshot: validSnapshot(), baseAhead: 0},
+	}
+	got, err := planner.Plan(context.Background(), trustedScope(), PlanInput{WorktreeRef: "wt_delivery"})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if got.Disposition != DispositionNothing || got.CommitsAheadOfBase != 0 {
+		t.Fatalf("Plan() = %#v", got)
 	}
 }
 
@@ -379,6 +429,12 @@ func validExitPlan() ExitPlan {
 		PRPrefill:   &PRPrefill{Title: "Feature title", Body: "Feature body"},
 		Base:        "main",
 	}
+}
+
+// localOnlyExitPlan is the daemon's exit plan for a worktree whose repository
+// has no remote: no forge, no browser URL, and no push or PR action at all.
+func localOnlyExitPlan() ExitPlan {
+	return ExitPlan{WorktreeID: "wt_delivery", Actions: []ExitAction{}, Base: "main"}
 }
 
 func validPlanner(inspection WorktreeInspection) PublicationPlanner {
