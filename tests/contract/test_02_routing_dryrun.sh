@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Deriva um provider/modelo utilizavel do catalogo vivo e valida runtime_rules.
+# Deriva um provider/modelo do catalogo (vivo quando existe; senao um par do
+# catalogo estatico, com aviso) e valida runtime_rules no dry-run.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source tests/contract/lib.sh

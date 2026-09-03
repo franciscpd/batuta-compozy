@@ -1,3 +1,5 @@
+import contextlib
+import io
 import unittest
 
 from select_routing_pair import select_pair
@@ -27,7 +29,7 @@ class SelectRoutingPairTest(unittest.TestCase):
 
         self.assertEqual(select_pair(self.providers, models), ("usable", "z-live"))
 
-    def test_rejects_unknown_availability(self):
+    def test_falls_back_to_catalog_pair_when_nothing_is_live(self):
         models = [
             {
                 "provider_id": "usable",
@@ -37,7 +39,27 @@ class SelectRoutingPairTest(unittest.TestCase):
             }
         ]
 
-        with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
+        self.assertEqual(select_pair(self.providers, models), ("usable", "fallback"))
+
+    def test_fallback_accepts_a_listed_but_unauthenticated_provider(self):
+        models = [
+            {
+                "provider_id": "missing",
+                "model_id": "cli-absent",
+                "available": False,
+                "availability_state": "unknown",
+            }
+        ]
+
+        self.assertEqual(select_pair(self.providers, models), ("missing", "cli-absent"))
+
+    def test_rejects_unlisted_provider_and_empty_catalog(self):
+        models = [
+            {"provider_id": "ghost", "model_id": "x", "availability_state": "unknown"},
+            {"provider_id": "usable", "model_id": "hidden", "hidden": True},
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "no provider/model pair"):
             select_pair(self.providers, models)
 
     def test_excludes_explicitly_unavailable_and_missing_provider(self):
@@ -62,10 +84,13 @@ class SelectRoutingPairTest(unittest.TestCase):
             },
         ]
 
-        with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
-            select_pair(self.providers, models)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            pair = select_pair(self.providers, models)
+        self.assertEqual(pair, ("missing", "live-but-provider-missing"))
+        self.assertIn("WARN: no live provider/model pair", stderr.getvalue())
 
-    def test_rejects_all_authoritative_ineligible_auth_states(self):
+    def test_never_treats_ineligible_auth_states_as_live(self):
         models = []
         providers = []
         for index, state in enumerate(
@@ -81,8 +106,11 @@ class SelectRoutingPairTest(unittest.TestCase):
                 }
             )
 
-        with self.assertRaisesRegex(RuntimeError, "no usable provider/model pair"):
-            select_pair(providers, models)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            pair = select_pair(providers, models)
+        self.assertEqual(pair, ("provider-0", "live-model"))
+        self.assertIn("WARN: no live provider/model pair", stderr.getvalue())
 
     def test_unknown_auth_remains_degraded_but_live(self):
         providers = [
