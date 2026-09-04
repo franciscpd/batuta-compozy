@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/batuta-ai/core/inventory"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
 )
 
 func (a application) inventory(

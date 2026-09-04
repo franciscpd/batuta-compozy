@@ -12,10 +12,10 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
-	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/inventory"
+	"github.com/batuta-ai/core/inventory/adapters"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestLiveInventorySnapshotIsStableWithoutExecutorChangesIntegration(t *testing.T) {

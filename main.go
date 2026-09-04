@@ -11,8 +11,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/batuta-ai/core/publication"
 	"github.com/franciscpd/batuta-compozy/internal/extensionapp"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
 )
 
 type extensionRunner interface {

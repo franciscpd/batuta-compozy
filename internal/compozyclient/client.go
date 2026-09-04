@@ -1,10 +1,11 @@
-package publication
+package compozyclient
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/batuta-ai/core/publication"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,40 +19,40 @@ const (
 
 type CLIClient struct {
 	Executable string
-	Runner     CommandRunner
+	Runner     publication.CommandRunner
 	Timeout    time.Duration
 }
 
 func (c CLIClient) Inspect(
 	ctx context.Context,
-	scope TrustedScope,
+	scope publication.TrustedScope,
 	worktreeRef string,
-) (WorktreeInspection, error) {
+) (publication.WorktreeInspection, error) {
 	ref, err := c.validate(scope, worktreeRef)
 	if err != nil {
-		return WorktreeInspection{}, err
+		return publication.WorktreeInspection{}, err
 	}
 	workspaceID := strings.TrimSpace(scope.WorkspaceID)
 	var refreshed struct {
-		WorktreeID string          `json:"worktree_id"`
-		Status     *WorktreeStatus `json:"status"`
+		WorktreeID string                      `json:"worktree_id"`
+		Status     *publication.WorktreeStatus `json:"status"`
 	}
 	if err := c.runJSON(ctx, []string{
 		"worktree", "status", "--workspace", workspaceID, "--refresh", "-o", "json", "--", ref,
 	}, &refreshed); err != nil {
-		return WorktreeInspection{}, fmt.Errorf("publication: refresh worktree status: %w", err)
+		return publication.WorktreeInspection{}, fmt.Errorf("publication: refresh worktree status: %w", err)
 	}
 	if strings.TrimSpace(refreshed.WorktreeID) == "" || refreshed.WorktreeID != ref || refreshed.Status == nil {
-		return WorktreeInspection{}, errors.New("publication: status refresh returned a mismatched worktree ID or empty status")
+		return publication.WorktreeInspection{}, errors.New("publication: status refresh returned a mismatched worktree ID or empty status")
 	}
-	var inspection WorktreeInspection
+	var inspection publication.WorktreeInspection
 	if err := c.runJSON(ctx, []string{
 		"worktree", "inspect", "--workspace", workspaceID, "-o", "json", "--", ref,
 	}, &inspection); err != nil {
-		return WorktreeInspection{}, fmt.Errorf("publication: inspect worktree: %w", err)
+		return publication.WorktreeInspection{}, fmt.Errorf("publication: inspect worktree: %w", err)
 	}
 	if strings.TrimSpace(inspection.Worktree.ID) == "" || inspection.Worktree.ID != ref {
-		return WorktreeInspection{}, errors.New("publication: inspection returned a mismatched worktree ID")
+		return publication.WorktreeInspection{}, errors.New("publication: inspection returned a mismatched worktree ID")
 	}
 	inspection.Status = refreshed.Status
 	return inspection, nil
@@ -59,33 +60,33 @@ func (c CLIClient) Inspect(
 
 func (c CLIClient) ExitPlan(
 	ctx context.Context,
-	scope TrustedScope,
+	scope publication.TrustedScope,
 	worktreeRef string,
-) (ExitPlan, error) {
+) (publication.ExitPlan, error) {
 	ref, err := c.validate(scope, worktreeRef)
 	if err != nil {
-		return ExitPlan{}, err
+		return publication.ExitPlan{}, err
 	}
-	var plan ExitPlan
+	var plan publication.ExitPlan
 	if err := c.runJSON(ctx, []string{
 		"worktree", "exit", "--workspace", strings.TrimSpace(scope.WorkspaceID), "-o", "json", "--", ref,
 	}, &plan); err != nil {
-		return ExitPlan{}, fmt.Errorf("publication: read worktree exit plan: %w", err)
+		return publication.ExitPlan{}, fmt.Errorf("publication: read worktree exit plan: %w", err)
 	}
 	if strings.TrimSpace(plan.WorktreeID) == "" || plan.WorktreeID != ref {
-		return ExitPlan{}, errors.New("publication: exit plan returned a mismatched worktree ID")
+		return publication.ExitPlan{}, errors.New("publication: exit plan returned a mismatched worktree ID")
 	}
 	return plan, nil
 }
 
 func (c CLIClient) Push(
 	ctx context.Context,
-	scope TrustedScope,
+	scope publication.TrustedScope,
 	worktreeRef string,
-) (Operation, error) {
+) (publication.Operation, error) {
 	ref, err := c.validate(scope, worktreeRef)
 	if err != nil {
-		return Operation{}, err
+		return publication.Operation{}, err
 	}
 	return c.runOperation(ctx, []string{
 		"worktree", "push", "--workspace", strings.TrimSpace(scope.WorkspaceID), "-o", "json", "--", ref,
@@ -94,14 +95,14 @@ func (c CLIClient) Push(
 
 func (c CLIClient) OpenPR(
 	ctx context.Context,
-	scope TrustedScope,
+	scope publication.TrustedScope,
 	worktreeRef string,
-	prefill PRPrefill,
+	prefill publication.PRPrefill,
 	base string,
-) (Operation, error) {
+) (publication.Operation, error) {
 	ref, err := c.validate(scope, worktreeRef)
 	if err != nil {
-		return Operation{}, err
+		return publication.Operation{}, err
 	}
 	return c.runOperation(ctx, []string{
 		"worktree", "pr", "--workspace", strings.TrimSpace(scope.WorkspaceID),
@@ -110,13 +111,13 @@ func (c CLIClient) OpenPR(
 	})
 }
 
-func (c CLIClient) runOperation(ctx context.Context, args []string) (Operation, error) {
-	var operation Operation
+func (c CLIClient) runOperation(ctx context.Context, args []string) (publication.Operation, error) {
+	var operation publication.Operation
 	if err := c.runJSON(ctx, args, &operation); err != nil {
-		return Operation{}, fmt.Errorf("publication: run worktree operation: %w", err)
+		return publication.Operation{}, fmt.Errorf("publication: run worktree operation: %w", err)
 	}
 	if strings.TrimSpace(operation.OperationID) == "" {
-		return Operation{}, errors.New("publication: worktree operation returned an empty operation ID")
+		return publication.Operation{}, errors.New("publication: worktree operation returned an empty operation ID")
 	}
 	return operation, nil
 }
@@ -128,7 +129,7 @@ func (c CLIClient) runJSON(ctx context.Context, args []string, target any) error
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := c.Runner.Run(commandCtx, Command{
+	result, err := c.Runner.Run(commandCtx, publication.Command{
 		Executable: c.Executable, Args: args,
 		StdoutLimit: publicationStdoutLimit, StderrLimit: publicationStderrLimit,
 	})
@@ -147,7 +148,7 @@ func (c CLIClient) runJSON(ctx context.Context, args []string, target any) error
 	return nil
 }
 
-func (c CLIClient) validate(scope TrustedScope, worktreeRef string) (string, error) {
+func (c CLIClient) validate(scope publication.TrustedScope, worktreeRef string) (string, error) {
 	if strings.TrimSpace(c.Executable) == "" || !filepath.IsAbs(c.Executable) {
 		return "", errors.New("publication: Compozy executable must be absolute")
 	}

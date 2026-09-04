@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/inventory"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestDeliveryAttemptServiceStartsOnceAndReplaysSubmittedRun(t *testing.T) {

@@ -11,11 +11,11 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/batuta-ai/core/inventory"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/repository"
+	"github.com/batuta-ai/core/routing"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/repository"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
 func TestRoutingPlanReturnsActionableDomainErrors(t *testing.T) {

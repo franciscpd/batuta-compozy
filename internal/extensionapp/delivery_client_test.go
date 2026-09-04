@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestDeliveryClientUsesExactBoundedCommandsAndSecureConfig(t *testing.T) {

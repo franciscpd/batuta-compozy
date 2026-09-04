@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/batuta-ai/core/routing"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
 )
 
 func TestDeliveryContextDescriptorsAreClosedReadOnlyTools(t *testing.T) {

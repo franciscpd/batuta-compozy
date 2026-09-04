@@ -1,9 +1,9 @@
-package publication
+package compozyclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"github.com/batuta-ai/core/publication"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -14,7 +14,7 @@ import (
 func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 	t.Parallel()
 
-	runner := &scriptedCommandRunner{results: []CommandResult{
+	runner := &scriptedCommandRunner{results: []publication.CommandResult{
 		{Stdout: []byte(statusFixtureJSON)},
 		{Stdout: []byte(inspectFixtureJSON)},
 		{Stdout: []byte(exitFixtureJSON)},
@@ -22,7 +22,7 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 		{Stdout: []byte(`{"op_id":"op_pr"}`)},
 	}}
 	client := CLIClient{Executable: "/controlled/compozy", Runner: runner}
-	scope := TrustedScope{WorkspaceID: "ws_trusted", WorkspaceRoot: "/trusted/workspace"}
+	scope := publication.TrustedScope{WorkspaceID: "ws_trusted", WorkspaceRoot: "/trusted/workspace"}
 
 	inspection, err := client.Inspect(context.Background(), scope, "wt_delivery")
 	if err != nil {
@@ -37,10 +37,10 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 
 	plan, err := client.ExitPlan(context.Background(), scope, "wt_delivery")
 	if err != nil {
-		t.Fatalf("ExitPlan() error = %v", err)
+		t.Fatalf("publication.ExitPlan() error = %v", err)
 	}
 	if plan.WorktreeID != "wt_delivery" || plan.PRPrefill == nil || plan.PRPrefill.Title != "Feature title" {
-		t.Fatalf("ExitPlan() = %#v", plan)
+		t.Fatalf("publication.ExitPlan() = %#v", plan)
 	}
 
 	push, err := client.Push(context.Background(), scope, "wt_delivery")
@@ -51,7 +51,7 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 		t.Fatalf("Push() = %#v", push)
 	}
 
-	prefill := PRPrefill{
+	prefill := publication.PRPrefill{
 		Title: "Feature $(touch nope) `still literal`",
 		Body:  "line one; echo nope\nline two with \"quotes\"",
 	}
@@ -63,7 +63,7 @@ func TestCLIClientUsesExactArgumentsAndDecodesPublicContracts(t *testing.T) {
 		t.Fatalf("OpenPR() = %#v", opened)
 	}
 
-	want := []Command{
+	want := []publication.Command{
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "status", "--workspace", "ws_trusted", "--refresh", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "inspect", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
 		{Executable: "/controlled/compozy", Args: []string{"worktree", "exit", "--workspace", "ws_trusted", "-o", "json", "--", "wt_delivery"}, StdoutLimit: 1024 * 1024, StderrLimit: 64 * 1024},
@@ -83,12 +83,12 @@ func TestCLIClientKeepsFlagLikeRefsPositional(t *testing.T) {
 		ref := ref
 		t.Run(ref, func(t *testing.T) {
 			t.Parallel()
-			runner := &scriptedCommandRunner{results: []CommandResult{
+			runner := &scriptedCommandRunner{results: []publication.CommandResult{
 				{Stdout: []byte(strings.Replace(statusFixtureJSON, "wt_delivery", ref, 1))},
 				{Stdout: []byte(strings.Replace(inspectFixtureJSON, "wt_delivery", ref, 1))},
 			}}
 			client := CLIClient{Executable: "/controlled/compozy", Runner: runner}
-			inspection, err := client.Inspect(context.Background(), TrustedScope{WorkspaceID: "ws_trusted"}, ref)
+			inspection, err := client.Inspect(context.Background(), publication.TrustedScope{WorkspaceID: "ws_trusted"}, ref)
 			if err != nil {
 				t.Fatalf("Inspect() error = %v", err)
 			}
@@ -113,12 +113,12 @@ func TestCLIClientRejectsInvalidBoundaryInputsBeforeExecution(t *testing.T) {
 	tests := []struct {
 		name       string
 		executable string
-		scope      TrustedScope
+		scope      publication.TrustedScope
 		ref        string
 	}{
-		{name: "relative executable", executable: "compozy", scope: TrustedScope{WorkspaceID: "ws_trusted"}, ref: "wt_delivery"},
-		{name: "blank workspace", executable: "/controlled/compozy", scope: TrustedScope{}, ref: "wt_delivery"},
-		{name: "blank ref", executable: "/controlled/compozy", scope: TrustedScope{WorkspaceID: "ws_trusted"}},
+		{name: "relative executable", executable: "compozy", scope: publication.TrustedScope{WorkspaceID: "ws_trusted"}, ref: "wt_delivery"},
+		{name: "blank workspace", executable: "/controlled/compozy", scope: publication.TrustedScope{}, ref: "wt_delivery"},
+		{name: "blank ref", executable: "/controlled/compozy", scope: publication.TrustedScope{WorkspaceID: "ws_trusted"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -156,12 +156,12 @@ func TestCLIClientRejectsMalformedResponsesAndMismatchedIDs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			results := []CommandResult{{Stdout: []byte(tt.stdout)}}
+			results := []publication.CommandResult{{Stdout: []byte(tt.stdout)}}
 			if tt.method == "inspect" && !strings.Contains(tt.name, "refreshed status") {
-				results = []CommandResult{{Stdout: []byte(statusFixtureJSON)}, {Stdout: []byte(tt.stdout)}}
+				results = []publication.CommandResult{{Stdout: []byte(statusFixtureJSON)}, {Stdout: []byte(tt.stdout)}}
 			}
 			client := CLIClient{Executable: "/controlled/compozy", Runner: &scriptedCommandRunner{results: results}}
-			scope := TrustedScope{WorkspaceID: "ws_trusted"}
+			scope := publication.TrustedScope{WorkspaceID: "ws_trusted"}
 			var err error
 			switch tt.method {
 			case "inspect":
@@ -181,14 +181,14 @@ func TestCLIClientRejectsMalformedResponsesAndMismatchedIDs(t *testing.T) {
 func TestCLIClientRejectsTruncatedOutputAndBoundsCommands(t *testing.T) {
 	t.Parallel()
 
-	scope := TrustedScope{WorkspaceID: "ws_trusted"}
-	truncated := &scriptedCommandRunner{results: []CommandResult{{
+	scope := publication.TrustedScope{WorkspaceID: "ws_trusted"}
+	truncated := &scriptedCommandRunner{results: []publication.CommandResult{{
 		Stdout: []byte(exitFixtureJSON), StdoutTruncated: true,
 	}}}
 	if _, err := (CLIClient{Executable: "/controlled/compozy", Runner: truncated}).ExitPlan(
 		context.Background(), scope, "wt_delivery",
 	); err == nil {
-		t.Fatal("ExitPlan(truncated) error = nil")
+		t.Fatal("publication.ExitPlan(truncated) error = nil")
 	}
 
 	blocking := blockingPublicationCommandRunner{}
@@ -197,62 +197,27 @@ func TestCLIClientRejectsTruncatedOutputAndBoundsCommands(t *testing.T) {
 		Executable: "/controlled/compozy", Runner: blocking, Timeout: 10 * time.Millisecond,
 	}).ExitPlan(context.Background(), scope, "wt_delivery")
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
-		t.Fatalf("ExitPlan(timeout) error = %v, elapsed %s", err, time.Since(started))
-	}
-}
-
-func TestPublicationWireTypesUseExactSnakeCaseKeys(t *testing.T) {
-	t.Parallel()
-
-	payload := struct {
-		Scope      TrustedScope       `json:"scope"`
-		Inspection WorktreeInspection `json:"inspection"`
-		Plan       ExitPlan           `json:"plan"`
-	}{
-		Scope: TrustedScope{WorkspaceID: "ws_trusted", WorkspaceRoot: "/trusted/workspace"},
-		Inspection: WorktreeInspection{
-			Worktree: Worktree{BaseRef: "main"},
-			Status:   &WorktreeStatus{HeadSHA: ptr(testHeadSHA)},
-		},
-		Plan: ExitPlan{
-			Actions:          []ExitAction{{BlockedReason: "wait"}},
-			GlobalPauseCause: "paused",
-			BrowserURL:       "https://example.invalid/compare",
-			ForgeStatus:      &ForgeStatus{PRURL: "https://example.invalid/pull/1"},
-			PRPrefill:        &PRPrefill{Title: "title"},
-		},
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	for _, key := range []string{
-		`"workspace_id"`, `"workspace_root"`, `"base_ref"`, `"blocked_reason"`,
-		`"global_pause_cause"`, `"browser_url"`, `"forge_status"`, `"pr_prefill"`, `"head_sha"`,
-	} {
-		if !strings.Contains(string(encoded), key) {
-			t.Fatalf("encoded payload %s does not contain %s", encoded, key)
-		}
+		t.Fatalf("publication.ExitPlan(timeout) error = %v, elapsed %s", err, time.Since(started))
 	}
 }
 
 type scriptedCommandRunner struct {
-	commands []Command
-	results  []CommandResult
+	commands []publication.Command
+	results  []publication.CommandResult
 	errors   []error
 }
 
 type blockingPublicationCommandRunner struct{}
 
-func (blockingPublicationCommandRunner) Run(ctx context.Context, _ Command) (CommandResult, error) {
+func (blockingPublicationCommandRunner) Run(ctx context.Context, _ publication.Command) (publication.CommandResult, error) {
 	<-ctx.Done()
-	return CommandResult{}, ctx.Err()
+	return publication.CommandResult{}, ctx.Err()
 }
 
-func (r *scriptedCommandRunner) Run(_ context.Context, command Command) (CommandResult, error) {
+func (r *scriptedCommandRunner) Run(_ context.Context, command publication.Command) (publication.CommandResult, error) {
 	r.commands = append(r.commands, command)
 	if len(r.results) == 0 {
-		return CommandResult{}, errors.New("unexpected command")
+		return publication.CommandResult{}, errors.New("unexpected command")
 	}
 	result := r.results[0]
 	r.results = r.results[1:]

@@ -1,3 +1,5 @@
+github.com/batuta-ai/core v1.1.0-beta h1:kRwWo28+FRksf0YxrKr+aKtL95k4OvrJPX9JWDaabIk=
+github.com/batuta-ai/core v1.1.0-beta/go.mod h1:GaUEkDn1PT5fKqZ3+7F9JVVU+xvR3IZLdRtlhpAmpeo=
 github.com/compozy/compozy/sdk/go v0.3.0-beta.21 h1:3YpMsB9TEC4PRpQk0i4B4OWQbpa64lOSGnlH9pmYK0E=
 github.com/compozy/compozy/sdk/go v0.3.0-beta.21/go.mod h1:pFMFVfFgtF+Mgz7V7aiCerztK7sW1gFlbGfGuvcKnag=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=

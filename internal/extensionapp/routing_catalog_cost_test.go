@@ -3,8 +3,8 @@ package extensionapp
 import (
 	"testing"
 
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/inventory"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestLiveCatalogFromInventoryAttachesModelCosts(t *testing.T) {

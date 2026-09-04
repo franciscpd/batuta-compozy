@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/franciscpd/batuta-compozy/internal/publication"
+	"github.com/batuta-ai/core/publication"
 )
 
 const worktreeTestSHA = "0123456789abcdef0123456789abcdef01234567"
