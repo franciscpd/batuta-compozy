@@ -208,7 +208,7 @@ for text in \
   'digest_matched' \
   'compozy extension provenance batuta' \
   'compozy extension validate' \
-  'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
+  'compozy extension install github:batuta-ai/compozy --allow-unverified --yes' \
   'compozy extension enable batuta' \
   'scripts/republish.sh'; do
   require_text docs/verify.md "$text"
@@ -246,9 +246,9 @@ require_text CLAUDE.md 'docs/internal/specs/'
 require_text CLAUDE.md 'docs/internal/plans/'
 
 for text in \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/LICENSE' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/docs/architecture.md' \
-  'https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.4/docs/case-studies/version-subcommand.md'; do
+  'https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.4/LICENSE' \
+  'https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.4/docs/architecture.md' \
+  'https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.4/docs/case-studies/version-subcommand.md'; do
   require_text docs/releases/0.1.0-beta.4.md "$text"
 done
 

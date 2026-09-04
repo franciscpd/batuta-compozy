@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/batuta-ai/core/publication"
-	"github.com/franciscpd/batuta-compozy/internal/extensionapp"
+	"github.com/batuta-ai/compozy/internal/extensionapp"
 )
 
 type extensionRunner interface {

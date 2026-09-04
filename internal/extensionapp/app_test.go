@@ -11,7 +11,7 @@ import (
 
 	"github.com/batuta-ai/core/publication"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
+	"github.com/batuta-ai/compozy/internal/worktreeops"
 )
 
 func TestApplicationWiringUsesManagedWorktreeClientAndDeliveryGraphTool(t *testing.T) {

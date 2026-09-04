@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - This plan consumes completed Tasks 1-5 from `docs/superpowers/plans/2026-08-15-batuta-preview-release.md` and supersedes that plan's unexecuted Tasks 6-7.
-- Public repository: `franciscpd/batuta-compozy`.
+- Public repository: `batuta-ai/compozy`.
 - First preview version: `0.1.0-beta.2`; tag: `v0.1.0-beta.2`.
 - Compatible CompozyOS source commit: `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`; the canonical embedded binary abbreviation is `a35eda6d`.
 - Preserve the full `feat/batuta-reliability` history as remote `main`.
@@ -245,9 +245,9 @@ CONTRIBUTING.md:
 Require the release notes to link these tag-pinned public URLs:
 
 ```text
-https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE
-https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/architecture.md
-https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md
+https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/LICENSE
+https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/architecture.md
+https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md
 ```
 
 Reject wording that calls Batuta `official`, `endorsed`, or a `CompozyOS
@@ -420,7 +420,7 @@ Create `docs/case-studies/version-subcommand.md` with this exact narrative bound
 7. **Observable result** — only `README.md`, `src/cli.py`, and `tests/test_cli.py` changed; 9/9 tests passed; no commit was created because `auto_commit=false`.
 8. **What this proves** — bounded orchestration, literal requirement preservation, implementation/review ordering, and event-driven terminal return.
 9. **What this does not prove** — general performance, cost, provider superiority, stable compatibility, automatic session nesting, or automatic executor-session stop.
-10. **Reproduce** — link the public README, architecture, release notes, Loop file, routing skill, and release URL `https://github.com/franciscpd/batuta-compozy/releases/tag/v0.1.0-beta.2`.
+10. **Reproduce** — link the public README, architecture, release notes, Loop file, routing skill, and release URL `https://github.com/batuta-ai/compozy/releases/tag/v0.1.0-beta.2`.
 
 Paraphrase the evidence; do not paste transcript messages or raw JSON.
 
@@ -551,7 +551,7 @@ Repeat Steps 2-4 and run `git diff --check`. If review fixes changed tracked fil
 
 **Interfaces:**
 - Consumes: locally reviewed `feat/batuta-reliability` HEAD and authenticated `gh` account `franciscpd`.
-- Produces: public `franciscpd/batuta-compozy`, remote `main` at the exact local HEAD, repository metadata, read-only default workflow permissions, and one successful initial Candidate CI run.
+- Produces: public `batuta-ai/compozy`, remote `main` at the exact local HEAD, repository metadata, read-only default workflow permissions, and one successful initial Candidate CI run.
 
 - [ ] **Step 1: Verify account, absence, and local identity**
 
@@ -559,7 +559,7 @@ Run:
 
 ```bash
 gh auth status
-gh repo view franciscpd/batuta-compozy --json nameWithOwner,isPrivate
+gh repo view batuta-ai/compozy --json nameWithOwner,isPrivate
 git status --short
 git check-ignore -q --no-index -- .compozy/workspace.toml
 git rev-parse HEAD
@@ -576,7 +576,7 @@ inspect it—do not overwrite it.
 Run:
 
 ```bash
-gh repo create franciscpd/batuta-compozy \
+gh repo create batuta-ai/compozy \
   --public \
   --description "Batuta, an independent community orchestration extension for CompozyOS" \
   --disable-wiki
@@ -589,7 +589,7 @@ Do not use `--add-readme`, `--license`, or `--gitignore`; all repository content
 Run:
 
 ```bash
-git remote add origin git@github.com:franciscpd/batuta-compozy.git
+git remote add origin git@github.com:batuta-ai/compozy.git
 git push -u origin HEAD:main
 ```
 
@@ -600,13 +600,13 @@ Do not push local feature refs, old tags, or `.compozy/`.
 Run:
 
 ```bash
-gh repo edit franciscpd/batuta-compozy \
+gh repo edit batuta-ai/compozy \
   --homepage "https://www.compozy.com/docs/" \
   --add-topic compozyos \
   --add-topic ai-agents \
   --add-topic orchestration \
   --add-topic github-actions
-gh api --method PUT repos/franciscpd/batuta-compozy/actions/permissions/workflow \
+gh api --method PUT repos/batuta-ai/compozy/actions/permissions/workflow \
   -f default_workflow_permissions=read \
   -F can_approve_pull_request_reviews=false
 ```
@@ -627,11 +627,11 @@ Run:
 
 ```bash
 local_head=$(git rev-parse HEAD)
-run_id=$(gh run list --repo franciscpd/batuta-compozy --workflow ci.yml --limit 20 \
+run_id=$(gh run list --repo batuta-ai/compozy --workflow ci.yml --limit 20 \
   --json databaseId,headSha,createdAt \
   --jq "map(select(.headSha == \"$local_head\")) | sort_by(.createdAt) | last | .databaseId")
 [[ $run_id =~ ^[0-9]+$ ]]
-gh run watch --repo franciscpd/batuta-compozy "$run_id" --exit-status
+gh run watch --repo batuta-ai/compozy "$run_id" --exit-status
 ```
 
 Select the run whose `headSha` equals the pushed HEAD. A failed check blocks release; diagnose only evidence-backed in-scope failures and do not weaken a contract to obtain green.
@@ -650,11 +650,11 @@ Select the run whose `headSha` equals the pushed HEAD. A failed check blocks rel
 Resolve remote `main` to a full SHA, require it equals the locally reviewed HEAD, then run:
 
 ```bash
-release_ref=$(gh api repos/franciscpd/batuta-compozy/git/ref/heads/main --jq .object.sha)
+release_ref=$(gh api repos/batuta-ai/compozy/git/ref/heads/main --jq .object.sha)
 [[ $release_ref =~ ^[0-9a-f]{40}$ ]]
 [[ $release_ref == "$(git rev-parse HEAD)" ]]
 gh workflow run preview-release.yml \
-  --repo franciscpd/batuta-compozy \
+  --repo batuta-ai/compozy \
   --ref main \
   -f release_ref="$release_ref" \
   -f release_version=0.1.0-beta.2

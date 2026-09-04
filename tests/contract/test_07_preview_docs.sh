@@ -29,12 +29,12 @@ if text not in contents:
 PY
 }
 
-install_command='compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes'
+install_command='compozy extension install github:batuta-ai/compozy --allow-unverified --yes'
 update_command='compozy extension update batuta --allow-unverified --yes'
 
 for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
-  require "$document" 'franciscpd/batuta-compozy'
+  require "$document" 'batuta-ai/compozy'
   require "$document" 'v0.1.0-beta.6'
   require "$document" '34208e9990622ee62e9a5cf114386273ae6abfa0'
   require "$document" "$install_command"

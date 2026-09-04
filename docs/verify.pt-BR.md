@@ -31,12 +31,12 @@ release fornece um sidecar do archive, `digest_matched: true`.
 ## Instalação pelo GitHub
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 
 O pin publicado atual é
-`github:franciscpd/batuta-compozy@v0.1.0-beta.3`. Não apresente beta.6 como
+`github:batuta-ai/compozy@v0.1.0-beta.3`. Não apresente beta.6 como
 instalável até que sua tag e release remotas existam.
 
 ```bash

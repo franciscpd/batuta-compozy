@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create the public `franciscpd/batuta-compozy` repository and publish `0.1.0-beta.2` through a small, manually dispatched, verifiable GitHub Actions release workflow.
+**Goal:** Create the public `batuta-ai/compozy` repository and publish `0.1.0-beta.2` through a small, manually dispatched, verifiable GitHub Actions release workflow.
 
 **Architecture:** A reusable CI workflow validates the repository against one pinned compatible CompozyOS commit. A separate `workflow_dispatch` release workflow reuses that gate, builds deterministic assets from the exact requested commit, stages a draft GitHub Release, verifies downloaded assets, and only then publishes the prerelease.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Public repository: `franciscpd/batuta-compozy`.
+- Public repository: `batuta-ai/compozy`.
 - First preview version: `0.1.0-beta.2`; tag: `v0.1.0-beta.2`.
 - Compatible CompozyOS commit: `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`.
 - Publish only by `workflow_dispatch`; no tag, push, or schedule publication trigger.
@@ -329,7 +329,7 @@ git commit -m "ci: publish verified Batuta previews"
 
 Extend `test_01_validate.sh` to require the manifest version to equal `0.1.0-beta.2`. Add `test_07_preview_docs.sh` to require both READMEs and the release body to contain:
 
-- `franciscpd/batuta-compozy`;
+- `batuta-ai/compozy`;
 - `v0.1.0-beta.2`;
 - archive and `SHA256SUMS` names;
 - `gh release download` and `sha256sum --check` installation verification;
@@ -434,12 +434,12 @@ Expected: status contains only `?? .compozy/`; all implementation commits use un
 
 - [ ] **Step 1: Prove the target does not already exist**
 
-Run `gh repo view franciscpd/batuta-compozy`. Expected: repository-not-found. If it exists, stop and inspect rather than mutating it.
+Run `gh repo view batuta-ai/compozy`. Expected: repository-not-found. If it exists, stop and inspect rather than mutating it.
 
 - [ ] **Step 2: Create the empty public repository**
 
 ```bash
-gh repo create franciscpd/batuta-compozy \
+gh repo create batuta-ai/compozy \
   --public \
   --description "Batuta orchestration extension for CompozyOS" \
   --disable-wiki
@@ -450,7 +450,7 @@ Do not use `--add-readme`, `--gitignore`, `--license`, or `--push`; the local ca
 - [ ] **Step 3: Add the remote and push only candidate HEAD as main**
 
 ```bash
-git remote add origin git@github.com:franciscpd/batuta-compozy.git
+git remote add origin git@github.com:batuta-ai/compozy.git
 git push -u origin HEAD:main
 ```
 
@@ -461,10 +461,10 @@ Verify remote `main` equals local `HEAD` and remote branches do not include the 
 Use `gh api` to set default workflow permissions to read and disallow Actions from approving pull requests. Add topics `compozy`, `compozyos`, `extension`, and `orchestration`. Read the settings back and require exact values.
 
 ```bash
-gh api -X PUT repos/franciscpd/batuta-compozy/actions/permissions/workflow \
+gh api -X PUT repos/batuta-ai/compozy/actions/permissions/workflow \
   -f default_workflow_permissions=read \
   -F can_approve_pull_request_reviews=false
-gh api -X PUT repos/franciscpd/batuta-compozy/topics \
+gh api -X PUT repos/batuta-ai/compozy/topics \
   -F 'names[]=compozy' \
   -F 'names[]=compozyos' \
   -F 'names[]=extension' \
@@ -476,7 +476,7 @@ gh api -X PUT repos/franciscpd/batuta-compozy/topics \
 Run:
 
 ```bash
-gh repo view franciscpd/batuta-compozy \
+gh repo view batuta-ai/compozy \
   --json nameWithOwner,visibility,defaultBranchRef,hasIssuesEnabled,url
 git ls-remote --heads origin
 ```
@@ -503,7 +503,7 @@ Expected: conclusion `success`. Diagnose any failure from logs; do not bypass or
 ```bash
 release_ref=$(git rev-parse HEAD)
 gh workflow run preview-release.yml \
-  --repo franciscpd/batuta-compozy \
+  --repo batuta-ai/compozy \
   --ref main \
   -f release_ref="$release_ref" \
   -f release_version=0.1.0-beta.2
@@ -513,7 +513,7 @@ Resolve the new run ID by workflow, event, branch, and creation time; never watc
 
 - [ ] **Step 3: Watch publication to a terminal result**
 
-Run `gh run watch "$run_id" --repo franciscpd/batuta-compozy --exit-status --compact`.
+Run `gh run watch "$run_id" --repo batuta-ai/compozy --exit-status --compact`.
 
 Expected: success. If it fails after attestation upload, inspect and report the exact attestation, tag, and draft state, then stop for explicit recovery; do not delete or overwrite automatically.
 
@@ -521,7 +521,7 @@ Expected: success. If it fails after attestation upload, inspect and report the 
 
 ```bash
 gh release view v0.1.0-beta.2 \
-  --repo franciscpd/batuta-compozy \
+  --repo batuta-ai/compozy \
   --json tagName,isDraft,isPrerelease,assets,url
 ```
 
@@ -535,8 +535,8 @@ For the downloaded archive and checksum file, run:
 
 ```bash
 gh attestation verify "$asset" \
-  --repo franciscpd/batuta-compozy \
-  --signer-workflow franciscpd/batuta-compozy/.github/workflows/preview-release.yml \
+  --repo batuta-ai/compozy \
+  --signer-workflow batuta-ai/compozy/.github/workflows/preview-release.yml \
   --source-digest "$release_ref" \
   --deny-self-hosted-runners
 ```

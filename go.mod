@@ -1,4 +1,4 @@
-module github.com/franciscpd/batuta-compozy
+module github.com/batuta-ai/compozy
 
 go 1.26.4
 

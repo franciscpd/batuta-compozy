@@ -47,7 +47,7 @@
 Create `go.mod` without an SDK requirement:
 
 ```go
-module github.com/franciscpd/batuta-compozy
+module github.com/batuta-ai/compozy
 
 go 1.26.4
 ```
