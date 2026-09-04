@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestDeliveryRequestForAttemptReconstructsJournaledBudgets(t *testing.T) {

@@ -4,6 +4,8 @@ go 1.26.4
 
 require (
 	github.com/compozy/compozy/sdk/go v0.3.0-beta.21
-	github.com/pelletier/go-toml/v2 v2.4.3
+	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/batuta-ai/core v1.1.0-beta

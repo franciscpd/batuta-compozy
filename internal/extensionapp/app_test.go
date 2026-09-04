@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/batuta-ai/core/publication"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
 	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/franciscpd/batuta-compozy/internal/integration"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/integration"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/routing"
 	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 

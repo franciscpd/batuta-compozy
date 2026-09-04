@@ -10,8 +10,8 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/franciscpd/batuta-compozy/internal/integration"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/integration"
+	"github.com/batuta-ai/core/routing"
 )
 
 type routingIntegrationLocker struct {

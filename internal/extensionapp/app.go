@@ -4,19 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/franciscpd/batuta-compozy/internal/compozyclient"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/batuta-ai/core/integration"
+	"github.com/batuta-ai/core/inventory"
+	"github.com/batuta-ai/core/inventory/adapters"
+	"github.com/batuta-ai/core/publication"
+	"github.com/batuta-ai/core/repository"
+	"github.com/batuta-ai/core/routing"
 	compozysdk "github.com/compozy/compozy/sdk/go"
-	"github.com/franciscpd/batuta-compozy/internal/integration"
-	"github.com/franciscpd/batuta-compozy/internal/inventory"
-	"github.com/franciscpd/batuta-compozy/internal/inventory/adapters"
-	"github.com/franciscpd/batuta-compozy/internal/publication"
-	"github.com/franciscpd/batuta-compozy/internal/repository"
-	"github.com/franciscpd/batuta-compozy/internal/routing"
 	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
 )
 
@@ -59,7 +60,7 @@ func New(compozyExecutable, gitExecutable string) (*compozysdk.Extension, error)
 		return nil, err
 	}
 	runner := publication.ExecRunner{}
-	client := publication.CLIClient{Executable: compozyExecutable, Runner: runner}
+	client := compozyclient.CLIClient{Executable: compozyExecutable, Runner: runner}
 	taskWorktrees := newTaskWorktreeClient(compozyExecutable, runner)
 	git := publication.GitClient{Executable: gitExecutable, Runner: runner}
 	integrationGit := integration.GitClient{Executable: gitExecutable, Runner: runner}

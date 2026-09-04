@@ -8,7 +8,7 @@ import (
 
 	compozysdk "github.com/compozy/compozy/sdk/go"
 
-	"github.com/franciscpd/batuta-compozy/internal/routing"
+	"github.com/batuta-ai/core/routing"
 )
 
 func TestGuardToolErrorsReportsTypedToolExecutionErrors(t *testing.T) {
