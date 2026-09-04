@@ -16,7 +16,7 @@
 - `extension.toml` keeps `version = "0.1.0-beta.2"` and `min_compozy_version = "0.3.0-beta.13"`.
 - Pinned CompozyOS source commit in workflows: `a35eda6d3a2ec47995c19a14a5a01d4f9452cf1c`; Go `1.26.4`; action SHAs `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`, `actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16`, `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`.
 - Release assets are named by CompozyOS: `batuta-v<version>.tar.gz` and `batuta-v<version>.tar.gz.sha256`.
-- Install command in every public document: `compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes`. Update command: `compozy extension update batuta --allow-unverified --yes`. Remove: `compozy extension remove batuta --global`.
+- Install command in every public document: `compozy extension install github:batuta-ai/compozy --allow-unverified --yes`. Update command: `compozy extension update batuta --allow-unverified --yes`. Remove: `compozy extension remove batuta --global`.
 - README EN and PT-BR are mirrors (same sections, same order). Public docs must keep the "independent community project / not official or endorsed" sentence (scanner in `test_07_public_docs.sh`).
 - Conventional commits: `^(build|ci|docs|feat|fix|perf|refactor|test): [a-z].+$`.
 - Never run `tests/contract/run.sh` from this repository checkout while `.compozy/` exists; individual `test_07_*.sh` scripts are static and safe to run directly.
@@ -509,7 +509,7 @@ for text in \
   'batuta-v0.1.0-beta.2.tar.gz.sha256' \
   'sha256sum --check' \
   'compozy extension validate' \
-  'compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes' \
+  'compozy extension install github:batuta-ai/compozy --allow-unverified --yes' \
   'scripts/republish.sh'; do
   require_text docs/verify.md "$text"
 done
@@ -638,10 +638,10 @@ Expected for a GitHub install: `installed_from: "github"`,
 ## One-command install (recommended)
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 ```
 
-Pin a version with `github:franciscpd/batuta-compozy@v0.1.0-beta.2`.
+Pin a version with `github:batuta-ai/compozy@v0.1.0-beta.2`.
 
 ## Manual path
 
@@ -650,7 +650,7 @@ If you prefer to inspect the archive before the daemon does:
 ```bash
 version=0.1.0-beta.2
 work=$(mktemp -d)
-gh release download "v$version" --repo franciscpd/batuta-compozy --dir "$work"
+gh release download "v$version" --repo batuta-ai/compozy --dir "$work"
 (cd "$work" && sha256sum --check "batuta-v$version.tar.gz.sha256")
 extracted=$(mktemp -d)
 tar -xzf "$work/batuta-v$version.tar.gz" -C "$extracted"
@@ -708,12 +708,12 @@ git commit -m "docs: add how-it-works and verify guides"
 Replace the file's content from `for document in "${documents[@]}"; do` through the `require_wrapped README.pt-BR.md 'permanecem active/idle após a conclusão terminal normal'` line with:
 
 ```bash
-install_command='compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes'
+install_command='compozy extension install github:batuta-ai/compozy --allow-unverified --yes'
 update_command='compozy extension update batuta --allow-unverified --yes'
 
 for document in "${documents[@]}"; do
   [[ -f $document && ! -L $document ]]
-  require "$document" 'franciscpd/batuta-compozy'
+  require "$document" 'batuta-ai/compozy'
   require "$document" 'v0.1.0-beta.2'
   require "$document" "$install_command"
   require "$document" "$update_command"
@@ -807,7 +807,7 @@ Prerequisites:
   models.
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 ```
 
 `--allow-unverified` is CompozyOS's consent for community (non-catalog)
@@ -895,7 +895,7 @@ Pré-requisitos:
   modelos.
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 ```
 
 `--allow-unverified` é o consentimento do CompozyOS para fontes da comunidade
@@ -988,20 +988,20 @@ Expected: FAIL with `missing public documentation text in CONTRIBUTING.md: gh wo
 # Batuta v0.1.0-beta.2
 
 `v0.1.0-beta.2` is the reviewed preview release of Batuta from
-`franciscpd/batuta-compozy`.
+`batuta-ai/compozy`.
 
 ## Install
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 ```
 
-Pin this version with `github:franciscpd/batuta-compozy@v0.1.0-beta.2`.
+Pin this version with `github:batuta-ai/compozy@v0.1.0-beta.2`.
 Update later with `compozy extension update batuta --allow-unverified --yes`;
 remove with `compozy extension remove batuta --global`. The release carries
 exactly two assets, `batuta-v0.1.0-beta.2.tar.gz` and
 `batuta-v0.1.0-beta.2.tar.gz.sha256`; the daemon verifies the archive against
-the sidecar. Manual verification: [docs/verify.md](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/verify.md).
+the sidecar. Manual verification: [docs/verify.md](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/verify.md).
 
 This release was republished on 2026-08-16 with `compozy extension publish`
 so that the native `github:` install works; the tag now points at the commit
@@ -1023,11 +1023,11 @@ terminal completion.
 
 ## Documentation
 
-[README](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/README.md) ·
-[How it works](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/how-it-works.md) ·
-[Architecture](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/architecture.md) ·
-[Case study](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md) ·
-[LICENSE](https://github.com/franciscpd/batuta-compozy/blob/v0.1.0-beta.2/LICENSE) (MIT).
+[README](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/README.md) ·
+[How it works](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/how-it-works.md) ·
+[Architecture](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/architecture.md) ·
+[Case study](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/docs/case-studies/version-subcommand.md) ·
+[LICENSE](https://github.com/batuta-ai/compozy/blob/v0.1.0-beta.2/LICENSE) (MIT).
 ```
 
 - [ ] **Step 3: Update `CONTRIBUTING.md`**
@@ -1100,8 +1100,8 @@ Expected: `Candidate CI` run on `main` goes green (`gh run watch` or `gh run lis
 - [ ] **Step 1: Add the search topic**
 
 ```bash
-gh repo edit franciscpd/batuta-compozy --add-topic compozy-extension
-gh repo view franciscpd/batuta-compozy --json repositoryTopics --jq '[.repositoryTopics[].name]'
+gh repo edit batuta-ai/compozy --add-topic compozy-extension
+gh repo view batuta-ai/compozy --json repositoryTopics --jq '[.repositoryTopics[].name]'
 ```
 
 Expected: the list contains `compozy-extension` and the existing topics.
@@ -1115,8 +1115,8 @@ Expected: the list contains `compozy-extension` and the existing topics.
 - [ ] **Step 1: Delete the old preview release and tag**
 
 ```bash
-gh release view v0.1.0-beta.2 --repo franciscpd/batuta-compozy --json assets --jq '[.assets[].name]'
-gh release delete v0.1.0-beta.2 --repo franciscpd/batuta-compozy --cleanup-tag --yes
+gh release view v0.1.0-beta.2 --repo batuta-ai/compozy --json assets --jq '[.assets[].name]'
+gh release delete v0.1.0-beta.2 --repo batuta-ai/compozy --cleanup-tag --yes
 git ls-remote --tags origin refs/tags/v0.1.0-beta.2   # expected: empty
 ```
 
@@ -1124,10 +1124,10 @@ git ls-remote --tags origin refs/tags/v0.1.0-beta.2   # expected: empty
 
 ```bash
 sha=$(git rev-parse origin/main)
-gh workflow run release.yml --repo franciscpd/batuta-compozy -f release_ref="$sha" -f release_version=0.1.0-beta.2
+gh workflow run release.yml --repo batuta-ai/compozy -f release_ref="$sha" -f release_version=0.1.0-beta.2
 sleep 20
-run_id=$(gh run list --repo franciscpd/batuta-compozy --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
-gh run watch "$run_id" --repo franciscpd/batuta-compozy --exit-status
+run_id=$(gh run list --repo batuta-ai/compozy --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch "$run_id" --repo batuta-ai/compozy --exit-status
 ```
 
 Expected: exit 0; the `Verify GitHub installation` step passed for both sources.
@@ -1135,12 +1135,12 @@ Expected: exit 0; the `Verify GitHub installation` step passed for both sources.
 - [ ] **Step 3: Verify from this machine (read-only)**
 
 ```bash
-gh release view v0.1.0-beta.2 --repo franciscpd/batuta-compozy --json isDraft,isPrerelease,assets --jq '{isDraft,isPrerelease,assets:[.assets[].name]}'
+gh release view v0.1.0-beta.2 --repo batuta-ai/compozy --json isDraft,isPrerelease,assets --jq '{isDraft,isPrerelease,assets:[.assets[].name]}'
 git ls-remote --tags origin 'refs/tags/v0.1.0-beta.2^{}'
 compozy extension search batuta -o json
 ```
 
-Expected: `isDraft:false, isPrerelease:false, assets:["batuta-v0.1.0-beta.2.tar.gz","batuta-v0.1.0-beta.2.tar.gz.sha256"]`; peeled tag == `$sha`; search lists `franciscpd/batuta-compozy` (may lag GitHub's search index by a few minutes; `sources_degraded: ["curated"]` is expected and unrelated).
+Expected: `isDraft:false, isPrerelease:false, assets:["batuta-v0.1.0-beta.2.tar.gz","batuta-v0.1.0-beta.2.tar.gz.sha256"]`; peeled tag == `$sha`; search lists `batuta-ai/compozy` (may lag GitHub's search index by a few minutes; `sources_degraded: ["curated"]` is expected and unrelated).
 
 - [ ] **Step 4: Upgrade the local production install (optional, maintainer's machine)**
 
@@ -1148,7 +1148,7 @@ The local daemon currently runs beta.1 from `local_path`. To move it to the publ
 
 ```bash
 compozy extension remove batuta --global -o json
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes -o json
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes -o json
 compozy extension provenance batuta -o json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["installed_from"], d["digest_matched"])'
 ```
 

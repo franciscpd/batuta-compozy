@@ -7,7 +7,7 @@ import (
 	compozysdk "github.com/compozy/compozy/sdk/go"
 
 	"github.com/batuta-ai/core/routing"
-	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
+	"github.com/batuta-ai/compozy/internal/worktreeops"
 )
 
 // guardToolErrors turns a handler error into a typed tool execution error.

@@ -70,5 +70,5 @@ Comece pelo [README em português](../../README.pt-BR.md), pelo
 [notas da release beta.2](../releases/0.1.0-beta.2.md). Inspecione o
 [Loop de entrega](../../loops/batuta-deliver/loop.yaml) e a
 [skill de roteamento](../../resources/skills/batuta-routing/SKILL.md), depois use
-a [release v0.1.0-beta.2](https://github.com/franciscpd/batuta-compozy/releases/tag/v0.1.0-beta.2).
+a [release v0.1.0-beta.2](https://github.com/batuta-ai/compozy/releases/tag/v0.1.0-beta.2).
 O padrão público de artefatos de task é `.compozy/tasks/$slug/task_*.md`.

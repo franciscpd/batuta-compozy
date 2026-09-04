@@ -9,7 +9,7 @@ Publication switches from a hand-built archive that the CompozyOS daemon
 cannot consume to `compozy extension publish`, so users install with:
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 ```
 
 The README is rewritten around what Batuta is, how to install it, and what a
@@ -165,8 +165,8 @@ and the tag. Release notes, README, and `docs/verify.md` use these names.
 Done once, by the maintainer, and recorded in the pull request description:
 
 ```bash
-gh release delete v0.1.0-beta.2 --repo franciscpd/batuta-compozy --cleanup-tag --yes
-gh workflow run release.yml --repo franciscpd/batuta-compozy \
+gh release delete v0.1.0-beta.2 --repo batuta-ai/compozy --cleanup-tag --yes
+gh workflow run release.yml --repo batuta-ai/compozy \
   -f release_ref=<new main SHA> -f release_version=0.1.0-beta.2
 ```
 
@@ -180,7 +180,7 @@ accepted for a preview with no known external installs.
 
 ## Repository metadata
 
-`gh repo edit franciscpd/batuta-compozy --add-topic compozy-extension` so
+`gh repo edit batuta-ai/compozy --add-topic compozy-extension` so
 `compozy extension search batuta` finds the repository. Existing topics stay.
 
 ## README (EN and PT-BR, mirrored)
@@ -287,7 +287,7 @@ which is the acceptance test for this change.
 ## Acceptance
 
 - On a machine with CompozyOS `v0.3.0-beta.14+`,
-  `compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes`
+  `compozy extension install github:batuta-ai/compozy --allow-unverified --yes`
   installs Batuta; `inventory` lists the three resources; `provenance` shows
   `installed_from: github`, `digest_matched: true`.
 - `compozy extension search batuta` lists the repository.

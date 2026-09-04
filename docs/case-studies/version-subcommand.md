@@ -64,5 +64,5 @@ Start with the public [README](../../README.md), [architecture guide](../archite
 and [beta.2 release notes](../releases/0.1.0-beta.2.md). Inspect the bundled
 [delivery Loop](../../loops/batuta-deliver/loop.yaml) and
 [routing skill](../../resources/skills/batuta-routing/SKILL.md), then use the
-[v0.1.0-beta.2 release](https://github.com/franciscpd/batuta-compozy/releases/tag/v0.1.0-beta.2).
+[v0.1.0-beta.2 release](https://github.com/batuta-ai/compozy/releases/tag/v0.1.0-beta.2).
 The public task-artifact pattern is `.compozy/tasks/$slug/task_*.md`.

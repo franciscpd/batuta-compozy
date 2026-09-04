@@ -20,7 +20,7 @@ import (
 	"github.com/batuta-ai/core/inventory"
 	"github.com/batuta-ai/core/publication"
 	"github.com/batuta-ai/core/routing"
-	"github.com/franciscpd/batuta-compozy/internal/worktreeops"
+	"github.com/batuta-ai/compozy/internal/worktreeops"
 )
 
 func TestParallelDeliveryFixtureHasRunnableSharedConflictProject(t *testing.T) {

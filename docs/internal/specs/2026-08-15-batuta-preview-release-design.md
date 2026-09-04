@@ -11,7 +11,7 @@ maintainers to assemble or upload assets by hand.
 
 ## Scope
 
-This iteration creates `franciscpd/batuta-compozy`, makes the current
+This iteration creates `batuta-ai/compozy`, makes the current
 `feat/batuta-reliability` history its `main` branch, and adds two workflows:
 
 - pull-request and `main` CI;
@@ -83,7 +83,7 @@ The first invocation is equivalent to:
 
 ```bash
 gh workflow run preview-release.yml \
-  --repo franciscpd/batuta-compozy \
+  --repo batuta-ai/compozy \
   -f release_ref=<full-main-commit> \
   -f release_version=0.1.0-beta.2
 ```

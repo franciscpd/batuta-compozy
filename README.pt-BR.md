@@ -46,7 +46,7 @@ Pré-requisitos:
 - ao menos um modelo autenticado em `compozy provider models list`.
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 

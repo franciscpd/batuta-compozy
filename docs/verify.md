@@ -27,12 +27,12 @@ release provides an archive sidecar, `digest_matched: true`.
 ## Install from GitHub
 
 ```bash
-compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes
+compozy extension install github:batuta-ai/compozy --allow-unverified --yes
 compozy extension enable batuta
 ```
 
 The current published pin is
-`github:franciscpd/batuta-compozy@v0.1.0-beta.3`. Do not claim beta.6 as
+`github:batuta-ai/compozy@v0.1.0-beta.3`. Do not claim beta.6 as
 installable until its remote tag and release exist.
 
 ```bash

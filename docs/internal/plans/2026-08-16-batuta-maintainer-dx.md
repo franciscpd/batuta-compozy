@@ -484,7 +484,7 @@ Expected: `OK:` lines from each test; final grep finds nothing (exit 0 overall).
 - [ ] **Step 8: Real-machine check (maintainer daemon running)**
 
 Run: `scripts/republish.sh && compozy extension provenance batuta -o json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["installed_from"], d["source_url"])' && ls ~/.local/share/batuta-compozy 2>/dev/null; ls ~/.compozy/locks 2>/dev/null | grep batuta || echo no-lock`
-Expected: `extensao ativa`, `recursos live: batuta, batuta-deliver, batuta-routing`, `local_path /tmp/batuta-republish.…` (the source path no longer exists — that is expected: the daemon copied it into its managed dir), no new files under `~/.local/share/batuta-compozy/` (pre-existing ones may remain), `no-lock` for new locks. Note: this replaces the maintainer's GitHub-sourced install with a local one; the maintainer restores it afterwards with `compozy extension remove batuta --global && compozy extension install github:franciscpd/batuta-compozy --allow-unverified --yes && compozy extension enable batuta` if desired.
+Expected: `extensao ativa`, `recursos live: batuta, batuta-deliver, batuta-routing`, `local_path /tmp/batuta-republish.…` (the source path no longer exists — that is expected: the daemon copied it into its managed dir), no new files under `~/.local/share/batuta-compozy/` (pre-existing ones may remain), `no-lock` for new locks. Note: this replaces the maintainer's GitHub-sourced install with a local one; the maintainer restores it afterwards with `compozy extension remove batuta --global && compozy extension install github:batuta-ai/compozy --allow-unverified --yes && compozy extension enable batuta` if desired.
 
 - [ ] **Step 9: Commit**
 
@@ -583,7 +583,7 @@ Expected: `=== todos os testes de contrato passaram ===`. Note `test_03_lifecycl
 
 ```bash
 git push origin main
-gh run watch "$(gh run list --repo franciscpd/batuta-compozy --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --repo franciscpd/batuta-compozy --exit-status
+gh run watch "$(gh run list --repo batuta-ai/compozy --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --repo batuta-ai/compozy --exit-status
 ```
 
 Expected: exit 0.
